@@ -63,6 +63,8 @@ target/release/actrail-kv-report \
 - Top K 的 `blocked_stable_bytes`、`confidence` 和 `score` 是可观察 UTF-8/结构代理，不等于真实 Token 数、KV miss 或金额收益。
 - 优化建议是诊断反事实，不会自动改写请求；涉及内容重排时必须由使用方确认语义安全。
 
+完整的命令行参数、固定算法阈值、资源预算及部署配置见[配置参考](docs/configuration.md)。
+
 ## 安全部署前提
 
 - receiver 默认只监听 loopback。需要跨主机接入时，应由内网反向代理提供 TLS、客户端认证、访问控制和请求超时，再显式监听非 loopback 地址。

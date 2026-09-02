@@ -5,7 +5,7 @@
 
 ```bash
 # 常驻接收采集方提交的完整模型 HTTP request payload
-actrail-kv-receiver --listen 0.0.0.0:8080 --output ./data/requests.ndjson
+actrail-kv-receiver --listen 127.0.0.1:8080 --output ./data/requests.ndjson
 
 # 离线抽模板、诊断结构性缓存破坏并计算 Top K
 actrail-kv-analyze --input ./data/requests.ndjson --output ./data/analysis.json --top-k 100
@@ -13,6 +13,8 @@ actrail-kv-analyze --input ./data/requests.ndjson --output ./data/analysis.json 
 # 生成报告
 actrail-kv-report --input ./data/analysis.json --output ./data/report.html
 ```
+
+具体命令行参数、资源预算与跨主机部署要求见[配置参考](../configuration.md)。
 
 ```text
 请求采集源（网关 / 插桩组件 / Agent 框架 Hook / 其他采集器）
