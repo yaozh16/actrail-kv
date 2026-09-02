@@ -8,7 +8,7 @@
 ## 架构与实现契约
 
 - [代码布局](../../../docs/architectures/code-layout.md)：模块边界、三个二进制及调用顺序。
-- [分析实现设计](../../../docs/architectures/analysis-design.md)：输入投影、模板抽取、诊断、聚合、排序和安全契约。
+- [架构入口](../../../docs/architectures/index.md)：当前累计的输入投影、模板抽取、诊断、聚合、排序和运行约束。
 
 ## 运行配置
 

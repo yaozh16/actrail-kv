@@ -1,6 +1,8 @@
 <!-- 本文件用一棵完整目录树说明三个二进制及基于可观察请求结构的离线诊断核心。 -->
 # Code Layout
 
+三二进制的输入/输出契约见[Architecture](index.md)；文档树及各文档职责见[Documentation Layout](doc-layout.md)。
+
 ## 运行方式
 
 ```bash
