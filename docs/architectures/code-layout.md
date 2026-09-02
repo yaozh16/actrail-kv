@@ -27,7 +27,7 @@ actrail-kv-report --input ./data/analysis.json --output ./data/report.html
 actrail-kv/
 ├── cmd/                                           # 二进制入口；只解析 CLI 并调用对应 library
 │   ├── receiver/src/main.rs                       # 启动 HTTP receiver
-│   ├── analyze/src/main.rs                        # 执行离线分析；设置 Top K 和时间窗口
+│   ├── analyze/src/main.rs                        # 执行离线分析；载入 JSON 配置，CLI 覆盖 Top K/时间窗口
 │   └── report/src/main.rs                         # 将 analysis.json 渲染为 HTML
 │
 ├── artifacts/src/                                 # 三个二进制共享的磁盘协议
@@ -36,11 +36,13 @@ actrail-kv/
 │   └── lib.rs                                     # 公共 DTO re-export
 │
 ├── receiver/src/                                  # 最小接收端；不依赖 analyzer
+│   ├── config.rs                                  # ReceiverConfig：listen/max_payload_bytes JSON 读写
 │   ├── http_receiver.rs                           # POST /requests、metadata headers、captured_at
 │   ├── ndjson_appender.rs                         # 并发安全、原子行追加、文件独占与权限
 │   └── lib.rs                                     # receiver library API
 │
 ├── analyzer/src/                                  # 模板抽取与结构诊断核心
+│   ├── config.rs                                  # AnalyzeConfig：17 项阈值/预算 JSON 读写与校验
 │   ├── model/
 │   │   ├── comparison/
 │   │   │   ├── group_key.rs                      # 时间窗口+endpoint+model/deployment+schema+agent+namespace
@@ -106,8 +108,11 @@ actrail-kv/
 │   ├── html_report_renderer.rs                  # comparison group、P1/X/P2、facts、insights；全转义
 │   └── lib.rs
 │
-├── examples/quickstart/
-│   └── requests.ndjson                          # 根 README 可直接分析的最小缺陷语料
+├── examples/
+│   ├── quickstart/
+│   │   └── requests.ndjson                      # 根 README 可直接分析的最小缺陷语料
+│   ├── analyze.config.example.json              # analyze 全字段 JSON 配置示例
+│   └── receiver.config.example.json             # receiver JSON 配置示例
 │
 └── tests/end_to_end/
     └── three_binaries.sh                        # 真实 receiver→analyze→report、确定性与 XSS 验收
