@@ -4,6 +4,11 @@
 ## 需求与验收
 
 - [MVP 需求及验收案例](../../requirements/v0.1.0/llm-kv-structure-diagnostics-mvp.md)
+- [Analyzer 统一缺陷模型重写要求](../../requirements/v0.1.0/analyzer-rewrite.md)
+
+## 实现设计
+
+- [Analyzer 统一缺陷模型重写设计](analyzer-rewrite.md)
 
 ## 架构与实现契约
 
