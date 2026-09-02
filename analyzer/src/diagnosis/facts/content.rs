@@ -16,13 +16,16 @@ pub(super) struct ContentFacts {
 pub(super) fn analyze(variants: &[LocatedVariant]) -> ContentFacts {
     let nonempty: Vec<_> = variants
         .iter()
-        .filter(|variant| !variant.parts.is_empty())
+        .filter(|variant| {
+            !variant.parts.is_empty() && variant.parts.iter().all(|part| part.kind == "binding")
+        })
         .collect();
     let signatures: BTreeSet<_> = nonempty.iter().map(|item| &item.fingerprint).collect();
     let same_shape = nonempty
         .first()
         .is_some_and(|first| nonempty.iter().all(|item| item.shape == first.shape));
-    let present = same_shape && signatures.len() > 1;
+    // 内容证据只来自区域实际存在且可绑定的成员；缺失/unmatched 成员仅贡献序列证据。
+    let present = nonempty.len() >= 2 && same_shape && signatures.len() > 1;
     if !present {
         return ContentFacts {
             present: false,
