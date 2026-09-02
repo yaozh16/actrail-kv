@@ -100,10 +100,8 @@ fn detects_dynamic_block_inserted_before_stable_block() {
     }
     let result = analyze(payloads);
     assert!(has_fact(&result, DefectFactKind::InsertionDeletion));
-    assert_eq!(
-        result.defects[0].mismatch.pattern,
-        MismatchPattern::InsertionDeletion
-    );
+    assert!(has_fact(&result, DefectFactKind::ContentVariation));
+    assert_eq!(result.defects[0].mismatch.pattern, MismatchPattern::Mixed);
 }
 
 #[test]
@@ -201,6 +199,83 @@ fn detects_non_append_history_and_visible_json_formatting() {
         &analyze(payloads),
         DefectFactKind::StructuredDataEquivalent
     ));
+}
+
+#[test]
+fn mixed_region_with_content_and_missing_members_is_one_mixed_defect() {
+    let tail = stable("shared-after-block");
+    let mut payloads = vec![chat(vec![json!({"role":"system","content":tail})])];
+    for block in ["retrieval-A", "检索片段乙", "knowledge-C"] {
+        payloads.push(chat(vec![
+            json!({"role":"system","content":block}),
+            json!({"role":"system","content":tail}),
+        ]));
+    }
+    let result = analyze(payloads);
+    assert_eq!(result.defects.len(), 1, "result={result:#?}");
+    assert_eq!(result.defects[0].mismatch.pattern, MismatchPattern::Mixed);
+    assert!(has_fact(&result, DefectFactKind::ContentVariation));
+    assert!(has_fact(&result, DefectFactKind::InsertionDeletion));
+}
+
+#[test]
+fn two_fixed_versions_are_reported_as_fixed_variants() {
+    let tail = stable("tail-after-version");
+    let payloads = [
+        "follow policy A.",
+        "follow policy A.",
+        "follow policy B.",
+        "follow policy B.",
+    ]
+    .into_iter()
+    .map(|version| {
+        chat(vec![json!({
+            "role":"system",
+            "content":format!("{version}\n{tail}")
+        })])
+    })
+    .collect();
+    let result = analyze(payloads);
+    assert!(has_fact(&result, DefectFactKind::FixedVariants));
+    assert!(!has_fact(&result, DefectFactKind::ContentVariation));
+    assert_eq!(
+        result.defects[0].mismatch.pattern,
+        MismatchPattern::ValueMismatch
+    );
+}
+
+#[test]
+fn json_array_reorder_is_not_structured_equivalence() {
+    let tail = stable("tail-after-array");
+    let payloads = ["[1,2]", "[2,1]", "[1,2]", "[2,1]"]
+        .into_iter()
+        .map(|visible| {
+            chat(vec![
+                json!({"role":"system","content":visible}),
+                json!({"role":"system","content":tail}),
+            ])
+        })
+        .collect();
+    let result = analyze(payloads);
+    assert!(has_content_fact(&result));
+    assert!(!has_fact(&result, DefectFactKind::StructuredDataEquivalent));
+}
+
+#[test]
+fn json_value_change_is_not_structured_equivalence() {
+    let tail = stable("tail-after-object");
+    let payloads = [r#"{"a":1}"#, r#"{"a":2}"#, r#"{"a":1}"#, r#"{"a":2}"#]
+        .into_iter()
+        .map(|visible| {
+            chat(vec![
+                json!({"role":"system","content":visible}),
+                json!({"role":"system","content":tail}),
+            ])
+        })
+        .collect();
+    let result = analyze(payloads);
+    assert!(has_content_fact(&result));
+    assert!(!has_fact(&result, DefectFactKind::StructuredDataEquivalent));
 }
 
 #[test]
