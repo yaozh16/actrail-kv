@@ -106,6 +106,9 @@ actrail-kv/
 │   ├── html_report_renderer.rs                  # comparison group、P1/X/P2、facts、insights；全转义
 │   └── lib.rs
 │
+├── examples/quickstart/
+│   └── requests.ndjson                          # 根 README 可直接分析的最小缺陷语料
+│
 └── tests/end_to_end/
     └── three_binaries.sh                        # 真实 receiver→analyze→report、确定性与 XSS 验收
 ```
