@@ -1,0 +1,373 @@
+//! 本文件编排语料加载、上下文投影、模板发现、结构诊断、聚合排名与原子输出。
+
+use std::{
+    fs::File,
+    io::{BufRead, BufReader, Write},
+    path::Path,
+};
+
+use actrail_kv_artifacts::{
+    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, Evidence, Finding, FindingCause,
+    RequestTemplate as ArtifactTemplate, ScoreBreakdown, SkipRecord,
+    SourceLocation as ArtifactSource, StableSpan as ArtifactStableSpan,
+    TemplateSlot as ArtifactSlot, TopKEntry,
+};
+use anyhow::{Context, Result};
+
+use crate::{
+    diagnosis::{
+        diagnose_template, Cause, DiagnosisOptions, DiagnosticRequest, DiagnosticTemplate,
+    },
+    discovery::{
+        candidate::{CandidateBuilder, CandidateOptions},
+        template::{RequestTemplate, TemplateExtractor, TemplateOptions},
+    },
+    model::{
+        corpus::{CorpusLoadLimits, CorpusLoader, CorpusSkip},
+        projection::{ProjectionLimits, ProjectionSkip, RequestProjector},
+    },
+    ranking::{rank_findings, RankedFinding},
+};
+
+use super::AnalysisOptions;
+
+pub fn analyze_file(
+    input: &Path,
+    output: &Path,
+    options: AnalysisOptions,
+) -> Result<AnalysisResult> {
+    ensure_distinct_paths(input, output)?;
+    let file = File::open(input)
+        .with_context(|| format!("failed to open captured requests {}", input.display()))?;
+    let result = analyze_reader(BufReader::new(file), options)?;
+    write_atomic_json(output, &result)?;
+    Ok(result)
+}
+
+pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result<AnalysisResult> {
+    options.validate()?;
+    let loaded = CorpusLoader::new(CorpusLoadLimits {
+        max_record_bytes: options.max_payload_bytes,
+        max_records: options.max_records,
+    })
+    .load(reader);
+    let input_records = loaded.corpus.records.len() + loaded.skipped.len();
+    let mut skips: Vec<SkipRecord> = loaded.skipped.iter().map(corpus_skip).collect();
+    let projector = RequestProjector::new(ProjectionLimits {
+        max_units: options.max_projection_units,
+        max_text_unit_bytes: options.max_text_unit_bytes,
+    });
+    let mut sequences = Vec::new();
+    for record in &loaded.corpus.records {
+        match projector.project(record) {
+            Ok(sequence) => sequences.push(sequence),
+            Err(skip) => skips.push(projection_skip(record.input_line, &skip)),
+        }
+    }
+    let analyzed_records = sequences.len();
+    if analyzed_records == 0 {
+        anyhow::bail!(
+            "input contains no analyzable OpenAI-compatible chat requests ({} records rejected)",
+            skips.len()
+        );
+    }
+    let candidate_result = CandidateBuilder::new(CandidateOptions {
+        compatibility_threshold: options.template_compatibility_threshold,
+        max_dynamic_coverage_ratio: options.max_dynamic_coverage_ratio,
+        min_members: options.min_template_members,
+        max_candidates_per_request: options.max_candidates_per_request,
+    })
+    .build(sequences);
+    let mut limitations =
+        vec!["结构代理：未使用 tokenizer、模型内部 chat template 或真实 KV 命中数据".to_owned()];
+    limitations.extend(candidate_result.skipped.iter().map(|skip| {
+        format!(
+            "candidate domain {}/{}/{} skipped for {} members: {}",
+            skip.domain.dialect,
+            skip.domain.model,
+            skip.domain.adapter_revision,
+            skip.member_count,
+            skip.reason
+        )
+    }));
+    let extraction = TemplateExtractor::new(TemplateOptions {
+        stable_support_ratio: options.stable_span_support_ratio,
+        min_stable_support: options.min_stable_support,
+        min_stable_span_bytes: options.min_exact_anchor_bytes,
+        max_alignment_cells: options.max_alignment_cells,
+        max_total_alignment_cells: options.max_total_alignment_cells,
+    })
+    .extract(candidate_result.cohorts);
+    limitations.extend(extraction.skipped.iter().map(|skip| {
+        format!(
+            "template cohort {} skipped: {}",
+            skip.cohort_id, skip.reason
+        )
+    }));
+    let diagnosis_options = DiagnosisOptions {
+        min_stable_support: options.min_stable_support,
+        stable_support_rate: options.stable_span_support_ratio,
+        min_blocked_bytes: options.min_blocked_stable_bytes,
+        min_anchor_bytes: options.min_exact_anchor_bytes,
+        local_text_similarity: options.text_similarity_threshold,
+    };
+    let mut observations = Vec::new();
+    for template in &extraction.templates {
+        let diagnostic = DiagnosticTemplate {
+            template_id: template.id.clone(),
+            members: template
+                .members
+                .iter()
+                .map(DiagnosticRequest::from)
+                .collect(),
+            cohesion: template.cohesion,
+            projection_reliability: template.projection_reliability,
+        };
+        observations.extend(diagnose_template(&diagnostic, &diagnosis_options));
+    }
+    let ranked = rank_findings(&observations, usize::MAX);
+    let findings: Vec<_> = ranked
+        .iter()
+        .map(|finding| finding_to_artifact(finding, &extraction.templates))
+        .collect();
+    let top_k = ranked
+        .iter()
+        .take(options.top_k)
+        .enumerate()
+        .map(|(index, finding)| TopKEntry {
+            rank: index + 1,
+            finding_id: finding.id.clone(),
+            score: score_to_artifact(&finding.score),
+        })
+        .collect();
+    let templates = extraction
+        .templates
+        .iter()
+        .map(template_to_artifact)
+        .collect();
+    skips.sort_by(|left, right| {
+        left.record_index
+            .cmp(&right.record_index)
+            .then_with(|| left.reason.cmp(&right.reason))
+    });
+    Ok(AnalysisResult {
+        run: AnalysisRunSummary {
+            schema_version: "0.1.0".to_owned(),
+            input_records,
+            analyzed_records,
+            skipped_records: skips,
+            options: options_snapshot(&options),
+            limitations,
+        },
+        templates,
+        findings,
+        top_k,
+    })
+}
+
+fn template_to_artifact(template: &RequestTemplate) -> ArtifactTemplate {
+    let mut member_request_ids: Vec<_> = template
+        .members
+        .iter()
+        .map(|member| member.request_id.clone())
+        .collect();
+    member_request_ids.sort();
+    ArtifactTemplate {
+        id: template.id.clone(),
+        dialect: template.domain.dialect.clone(),
+        model: template.domain.model.clone(),
+        adapter_revision: template.domain.adapter_revision.clone(),
+        member_request_ids,
+        medoid_request_id: template.medoid_request_id.clone(),
+        cohesion: template.cohesion,
+        stable_spans: template
+            .stable_spans
+            .iter()
+            .map(|span| ArtifactStableSpan {
+                source: source_to_artifact(
+                    &span.source.json_path,
+                    Some(span.unit_index),
+                    Some((span.medoid_utf8_bytes.start, span.medoid_utf8_bytes.end)),
+                    span.source.role.clone(),
+                ),
+                utf8_bytes: span.medoid_utf8_bytes.len(),
+                support_count: span.support_count,
+                excerpt: Some(abbreviate(&span.content, 160)),
+            })
+            .collect(),
+        slots: template
+            .slots
+            .iter()
+            .map(|slot| ArtifactSlot {
+                source: source_to_artifact(
+                    &slot.source.json_path,
+                    Some(slot.unit_index),
+                    Some((slot.medoid_utf8_bytes.start, slot.medoid_utf8_bytes.end)),
+                    slot.source.role.clone(),
+                ),
+                member_count: slot.support_count,
+                distinct_variant_count: slot.distinct_variant_count,
+                confidence: template.cohesion,
+            })
+            .collect(),
+    }
+}
+
+fn finding_to_artifact(finding: &RankedFinding, templates: &[RequestTemplate]) -> Finding {
+    let representative_request_ids = templates
+        .iter()
+        .find(|template| template.id == finding.template_id)
+        .map(|template| {
+            let mut request_ids = vec![
+                finding.representative_member_id.clone(),
+                template.medoid_request_id.clone(),
+            ];
+            request_ids.sort();
+            request_ids.dedup();
+            request_ids
+        })
+        .unwrap_or_default();
+    Finding {
+        id: finding.id.clone(),
+        template_id: finding.template_id.clone(),
+        cause: cause_to_artifact(&finding.cause),
+        source: source_to_artifact(
+            &finding.source.json_path,
+            None,
+            finding.source.utf8_range,
+            None,
+        ),
+        actual_prefix_bytes: finding.actual_prefix_bytes,
+        potential_prefix_bytes: finding.potential_prefix_bytes,
+        blocked_stable_bytes: finding.blocked_stable_bytes,
+        affected_count: finding.affected,
+        confidence: finding.confidence,
+        score: score_to_artifact(&finding.score),
+        evidence: Evidence {
+            representative_request_ids,
+            divergent_excerpts: vec![finding.evidence.clone()],
+            blocked_stable_excerpt: finding.stable_anchor.clone(),
+        },
+        counterfactual: finding.counterfactual.clone(),
+        recommendation: finding.recommendation.clone(),
+    }
+}
+
+fn cause_to_artifact(cause: &Cause) -> FindingCause {
+    match cause {
+        Cause::EarlyVolatileContent => FindingCause::EarlyVariableContent,
+        Cause::InlineDynamicSlot => FindingCause::InlineDynamicSlot,
+        Cause::DynamicBlockBeforeStatic => FindingCause::DynamicBlockBeforeStable,
+        Cause::ToolOrderDrift => FindingCause::ToolOrderDrift,
+        Cause::ToolDefinitionDrift => FindingCause::ToolDefinitionDrift,
+        Cause::PromptMicroDrift => FindingCause::SystemPromptDrift,
+        Cause::NonAppendHistory => FindingCause::NonAppendOnlyHistory,
+        Cause::ModelVisibleJsonFormattingDrift => FindingCause::ModelVisibleFormatDrift,
+    }
+}
+
+fn source_to_artifact(
+    json_path: &str,
+    unit_index: Option<usize>,
+    byte_range: Option<(usize, usize)>,
+    role: Option<String>,
+) -> ArtifactSource {
+    ArtifactSource {
+        json_path: json_path.to_owned(),
+        unit_index,
+        byte_start: byte_range.map(|range| range.0),
+        byte_end: byte_range.map(|range| range.1),
+        role,
+    }
+}
+
+fn score_to_artifact(score: &crate::ranking::ScoreBreakdown) -> ScoreBreakdown {
+    ScoreBreakdown {
+        blocked_stable_bytes: score.blocked_bytes,
+        affected_count: score.affected,
+        confidence: score.confidence,
+        score: score.score,
+    }
+}
+
+fn options_snapshot(options: &AnalysisOptions) -> AnalysisOptionsSnapshot {
+    AnalysisOptionsSnapshot {
+        top_k: options.top_k,
+        min_template_members: options.min_template_members,
+        stable_span_support_ratio: options.stable_span_support_ratio,
+        min_stable_support: options.min_stable_support,
+        min_blocked_stable_bytes: options.min_blocked_stable_bytes,
+        min_exact_anchor_bytes: options.min_exact_anchor_bytes,
+        text_similarity_threshold: options.text_similarity_threshold,
+        template_compatibility_threshold: options.template_compatibility_threshold,
+        max_dynamic_coverage_ratio: options.max_dynamic_coverage_ratio,
+        max_candidates_per_request: options.max_candidates_per_request,
+        max_projection_units: options.max_projection_units,
+        max_text_unit_bytes: options.max_text_unit_bytes,
+        max_payload_bytes: options.max_payload_bytes,
+        max_alignment_cells: options.max_alignment_cells,
+        max_total_alignment_cells: options.max_total_alignment_cells,
+        max_records: options.max_records,
+    }
+}
+
+fn corpus_skip(skip: &CorpusSkip) -> SkipRecord {
+    SkipRecord {
+        record_index: skip.input_line,
+        reason: format!("corpus: {:?}", skip.reason),
+    }
+}
+
+fn projection_skip(line: usize, skip: &ProjectionSkip) -> SkipRecord {
+    SkipRecord {
+        record_index: line,
+        reason: format!("projection: {:?}", skip.reason),
+    }
+}
+
+fn abbreviate(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
+}
+
+fn write_atomic_json(path: &Path, result: &AnalysisResult) -> Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    serde_json::to_writer_pretty(&mut temporary, result)?;
+    temporary.write_all(b"\n")?;
+    temporary.as_file_mut().sync_all()?;
+    temporary.persist(path)?;
+    sync_parent(parent)?;
+    Ok(())
+}
+
+fn ensure_distinct_paths(input: &Path, output: &Path) -> Result<()> {
+    if output.exists() && same_file::is_same_file(input, output).unwrap_or(false) {
+        anyhow::bail!("input and output must refer to different files");
+    }
+    if !output.exists() {
+        let input = input.canonicalize()?;
+        let parent = output
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .canonicalize()?;
+        let destination = match output.file_name() {
+            Some(name) => parent.join(name),
+            None => parent,
+        };
+        if input == destination {
+            anyhow::bail!("input and output must refer to different files");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_parent(parent: &Path) -> Result<()> {
+    File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_parent: &Path) -> Result<()> {
+    Ok(())
+}

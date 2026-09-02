@@ -1,6 +1,8 @@
 <!-- 本文件记录 LLM KV 缓存结构诊断 MVP 的架构需求、算法价值主线与设计变更。 -->
 # LLM KV 缓存结构诊断 MVP
 
+实现设计索引：[`dev/designs/v0.1.0/implementation.md`](../../designs/v0.1.0/implementation.md)。
+
 ## 背景
 
 外部网关、Agent 框架或遥测管道已经能够提供包含分析所需字段的完整 LLM 请求。本系统只接收这些数据并做离线结构诊断；采集、网关和真实 KV 命中遥测不属于 MVP。

@@ -1,0 +1,21 @@
+[package]
+name = "actrail-kv-receiver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+actrail-kv-artifacts.workspace = true
+axum.workspace = true
+fs2 = "0.4"
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tower.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
