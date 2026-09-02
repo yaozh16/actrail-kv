@@ -1,22 +1,32 @@
-<!-- 本文件是当前可运行版本的配置参考；只记录已实现的参数和固定默认值。 -->
+<!-- 本文件是当前可运行版本的配置参考；只记录已实现的参数与默认值。 -->
 # 配置参考
 
 ## 配置方式
 
-v0.1.0 没有配置文件、环境变量或远程配置中心。三个二进制只接受下列命令行参数；未列出的算法参数不可在运行时覆盖。这样一次 `analysis.json` 对应一组可追溯、固定的分析规则。
+三个二进制都接受命令行参数；analyze 与 receiver 额外支持 JSON 配置文件。
+
+- 配置优先级：编译默认值 < JSON 配置文件 < 显式 CLI 参数。
+- JSON 配置通过 `--config <path>` 传入；未提供时使用编译默认值，行为与旧版本一致。
+- 配置包含未知字段或非法数值时拒绝启动。
+- 每次分析仍会把实际生效参数完整写入 `analysis.json` 的 `run.options`，保证可追溯。
 
 ## Receiver
 
 ```bash
 actrail-kv-receiver \
+  --config /etc/actrail-kv/receiver.json \
   --listen 127.0.0.1:8080 \
   --output /var/lib/actrail-kv/requests.ndjson
 ```
 
-| 参数 | 默认值 | 说明 |
+| CLI 参数 | 默认值 | 说明 |
 |---|---:|---|
 | `--listen` | `127.0.0.1:8080` | HTTP 监听地址。默认仅 loopback；跨主机接入应在内网反向代理后显式配置。 |
 | `--output` | 无，必填 | 接收语料的 NDJSON 路径。进程独占该文件，文件权限收紧为仅属主可读写。 |
+| `--config` | 无 | 可选 JSON 配置；CLI 显式参数覆盖文件。 |
+| `--max-payload-bytes` | 来自配置 | 请求体上限覆盖；默认 `8 MiB`。 |
+
+`receiver.json` 支持字段：`listen`、`max_payload_bytes`（默认 `8388608`）。示例见 `examples/receiver.config.example.json`。
 
 Receiver 接受 `POST /requests`，body 必须是完整 JSON object。`X-Actrail-Endpoint-Key` 必填；`X-Actrail-Agent-Key`、`X-Actrail-Model-Deployment-Key`、`X-Actrail-KV-Namespace` 和 `X-Actrail-Source` 可选。前三项 metadata 提供后参与 comparison group，source 只记录采集来源。
 
@@ -24,46 +34,48 @@ Receiver 接受 `POST /requests`，body 必须是完整 JSON object。`X-Actrail
 
 ```bash
 actrail-kv-analyze \
+  --config /etc/actrail-kv/analyze.json \
   --input /var/lib/actrail-kv/requests.ndjson \
   --output /var/lib/actrail-kv/analysis.json \
   --top-k 20 \
   --comparison-window-seconds 3600
 ```
 
-| 参数 | 默认值 | 说明 |
+| CLI 参数 | 默认值 | 说明 |
 |---|---:|---|
 | `--input` | 无，必填 | receiver 产出的 NDJSON 语料。 |
 | `--output` | 无，必填 | 分析 JSON 的新路径；不得与 input 为同一文件或同一硬链接。 |
+| `--config` | 无 | 可选 JSON 配置；显式 CLI 参数覆盖文件。 |
 | `--top-k` | `20` | 最终报告保留的聚合 defect 数，必须大于零。 |
 | `--comparison-window-seconds` | `3600` | 固定 UTC 时间窗口宽度；只有同一窗口内的请求才相互比较。 |
 
-### 固定算法阈值
+### JSON 配置参数
 
-以下是当前版本编译进程序的默认值，不是 CLI 参数；分析结果会保存本次运行的完整参数快照。修改它们属于算法版本变更，必须补充设计记录与验收测试后再发布。
+analyze 的全部算法阈值与资源预算均可通过 `--config` 的 JSON 覆盖；以下表格列出字段与默认值。不传配置时使用这些默认值。示例见 `examples/analyze.config.example.json`。
 
-| 配置 | 值 | 作用 |
+| 字段 | 默认值 | 作用 |
 |---|---:|---|
-| 最小模板成员数 | `3` | 少于三条请求不抽取模板。 |
-| stable span 支持率 / 最小支持数 | `0.80` / `3` | 同一连续稳定片段须同时达到两项要求。 |
-| 最小被阻断稳定字节 | `64` bytes | 小于此值不产生优化机会。 |
-| 最小精确锚点 | `24` bytes | 反事实恢复稳定内容所需的最小锚点。 |
-| 文本相似度阈值 | `0.80` | 候选文本的有界 shingle 相似度门槛。 |
-| 模板兼容度 | `0.68` | 同一模板候选的结构兼容门槛。 |
-| 最大动态覆盖率 | `0.35` | 动态区域超过此比例时抑制不可靠模板。 |
-
-### 固定资源预算
-
-| 配置 | 值 | 超限行为 |
-|---|---:|---|
-| 每请求候选数 | `128` | 有界候选召回。 |
-| 每请求投影单元数 | `512` | 跳过该请求。 |
-| 单文本单元 | `1 MiB` | 跳过该请求。 |
-| 单 payload | `8 MiB` | 跳过该请求。 |
-| 单次对齐 | `2,000,000` cells | 跳过该对齐。 |
-| 单 cohort 累计对齐 | `64,000,000` cells | 跳过该 cohort 的分析。 |
-| 单次分析记录数 | `1,000,000` | 拒绝继续加载。 |
+| `top_k` | `20` | 最终报告保留的聚合 defect 数。 |
+| `comparison_window_seconds` | `3600` | 固定 UTC 时间窗口宽度。 |
+| `min_template_members` | `3` | 少于三条请求不抽取模板。 |
+| `stable_span_support_ratio` | `0.80` | 同一连续稳定片段所需支持率。 |
+| `min_stable_support` | `3` | 稳定片段最小支持条数。 |
+| `min_blocked_stable_bytes` | `64` | 小于此值不产生优化机会（字节）。 |
+| `min_exact_anchor_bytes` | `24` | 反事实恢复稳定内容所需的最小锚点（字节）。 |
+| `text_similarity_threshold` | `0.80` | 候选文本的有界 shingle 相似度门槛。 |
+| `template_compatibility_threshold` | `0.68` | 同一模板候选的结构兼容门槛。 |
+| `max_dynamic_coverage_ratio` | `0.35` | 动态区域超过此比例时抑制不可靠模板。 |
+| `max_candidates_per_request` | `128` | 每请求候选数上限。 |
+| `max_projection_units` | `512` | 每请求投影单元数，超限跳过该请求。 |
+| `max_text_unit_bytes` | `1048576` | 单文本单元上限，超限跳过该请求。 |
+| `max_payload_bytes` | `8388608` | 单 payload 上限，超限跳过该请求。 |
+| `max_alignment_cells` | `2000000` | 单次文本/单元对齐 cells 上限，超限跳过该对齐。 |
+| `max_total_alignment_cells` | `64000000` | 单 cohort 累计对齐 cells 上限，超限跳过该 cohort。 |
+| `max_records` | `1000000` | 单次分析记录数上限，超限拒绝继续加载。 |
 
 超限、坏行与未知 payload dialect 均在 `analysis.json` 中以 skipped 原因呈现；系统不会截断请求后输出高置信结论。
+
+放开 `max_alignment_cells` / `max_total_alignment_cells` 时，单次 LCS 内存约为 cells × 8 字节，请按机器内存设置。
 
 ## Report
 
@@ -73,12 +85,12 @@ actrail-kv-report \
   --output /var/lib/actrail-kv/report.html
 ```
 
-| 参数 | 默认值 | 说明 |
+| CLI 参数 | 默认值 | 说明 |
 |---|---:|---|
 | `--input` | 无，必填 | analyzer 产出的 `analysis.json`。 |
 | `--output` | 无，必填 | 静态 HTML 的新路径；不得覆盖 input。 |
 
-报告不访问网络、不重新运行算法。所有来自请求的证据都会 HTML 转义。
+report 无可调算法参数，不提供配置文件。报告不访问网络、不重新运行算法。所有来自请求的证据都会 HTML 转义。
 
 ## 当前适配范围
 

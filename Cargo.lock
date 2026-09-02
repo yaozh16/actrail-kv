@@ -41,8 +41,10 @@ name = "actrail-kv-receiver"
 version = "0.1.0"
 dependencies = [
  "actrail-kv-artifacts",
+ "anyhow",
  "axum",
  "fs2",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

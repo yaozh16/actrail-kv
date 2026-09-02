@@ -14,6 +14,7 @@ use axum::{
 use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
+use crate::config::DEFAULT_MAX_PAYLOAD_BYTES;
 use crate::NdjsonAppender;
 
 const SOURCE_HEADER: &str = "x-actrail-source";
@@ -21,12 +22,16 @@ const ENDPOINT_KEY_HEADER: &str = "x-actrail-endpoint-key";
 const AGENT_KEY_HEADER: &str = "x-actrail-agent-key";
 const MODEL_DEPLOYMENT_KEY_HEADER: &str = "x-actrail-model-deployment-key";
 const KV_NAMESPACE_HEADER: &str = "x-actrail-kv-namespace";
-const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 
 pub fn router(appender: Arc<NdjsonAppender>) -> Router {
+    router_with_limit(appender, DEFAULT_MAX_PAYLOAD_BYTES)
+}
+
+/// 使用自定义请求体上限构建路由，供配置文件覆盖默认 8 MiB 限制。
+pub fn router_with_limit(appender: Arc<NdjsonAppender>, max_payload_bytes: usize) -> Router {
     Router::new()
         .route("/requests", post(receive_request))
-        .layer(DefaultBodyLimit::max(MAX_PAYLOAD_BYTES))
+        .layer(DefaultBodyLimit::max(max_payload_bytes))
         .with_state(appender)
 }
 
@@ -138,9 +143,8 @@ mod tests {
     use tempfile::tempdir;
     use tower::ServiceExt;
 
+    use crate::config::DEFAULT_MAX_PAYLOAD_BYTES as MAX_PAYLOAD_BYTES;
     use crate::{router, NdjsonAppender};
-
-    use super::MAX_PAYLOAD_BYTES;
 
     #[tokio::test]
     async fn accepts_object_and_preserves_payload_with_source() {
