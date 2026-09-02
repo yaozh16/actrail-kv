@@ -4,8 +4,9 @@ mod analysis_result;
 mod captured_request;
 
 pub use analysis_result::{
-    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, Evidence, Finding, FindingCause,
-    RequestTemplate, ScoreBreakdown, SkipRecord, SourceLocation, StableSpan, TemplateSlot,
-    TopKEntry,
+    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, ComparisonGroup, ContextDefect,
+    DefectFact, DefectFactKind, MismatchPattern, MismatchRegion, MismatchVariant,
+    OptimizationInsight, RecoveredStable, RequestTemplate, ScoreBreakdown, SkipRecord,
+    SourceLocation, StableSpan, TemplateSlot, VariantEvidence, ANALYSIS_SCHEMA_VERSION,
 };
-pub use captured_request::CapturedRequest;
+pub use captured_request::{CapturedRequest, ComparisonMetadata};

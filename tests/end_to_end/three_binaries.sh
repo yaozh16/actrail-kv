@@ -46,6 +46,8 @@ for volatile in 'northern account' '南方客户' 'ocean workspace' 'Δοκιμ�
   status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
     -H 'content-type: application/json' \
     -H 'x-actrail-source: e2e-instrumentation' \
+    -H 'x-actrail-endpoint-key: e2e-primary' \
+    -H 'x-actrail-agent-key: e2e-agent' \
     --data-binary "$payload" \
     "http://$listen_address/requests")
   [[ "$status" == "202" ]]
@@ -69,9 +71,16 @@ target/debug/actrail-kv-report \
   --output "$test_dir/report.html"
 
 [[ $(wc -l < "$test_dir/requests.ndjson") -eq 4 ]]
-[[ $(jq '.findings | length' "$test_dir/analysis.json") -ge 1 ]]
-[[ $(jq -r '.top_k[0].finding_id // empty' "$test_dir/analysis.json") != "" ]]
+[[ $(jq '.defects | length' "$test_dir/analysis.json") -ge 1 ]]
+top_defect_id=$(jq -r '.top_k[0] // empty' "$test_dir/analysis.json")
+[[ -n "$top_defect_id" ]]
+jq -e --arg id "$top_defect_id" 'any(.defects[]; .id == $id)' "$test_dir/analysis.json" >/dev/null
+jq -e 'all(.defects[]; (.mismatch.variants | length) >= 2 and .recovered_stable.support_count == .comparable_count)' "$test_dir/analysis.json" >/dev/null
+jq -e 'all(.templates[]; .comparison_group.endpoint_key == "e2e-primary" and .comparison_group.agent_key == "e2e-agent")' "$test_dir/analysis.json" >/dev/null
 grep -q 'LLM KV 缓存结构诊断' "$test_dir/report.html"
+grep -q '<strong>P1</strong>' "$test_dir/report.html"
+grep -q '<strong>X</strong>' "$test_dir/report.html"
+grep -q '<strong>P2</strong>' "$test_dir/report.html"
 grep -q '&lt;script&gt;alert(1)&lt;/script&gt;' "$test_dir/report.html"
 if grep -q '<script>' "$test_dir/report.html"; then
   echo "unsafe script content found in report" >&2

@@ -49,7 +49,8 @@ impl SequenceAligner {
         for i in 1..=medoid.len() {
             for j in 1..=member.len() {
                 let same_key = medoid[i - 1].alignment_key == member[j - 1].alignment_key
-                    && medoid[i - 1].kind == member[j - 1].kind;
+                    && medoid[i - 1].kind == member[j - 1].kind
+                    && medoid[i - 1].hierarchy.collection == member[j - 1].hierarchy.collection;
                 let content_bonus = i32::from(medoid[i - 1].content == member[j - 1].content);
                 let diagonal = scores[(i - 1) * columns + j - 1]
                     + if same_key { 2 + content_bonus } else { -2 };
@@ -64,7 +65,8 @@ impl SequenceAligner {
         while i > 0 || j > 0 {
             if i > 0 && j > 0 {
                 let same_key = medoid[i - 1].alignment_key == member[j - 1].alignment_key
-                    && medoid[i - 1].kind == member[j - 1].kind;
+                    && medoid[i - 1].kind == member[j - 1].kind
+                    && medoid[i - 1].hierarchy.collection == member[j - 1].hierarchy.collection;
                 let content_bonus = i32::from(medoid[i - 1].content == member[j - 1].content);
                 let diagonal = scores[(i - 1) * columns + j - 1]
                     + if same_key { 2 + content_bonus } else { -2 };
@@ -98,7 +100,9 @@ impl SequenceAligner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::projection::{CacheUnitKind, SourceLocation};
+    use crate::model::projection::{
+        CacheUnitKind, ContextCollectionKind, HierarchyLocation, SourceLocation,
+    };
 
     fn unit(key: &str, value: &str) -> CacheUnit {
         CacheUnit {
@@ -112,6 +116,12 @@ mod tests {
                 role: None,
             },
             tool_identity: None,
+            hierarchy: HierarchyLocation {
+                collection: ContextCollectionKind::Messages,
+                parent_json_path: "$.messages".into(),
+                element_index: None,
+                content_block_index: None,
+            },
         }
     }
 
@@ -133,5 +143,15 @@ mod tests {
         let units = vec![unit("x", "x")];
         assert!(SequenceAligner::new(4).align(&units, &units).is_ok());
         assert!(SequenceAligner::new(3).align(&units, &units).is_err());
+    }
+
+    #[test]
+    fn does_not_align_identical_keys_across_context_hierarchy_layers() {
+        let message = unit("content", "same");
+        let mut block = unit("content", "same");
+        block.hierarchy.collection = ContextCollectionKind::ContentBlocks;
+        let aligned = SequenceAligner::new(4).align(&[message], &[block]).unwrap();
+        assert_eq!(aligned.medoid_to_member, [None]);
+        assert_eq!(aligned.unmatched_member_units, [0]);
     }
 }

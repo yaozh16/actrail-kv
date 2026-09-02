@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, io::BufRead};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::{CorpusLoadResult, CorpusRecord, CorpusSkip, CorpusSkipReason};
+use super::{CaptureComparison, CorpusLoadResult, CorpusRecord, CorpusSkip, CorpusSkipReason};
 
 #[derive(Clone, Debug)]
 pub struct CorpusLoadLimits {
@@ -99,7 +99,22 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
     if !payload.is_object() {
         return Err(CorpusSkipReason::PayloadNotObject);
     }
-    // Capture metadata is part of identity but never enters context projection or comparison.
+    let comparison = object
+        .get("comparison")
+        .and_then(Value::as_object)
+        .ok_or(CorpusSkipReason::MissingComparison)?;
+    let endpoint_key = comparison
+        .get("endpoint_key")
+        .and_then(Value::as_str)
+        .ok_or(CorpusSkipReason::MissingEndpointKey)?;
+    let endpoint_key = endpoint_key.trim();
+    if endpoint_key.is_empty() {
+        return Err(CorpusSkipReason::EmptyEndpointKey);
+    }
+    let agent_key = optional_comparison_key(comparison, "agent_key")?;
+    let model_deployment_key = optional_comparison_key(comparison, "model_deployment_key")?;
+    let kv_namespace = optional_comparison_key(comparison, "kv_namespace")?;
+    // Capture metadata is part of request identity and comparison grouping, not model context.
     let canonical = canonical_json(&record);
     let mut digest = Sha256::new();
     digest.update(canonical.as_bytes());
@@ -114,9 +129,39 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
             .get("source")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        comparison: CaptureComparison {
+            endpoint_key: endpoint_key.to_owned(),
+            agent_key,
+            model_deployment_key,
+            kv_namespace,
+        },
         payload: payload.clone(),
         input_line,
     })
+}
+
+fn optional_comparison_key(
+    object: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<Option<String>, CorpusSkipReason> {
+    let Some(value) = object.get(key) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let value = value
+        .as_str()
+        .ok_or_else(|| CorpusSkipReason::InvalidComparisonKey {
+            field: key.to_owned(),
+        })?
+        .trim();
+    if value.is_empty() {
+        return Err(CorpusSkipReason::EmptyComparisonKey {
+            field: key.to_owned(),
+        });
+    }
+    Ok(Some(value.to_owned()))
 }
 
 pub(crate) fn canonical_json(value: &Value) -> String {
@@ -154,7 +199,7 @@ mod tests {
     #[test]
     fn loads_valid_records_and_explicitly_skips_every_invalid_line() {
         let input = concat!(
-            "{\"captured_at\":\"now\",\"payload\":{\"model\":\"m\"}}\n",
+            "{\"captured_at\":\"now\",\"comparison\":{\"endpoint_key\":\"chat\"},\"payload\":{\"model\":\"m\"}}\n",
             "\n",
             "not-json\n",
             "[]\n",
@@ -169,8 +214,8 @@ mod tests {
 
     #[test]
     fn stable_id_ignores_outer_object_key_order() {
-        let a = "{\"payload\":{\"model\":\"m\",\"messages\":[]}}";
-        let b = "{\"payload\":{\"messages\":[],\"model\":\"m\"}}";
+        let a = "{\"comparison\":{\"endpoint_key\":\"chat\"},\"payload\":{\"model\":\"m\",\"messages\":[]}}";
+        let b = "{\"payload\":{\"messages\":[],\"model\":\"m\"},\"comparison\":{\"endpoint_key\":\"chat\"}}";
         let a = CorpusLoader::default().load(Cursor::new(a));
         let b = CorpusLoader::default().load(Cursor::new(b));
         assert_eq!(a.corpus.records[0].id, b.corpus.records[0].id);
@@ -178,8 +223,8 @@ mod tests {
 
     #[test]
     fn duplicate_records_keep_frequency_with_permutation_stable_ids() {
-        let a = "{\"source\":\"a\",\"payload\":{\"model\":\"m\"}}";
-        let b = "{\"source\":\"b\",\"payload\":{\"model\":\"m\"}}";
+        let a = "{\"source\":\"a\",\"comparison\":{\"endpoint_key\":\"chat\"},\"payload\":{\"model\":\"m\"}}";
+        let b = "{\"source\":\"b\",\"comparison\":{\"endpoint_key\":\"chat\"},\"payload\":{\"model\":\"m\"}}";
         let first = CorpusLoader::default().load(Cursor::new(format!("{a}\n{b}\n{a}")));
         let second = CorpusLoader::default().load(Cursor::new(format!("{a}\n{a}\n{b}")));
         let mut first_ids: Vec<_> = first
@@ -202,13 +247,35 @@ mod tests {
     }
 
     #[test]
+    fn rejects_empty_or_non_string_comparison_keys() {
+        let input = concat!(
+            "{\"comparison\":{\"endpoint_key\":\"   \"},\"payload\":{}}\n",
+            "{\"comparison\":{\"endpoint_key\":\"chat\",\"agent_key\":42},\"payload\":{}}\n",
+            "{\"comparison\":{\"endpoint_key\":\"chat\",\"kv_namespace\":\" \"},\"payload\":{}}"
+        );
+        let result = CorpusLoader::default().load(Cursor::new(input));
+        assert!(result.corpus.records.is_empty());
+        assert!(matches!(
+            result.skipped[0].reason,
+            CorpusSkipReason::EmptyEndpointKey
+        ));
+        assert!(matches!(
+            result.skipped[1].reason,
+            CorpusSkipReason::InvalidComparisonKey { .. }
+        ));
+        assert!(matches!(
+            result.skipped[2].reason,
+            CorpusSkipReason::EmptyComparisonKey { .. }
+        ));
+    }
+
+    #[test]
     fn enforces_record_size_and_count_boundaries() {
+        let at_limit = "{\"comparison\":{\"endpoint_key\":\"x\"},\"payload\":{}}";
         let limits = CorpusLoadLimits {
-            max_record_bytes: 14,
+            max_record_bytes: at_limit.len(),
             max_records: 1,
         };
-        let at_limit = "{\"payload\":{}}";
-        assert_eq!(at_limit.len(), 14);
         let input = format!("{at_limit}\n{at_limit} ");
         let result = CorpusLoader::new(limits).load(Cursor::new(input));
         assert_eq!(result.corpus.records.len(), 1);

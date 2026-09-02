@@ -28,12 +28,14 @@ target/release/actrail-kv-receiver \
 ```bash
 curl --fail-with-body \
   -H 'content-type: application/json' \
+  -H 'x-actrail-endpoint-key: llm-primary' \
+  -H 'x-actrail-agent-key: coding-agent' \
   -H 'x-actrail-source: agent-instrumentation' \
   --data-binary @request.json \
   http://127.0.0.1:8080/requests
 ```
 
-成功返回 HTTP `202`。`X-Actrail-Source` 可省略，只用于记录采集来源，不参与模板规则。
+成功返回 HTTP `202`。`X-Actrail-Endpoint-Key` 必填并参与 comparison group；Agent、模型部署和 KV namespace header 可选。`X-Actrail-Source` 只记录采集来源。
 
 ## 2. 离线分析
 
@@ -41,7 +43,8 @@ curl --fail-with-body \
 target/release/actrail-kv-analyze \
   --input requests.ndjson \
   --output analysis.json \
-  --top-k 20
+  --top-k 20 \
+  --comparison-window-seconds 3600
 ```
 
 分析过程完全离线。未知 payload 结构、坏行和资源超限会在 `analysis.json` 中显式记录，不会伪装成已完成的高置信结果。
@@ -59,7 +62,7 @@ target/release/actrail-kv-report \
 ## MVP 支持边界
 
 - 当前 adapter 支持 OpenAI-compatible chat payload：必须包含字符串 `model` 和数组 `messages`，可包含 `tools`。
-- 不同 model 或 payload dialect 不会互相聚类；未知 dialect 显式跳过。
+- 只有时间窗口、endpoint、model/deployment、context schema、Agent 和 KV namespace 相同的请求才会互相聚类。
 - Top K 的 `blocked_stable_bytes`、`confidence` 和 `score` 是可观察 UTF-8/结构代理，不等于真实 Token 数、KV miss 或金额收益。
 - 优化建议是诊断反事实，不会自动改写请求；涉及内容重排时必须由使用方确认语义安全。
 

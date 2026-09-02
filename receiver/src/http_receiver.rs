@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use actrail_kv_artifacts::CapturedRequest;
+use actrail_kv_artifacts::{CapturedRequest, ComparisonMetadata};
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, State},
@@ -17,6 +17,10 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use crate::NdjsonAppender;
 
 const SOURCE_HEADER: &str = "x-actrail-source";
+const ENDPOINT_KEY_HEADER: &str = "x-actrail-endpoint-key";
+const AGENT_KEY_HEADER: &str = "x-actrail-agent-key";
+const MODEL_DEPLOYMENT_KEY_HEADER: &str = "x-actrail-model-deployment-key";
+const KV_NAMESPACE_HEADER: &str = "x-actrail-kv-namespace";
 const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 
 pub fn router(appender: Arc<NdjsonAppender>) -> Router {
@@ -42,6 +46,23 @@ async fn receive_request(
         },
         None => None,
     };
+    let endpoint_key = match metadata_header(&headers, ENDPOINT_KEY_HEADER, true) {
+        Ok(Some(value)) => value,
+        Ok(None) => return client_error("X-Actrail-Endpoint-Key is required"),
+        Err(message) => return client_error(message),
+    };
+    let agent_key = match metadata_header(&headers, AGENT_KEY_HEADER, false) {
+        Ok(value) => value,
+        Err(message) => return client_error(message),
+    };
+    let model_deployment_key = match metadata_header(&headers, MODEL_DEPLOYMENT_KEY_HEADER, false) {
+        Ok(value) => value,
+        Err(message) => return client_error(message),
+    };
+    let kv_namespace = match metadata_header(&headers, KV_NAMESPACE_HEADER, false) {
+        Ok(value) => value,
+        Err(message) => return client_error(message),
+    };
     let captured_at = match OffsetDateTime::now_utc().format(&Rfc3339) {
         Ok(value) => value,
         Err(_) => return server_error(),
@@ -49,6 +70,12 @@ async fn receive_request(
     let record = CapturedRequest {
         captured_at,
         source,
+        comparison: ComparisonMetadata {
+            endpoint_key,
+            agent_key,
+            model_deployment_key,
+            kv_namespace,
+        },
         payload,
     };
 
@@ -63,6 +90,28 @@ async fn receive_request(
             server_error()
         }
     }
+}
+
+fn metadata_header(
+    headers: &HeaderMap,
+    name: &'static str,
+    required: bool,
+) -> Result<Option<String>, &'static str> {
+    let Some(value) = headers.get(name) else {
+        return if required {
+            Err("X-Actrail-Endpoint-Key is required")
+        } else {
+            Ok(None)
+        };
+    };
+    let value = value
+        .to_str()
+        .map_err(|_| "comparison metadata headers must contain valid text")?
+        .trim();
+    if value.is_empty() {
+        return Err("comparison metadata headers must not be empty");
+    }
+    Ok(Some(value.to_owned()))
 }
 
 fn client_error(message: &'static str) -> Response {
@@ -105,6 +154,10 @@ mod tests {
                 Request::post("/requests")
                     .header("content-type", "application/json")
                     .header("X-Actrail-Source", "agent-hook")
+                    .header("X-Actrail-Endpoint-Key", "llm-primary")
+                    .header("X-Actrail-Agent-Key", "coding-agent")
+                    .header("X-Actrail-Model-Deployment-Key", "deployment-a")
+                    .header("X-Actrail-KV-Namespace", "cache-scope-a")
                     .body(Body::from(
                         r#"{"model":"example","messages":[{"content":"你好"}]}"#,
                     ))
@@ -119,8 +172,41 @@ mod tests {
         assert_eq!(line.lines().count(), 1);
         let captured: CapturedRequest = serde_json::from_str(line.trim_end()).expect("parse line");
         assert_eq!(captured.source.as_deref(), Some("agent-hook"));
+        assert_eq!(captured.comparison.endpoint_key, "llm-primary");
+        assert_eq!(
+            captured.comparison.agent_key.as_deref(),
+            Some("coding-agent")
+        );
+        assert_eq!(
+            captured.comparison.model_deployment_key.as_deref(),
+            Some("deployment-a")
+        );
+        assert_eq!(
+            captured.comparison.kv_namespace.as_deref(),
+            Some("cache-scope-a")
+        );
         assert_eq!(captured.payload["messages"][0]["content"], "你好");
         assert!(captured.captured_at.ends_with('Z'));
+    }
+
+    #[tokio::test]
+    async fn requires_explicit_endpoint_key() {
+        let directory = tempdir().expect("create temporary directory");
+        let output = directory.path().join("requests.ndjson");
+        let app = router(Arc::new(
+            NdjsonAppender::open(&output).expect("open appender"),
+        ));
+        let response = app
+            .oneshot(
+                Request::post("/requests")
+                    .body(Body::from(r#"{"model":"example"}"#))
+                    .expect("build request"),
+            )
+            .await
+            .expect("serve request");
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(fs::metadata(output).expect("output metadata").len(), 0);
     }
 
     #[tokio::test]
@@ -205,6 +291,7 @@ mod tests {
                     let response = app
                         .oneshot(
                             Request::post("/requests")
+                                .header("X-Actrail-Endpoint-Key", "llm-primary")
                                 .body(Body::from(format!(
                                     r#"{{"sequence":{sequence},"content":"line\n{sequence}"}}"#
                                 )))
@@ -241,6 +328,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::post("/requests")
+                    .header("X-Actrail-Endpoint-Key", "llm-primary")
                     .body(Body::from(r#"{"model":"example"}"#))
                     .expect("build request"),
             )

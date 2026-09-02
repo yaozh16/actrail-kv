@@ -3,7 +3,7 @@
 use std::io::Cursor;
 
 use actrail_kv_analyzer::run::{analyze_reader, AnalysisOptions};
-use actrail_kv_artifacts::{AnalysisResult, FindingCause};
+use actrail_kv_artifacts::{AnalysisResult, DefectFactKind, MismatchPattern};
 use serde_json::{json, Value};
 
 fn stable(label: &str) -> String {
@@ -14,9 +14,11 @@ fn analyze(payloads: Vec<Value>) -> AnalysisResult {
     let mut input = String::new();
     for payload in payloads {
         input.push_str(
-            &serde_json::to_string(
-                &json!({"captured_at":"2026-01-01T00:00:00Z","payload":payload}),
-            )
+            &serde_json::to_string(&json!({
+                "captured_at":"2026-01-01T00:00:00Z",
+                "comparison":{"endpoint_key":"primary"},
+                "payload":payload
+            }))
             .expect("fixture JSON"),
         );
         input.push('\n');
@@ -31,12 +33,17 @@ fn analyze(payloads: Vec<Value>) -> AnalysisResult {
     .expect("analysis succeeds")
 }
 
-fn causes(result: &AnalysisResult) -> Vec<FindingCause> {
+fn has_fact(result: &AnalysisResult, kind: DefectFactKind) -> bool {
     result
-        .findings
+        .defects
         .iter()
-        .map(|finding| finding.cause.clone())
-        .collect()
+        .flat_map(|defect| &defect.mismatch.facts)
+        .any(|fact| fact.kind == kind)
+}
+
+fn has_content_fact(result: &AnalysisResult) -> bool {
+    has_fact(result, DefectFactKind::ContentVariation)
+        || has_fact(result, DefectFactKind::FixedVariants)
 }
 
 fn chat(messages: Vec<Value>) -> Value {
@@ -56,7 +63,7 @@ fn detects_early_variable_content_without_value_shape_rules() {
         })
         .collect();
     let result = analyze(payloads);
-    assert!(causes(&result).contains(&FindingCause::EarlyVariableContent));
+    assert!(has_fact(&result, DefectFactKind::ContentVariation));
 }
 
 #[test]
@@ -71,14 +78,11 @@ fn detects_inline_dynamic_slot_with_unstructured_values() {
         .map(|content| chat(vec![json!({"role":"system","content":content})]))
         .collect();
     let result = analyze(payloads);
-    assert!(causes(&result).iter().any(|cause| {
-        matches!(
-            cause,
-            FindingCause::InlineDynamicSlot | FindingCause::SystemPromptDrift
-        )
-    }));
-    let finding = result.findings.first().expect("finding");
-    let offset = finding.source.byte_start.expect("byte offset");
+    assert!(has_fact(&result, DefectFactKind::ContentVariation));
+    let defect = result.defects.first().expect("defect");
+    let offset = defect.mismatch.variants[0].representative.sources[0]
+        .byte_start
+        .expect("byte offset");
     assert!(contents
         .iter()
         .all(|content| offset <= content.len() && content.is_char_boundary(offset)));
@@ -95,11 +99,10 @@ fn detects_dynamic_block_inserted_before_stable_block() {
         ]));
     }
     let result = analyze(payloads);
-    assert!(
-        causes(&result).contains(&FindingCause::DynamicBlockBeforeStable),
-        "causes={:?}, templates={}",
-        causes(&result),
-        result.templates.len()
+    assert!(has_fact(&result, DefectFactKind::InsertionDeletion));
+    assert_eq!(
+        result.defects[0].mismatch.pattern,
+        MismatchPattern::InsertionDeletion
     );
 }
 
@@ -119,7 +122,11 @@ fn detects_unique_tool_reordering() {
         })
         .collect();
     let result = analyze(payloads);
-    assert!(causes(&result).contains(&FindingCause::ToolOrderDrift));
+    assert!(
+        has_fact(&result, DefectFactKind::Reorder),
+        "result={result:#?}"
+    );
+    assert_eq!(result.defects[0].mismatch.pattern, MismatchPattern::Reorder);
 }
 
 #[test]
@@ -138,7 +145,8 @@ fn detects_tool_definition_and_prompt_version_drift() {
             "messages":[{"role":"system","content":stable("after-definition")}]
         }))
         .collect();
-    assert!(causes(&analyze(tool_payloads)).contains(&FindingCause::ToolDefinitionDrift));
+    let tool_result = analyze(tool_payloads);
+    assert!(has_content_fact(&tool_result), "result={tool_result:#?}");
 
     let prompt_payloads = [
         "Follow policy A. ",
@@ -154,7 +162,7 @@ fn detects_tool_definition_and_prompt_version_drift() {
         })])
     })
     .collect();
-    assert!(causes(&analyze(prompt_payloads)).contains(&FindingCause::SystemPromptDrift));
+    assert!(has_content_fact(&analyze(prompt_payloads)));
 }
 
 #[test]
@@ -173,12 +181,7 @@ fn detects_non_append_history_and_visible_json_formatting() {
         ]));
     }
     let history_result = analyze(histories);
-    assert!(
-        causes(&history_result).contains(&FindingCause::NonAppendOnlyHistory),
-        "causes={:?}, templates={}",
-        causes(&history_result),
-        history_result.templates.len()
-    );
+    assert!(has_fact(&history_result, DefectFactKind::InsertionDeletion));
 
     let payloads = [
         "{\"alpha\":1,\"beta\":2}",
@@ -194,7 +197,10 @@ fn detects_non_append_history_and_visible_json_formatting() {
         ])
     })
     .collect();
-    assert!(causes(&analyze(payloads)).contains(&FindingCause::ModelVisibleFormatDrift));
+    assert!(has_fact(
+        &analyze(payloads),
+        DefectFactKind::StructuredDataEquivalent
+    ));
 }
 
 #[test]
@@ -208,13 +214,13 @@ fn suppresses_dynamic_suffix_non_context_distinct_template_and_cross_domain() {
             ])
         })
         .collect();
-    assert!(analyze(suffix_only).findings.is_empty());
+    assert!(analyze(suffix_only).defects.is_empty());
 
     let non_context = [0.1, 0.2, 0.3, 0.4]
         .into_iter()
         .map(|temperature| json!({"model":"model-a","temperature":temperature,"messages":[{"role":"system","content":stable("identical")}]}))
         .collect();
-    assert!(analyze(non_context).findings.is_empty());
+    assert!(analyze(non_context).defects.is_empty());
 
     let distinct = [
         "translate text",
@@ -225,17 +231,17 @@ fn suppresses_dynamic_suffix_non_context_distinct_template_and_cross_domain() {
     .into_iter()
     .map(|role| chat(vec![json!({"role":"system","content":role})]))
     .collect();
-    assert!(analyze(distinct).findings.is_empty());
+    assert!(analyze(distinct).defects.is_empty());
 
     let cross_model = ["a", "b", "c", "d"]
         .into_iter()
         .map(|model| json!({"model":model,"messages":[{"role":"system","content":format!("variable {model} {}",stable("tail"))}]}))
         .collect();
-    assert!(analyze(cross_model).findings.is_empty());
+    assert!(analyze(cross_model).defects.is_empty());
 }
 
 #[test]
-fn findings_and_ranking_are_input_permutation_invariant() {
+fn defects_and_ranking_are_input_permutation_invariant() {
     let tail = stable("permutation-tail");
     let mut payloads: Vec<_> = ["north", "south", "east", "west"]
         .into_iter()
@@ -250,7 +256,7 @@ fn findings_and_ranking_are_input_permutation_invariant() {
     payloads.reverse();
     let second = analyze(payloads);
     assert_eq!(first.templates, second.templates);
-    assert_eq!(first.findings, second.findings);
+    assert_eq!(first.defects, second.defects);
     assert_eq!(first.top_k, second.top_k);
 }
 
@@ -272,11 +278,22 @@ fn mixed_corpus_ranks_aggregated_roots_without_pair_amplification() {
     payloads.extend(group("CHARLIE", 4, 180));
     let result = analyze(payloads);
 
-    assert_eq!(result.findings.len(), 3, "findings={:?}", result.findings);
+    assert_eq!(result.defects.len(), 3, "defects={:?}", result.defects);
     assert_eq!(result.top_k.len(), 3);
-    assert!(result.top_k[0].score.score > result.top_k[1].score.score);
-    assert!(result.top_k[1].score.score > result.top_k[2].score.score);
-    assert_eq!(result.findings[0].affected_count, 5);
-    assert_eq!(result.findings[1].affected_count, 4);
-    assert_eq!(result.findings[2].affected_count, 3);
+    let ranked: Vec<_> = result
+        .top_k
+        .iter()
+        .map(|id| {
+            result
+                .defects
+                .iter()
+                .find(|defect| &defect.id == id)
+                .expect("ranked defect exists")
+        })
+        .collect();
+    assert!(ranked[0].score.score > ranked[1].score.score);
+    assert!(ranked[1].score.score > ranked[2].score.score);
+    assert_eq!(ranked[0].affected_count, 5);
+    assert_eq!(ranked[1].affected_count, 4);
+    assert_eq!(ranked[2].affected_count, 3);
 }

@@ -18,7 +18,7 @@ actrail-kv-receiver \
 | `--listen` | `127.0.0.1:8080` | HTTP 监听地址。默认仅 loopback；跨主机接入应在内网反向代理后显式配置。 |
 | `--output` | 无，必填 | 接收语料的 NDJSON 路径。进程独占该文件，文件权限收紧为仅属主可读写。 |
 
-Receiver 接受 `POST /requests`，body 必须是完整 JSON object。可选请求头 `X-Actrail-Source` 仅记录采集来源；它不参与模板和诊断规则。
+Receiver 接受 `POST /requests`，body 必须是完整 JSON object。`X-Actrail-Endpoint-Key` 必填；`X-Actrail-Agent-Key`、`X-Actrail-Model-Deployment-Key`、`X-Actrail-KV-Namespace` 和 `X-Actrail-Source` 可选。前三项 metadata 提供后参与 comparison group，source 只记录采集来源。
 
 ## Analyze
 
@@ -26,14 +26,16 @@ Receiver 接受 `POST /requests`，body 必须是完整 JSON object。可选请�
 actrail-kv-analyze \
   --input /var/lib/actrail-kv/requests.ndjson \
   --output /var/lib/actrail-kv/analysis.json \
-  --top-k 20
+  --top-k 20 \
+  --comparison-window-seconds 3600
 ```
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
 | `--input` | 无，必填 | receiver 产出的 NDJSON 语料。 |
 | `--output` | 无，必填 | 分析 JSON 的新路径；不得与 input 为同一文件或同一硬链接。 |
-| `--top-k` | `20` | 最终报告保留的聚合 Finding 数，必须大于零。 |
+| `--top-k` | `20` | 最终报告保留的聚合 defect 数，必须大于零。 |
+| `--comparison-window-seconds` | `3600` | 固定 UTC 时间窗口宽度；只有同一窗口内的请求才相互比较。 |
 
 ### 固定算法阈值
 
@@ -80,4 +82,4 @@ actrail-kv-report \
 
 ## 当前适配范围
 
-分析器只支持 OpenAI-compatible chat payload：字符串 `model`、数组 `messages` 和可选 `tools`。不同 model 或 dialect 绝不进入同一比较域。没有 tokenizer、模型 chat template 或真实 KV 命中数据时，`blocked_stable_bytes` 是可观察请求结构的代理指标，而不是 Token、KV miss 或金额收益。
+分析器只支持 OpenAI-compatible chat payload：字符串 `model`、数组 `messages` 和可选 `tools`。不同 comparison group 绝不互相聚类。没有 tokenizer、模型 chat template 或真实 KV 命中数据时，`blocked_stable_bytes` 是可观察请求结构的代理指标，而不是 Token、KV miss 或金额收益。

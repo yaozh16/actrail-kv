@@ -2,12 +2,7 @@
 
 use std::ops::Range;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ComparisonDomain {
-    pub dialect: String,
-    pub model: String,
-    pub adapter_revision: String,
-}
+pub use crate::model::comparison::ComparisonGroupKey as ComparisonDomain;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CacheUnitKind {
@@ -17,6 +12,22 @@ pub enum CacheUnitKind {
     ToolDefinition,
     ToolCall,
     ToolResult,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ContextCollectionKind {
+    Request,
+    Tools,
+    Messages,
+    ContentBlocks,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HierarchyLocation {
+    pub collection: ContextCollectionKind,
+    pub parent_json_path: String,
+    pub element_index: Option<usize>,
+    pub content_block_index: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,6 +45,7 @@ pub struct CacheUnit {
     pub content: String,
     pub source: SourceLocation,
     pub tool_identity: Option<String>,
+    pub hierarchy: HierarchyLocation,
 }
 
 impl CacheUnit {
@@ -73,6 +85,7 @@ pub enum ProjectionSkipReason {
         bytes: usize,
         limit: usize,
     },
+    InvalidComparisonGroup(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

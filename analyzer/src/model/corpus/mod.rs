@@ -4,4 +4,6 @@ mod loader;
 mod types;
 
 pub use loader::{CorpusLoadLimits, CorpusLoader};
-pub use types::{AnalysisCorpus, CorpusLoadResult, CorpusRecord, CorpusSkip, CorpusSkipReason};
+pub use types::{
+    AnalysisCorpus, CaptureComparison, CorpusLoadResult, CorpusRecord, CorpusSkip, CorpusSkipReason,
+};

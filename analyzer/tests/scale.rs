@@ -9,6 +9,8 @@ use serde_json::json;
 fn ten_thousand_homogeneous_requests_form_one_cohort() {
     const RECORDS: usize = 10_000;
     let line = serde_json::to_string(&json!({
+        "captured_at":"2026-01-01T00:00:00Z",
+        "comparison":{"endpoint_key":"primary"},
         "payload": {
             "model":"scale-model",
             "messages":[{"role":"system","content":"a stable prompt repeated across a large offline corpus"}]
@@ -25,7 +27,7 @@ fn ten_thousand_homogeneous_requests_form_one_cohort() {
     assert_eq!(result.run.analyzed_records, RECORDS);
     assert_eq!(result.templates.len(), 1);
     assert_eq!(result.templates[0].member_request_ids.len(), RECORDS);
-    assert!(result.findings.is_empty());
+    assert!(result.defects.is_empty());
     assert!(result
         .run
         .limitations

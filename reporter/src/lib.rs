@@ -66,98 +66,49 @@ fn sync_parent(_parent: &Path) -> Result<()> {
 mod tests {
     use std::fs;
 
-    use actrail_kv_artifacts::{
-        AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, Evidence, Finding,
-        FindingCause, RequestTemplate, ScoreBreakdown, SourceLocation, TopKEntry,
-    };
-
     use super::*;
+    use crate::result_loader::tests::fixture;
 
     #[test]
     fn report_escapes_untrusted_evidence() {
         let directory = tempfile::tempdir().expect("tempdir");
         let input = directory.path().join("analysis.json");
         let output = directory.path().join("report.html");
-        let score = ScoreBreakdown {
-            blocked_stable_bytes: 100,
-            affected_count: 2,
-            confidence: 0.9,
-            score: 180.0,
-        };
-        let result = AnalysisResult {
-            run: AnalysisRunSummary {
-                schema_version: "0.1.0".into(),
-                input_records: 3,
-                analyzed_records: 3,
-                skipped_records: vec![],
-                options: AnalysisOptionsSnapshot {
-                    top_k: 1,
-                    min_template_members: 3,
-                    stable_span_support_ratio: 0.8,
-                    min_stable_support: 3,
-                    min_blocked_stable_bytes: 64,
-                    min_exact_anchor_bytes: 24,
-                    text_similarity_threshold: 0.8,
-                    template_compatibility_threshold: 0.68,
-                    max_dynamic_coverage_ratio: 0.35,
-                    max_candidates_per_request: 128,
-                    max_projection_units: 512,
-                    max_text_unit_bytes: 1_048_576,
-                    max_payload_bytes: 8_388_608,
-                    max_alignment_cells: 2_000_000,
-                    max_total_alignment_cells: 64_000_000,
-                    max_records: 1_000_000,
-                },
-                limitations: vec!["proxy only".into()],
-            },
-            templates: vec![RequestTemplate {
-                id: "template".into(),
-                dialect: "openai-compatible-chat".into(),
-                model: "model".into(),
-                adapter_revision: "1".into(),
-                member_request_ids: vec!["request-a".into(), "request-b".into()],
-                medoid_request_id: "request-a".into(),
-                cohesion: 0.9,
-                stable_spans: vec![],
-                slots: vec![],
-            }],
-            findings: vec![Finding {
-                id: "finding".into(),
-                template_id: "template".into(),
-                cause: FindingCause::InlineDynamicSlot,
-                source: SourceLocation {
-                    json_path: "$.messages[0].content".into(),
-                    unit_index: Some(0),
-                    byte_start: Some(0),
-                    byte_end: Some(8),
-                    role: Some("system".into()),
-                },
-                actual_prefix_bytes: 0,
-                potential_prefix_bytes: 100,
-                blocked_stable_bytes: 100,
-                affected_count: 2,
-                confidence: 0.9,
-                score: score.clone(),
-                evidence: Evidence {
-                    representative_request_ids: vec!["request-a".into(), "request-b".into()],
-                    divergent_excerpts: vec!["<script>alert(1)</script>&\"".into()],
-                    blocked_stable_excerpt: "stable".into(),
-                },
-                counterfactual: "move".into(),
-                recommendation: "review".into(),
-            }],
-            top_k: vec![TopKEntry {
-                rank: 1,
-                finding_id: "finding".into(),
-                score,
-            }],
-        };
+        let mut result = fixture();
+        result.templates[0].comparison_group.endpoint_key = "<iframe>endpoint</iframe>".into();
+        result.defects[0].comparison_group.endpoint_key = "<iframe>endpoint</iframe>".into();
+        result.defects[0].id = "<svg onload=alert(1)>".into();
+        result.top_k[0] = result.defects[0].id.clone();
+        result.defects[0].mismatch.variants[0]
+            .representative
+            .request_id = "<u>request-a</u>".into();
+        result.defects[0].mismatch.variants[0].member_request_ids[0] = "<u>request-a</u>".into();
+        result.templates[0].member_request_ids[0] = "<u>request-a</u>".into();
+        result.templates[0].medoid_request_id = "<u>request-a</u>".into();
+        result.defects[0].mismatch.variants[0]
+            .representative
+            .sources[0]
+            .json_path = "<a href=evil>path</a>".into();
         fs::write(&input, serde_json::to_vec(&result).expect("serialize")).expect("fixture");
 
         write_report(&input, &output).expect("render report");
         let html = fs::read_to_string(output).expect("report");
-        assert!(!html.contains("<script>alert(1)</script>"));
-        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;&amp;\""));
+        for unsafe_fragment in [
+            "<script>alert(1)</script>",
+            "<script>stable()</script>",
+            "<img src=x onerror=alert(1)>",
+            "<b>统一生成方式</b>",
+            "<iframe>endpoint</iframe>",
+            "<svg onload=alert(1)>",
+            "<u>request-a</u>",
+            "<a href=evil>path</a>",
+        ] {
+            assert!(!html.contains(unsafe_fragment));
+        }
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(html.contains("<strong>P1</strong>"));
+        assert!(html.contains("<strong>X</strong>"));
+        assert!(html.contains("<strong>P2</strong>"));
     }
 
     #[test]

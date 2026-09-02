@@ -4,6 +4,8 @@ use std::ops::Range;
 
 use crate::model::projection::{CacheSequence, ComparisonDomain, SourceLocation};
 
+use super::symbolic::{MemberCoordinateMap, SymbolicMemberSequence, TemplateCoordinate};
+
 #[derive(Clone, Debug)]
 pub struct StableSpan {
     pub unit_index: usize,
@@ -32,6 +34,9 @@ pub struct RequestTemplate {
     pub members: Vec<CacheSequence>,
     pub stable_spans: Vec<StableSpan>,
     pub slots: Vec<TemplateSlot>,
+    pub coordinates: Vec<TemplateCoordinate>,
+    pub member_maps: Vec<MemberCoordinateMap>,
+    pub symbolic_members: Vec<SymbolicMemberSequence>,
     pub cohesion: f64,
     pub projection_reliability: f64,
 }

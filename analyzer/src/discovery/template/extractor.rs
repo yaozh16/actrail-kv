@@ -10,8 +10,8 @@ use crate::{
 };
 
 use super::{
-    RequestTemplate, SequenceAligner, StableSpan, TemplateExtractionResult, TemplateSkip,
-    TemplateSlot,
+    symbolic::build_symbolic_template, RequestTemplate, SequenceAligner, StableSpan,
+    TemplateExtractionResult, TemplateSkip, TemplateSlot,
 };
 
 #[derive(Clone, Debug)]
@@ -79,6 +79,7 @@ impl TemplateExtractor {
             .collect::<Result<Vec<_>, _>>()?;
         let mut stable_spans = Vec::new();
         let mut slots = Vec::new();
+        let mut text_mappings = vec![None; cohort.medoid.units.len()];
         for (unit_index, medoid_unit) in cohort.medoid.units.iter().enumerate() {
             let aligned_units: Vec<_> = cohort
                 .members
@@ -89,7 +90,7 @@ impl TemplateExtractor {
                 })
                 .collect();
             if medoid_unit.kind == CacheUnitKind::VisibleText {
-                self.extract_text_unit(
+                text_mappings[unit_index] = Some(self.extract_text_unit(
                     unit_index,
                     medoid_unit,
                     &aligned_units,
@@ -97,7 +98,7 @@ impl TemplateExtractor {
                     &mut remaining_cells,
                     &mut stable_spans,
                     &mut slots,
-                )?;
+                )?);
             } else {
                 self.extract_atomic_unit(
                     unit_index,
@@ -114,6 +115,8 @@ impl TemplateExtractor {
             .iter()
             .map(|member| member.projection_reliability())
             .fold(1.0f64, f64::min);
+        let (coordinates, member_maps, symbolic_members) =
+            build_symbolic_template(cohort, &alignments, &text_mappings, &stable_spans, &slots);
         Ok(RequestTemplate {
             id: template_id(cohort),
             domain: cohort.domain.clone(),
@@ -121,6 +124,9 @@ impl TemplateExtractor {
             members: cohort.members.clone(),
             stable_spans,
             slots,
+            coordinates,
+            member_maps,
+            symbolic_members,
             cohesion: cohort.cohesion,
             projection_reliability: reliability,
         })
@@ -174,7 +180,7 @@ impl TemplateExtractor {
         remaining_cells: &mut usize,
         stable_spans: &mut Vec<StableSpan>,
         slots: &mut Vec<TemplateSlot>,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<Vec<Option<usize>>>, String> {
         let medoid_chars: Vec<_> = medoid.content.char_indices().collect();
         let mut mappings = Vec::with_capacity(aligned.len());
         for unit in aligned {
@@ -272,7 +278,7 @@ impl TemplateExtractor {
         {
             slots.push(template_slot(unit_index, medoid, 0..0, aligned));
         }
-        Ok(())
+        Ok(mappings)
     }
 
     fn is_stable(&self, support: usize, total: usize) -> bool {
@@ -305,8 +311,13 @@ fn template_slot(
     range: std::ops::Range<usize>,
     aligned: &[Option<&CacheUnit>],
 ) -> TemplateSlot {
-    let values = aligned.iter().flatten().map(|unit| unit.content.clone());
-    make_slot(unit_index, medoid, range, values, aligned.len())
+    let values: Vec<_> = aligned
+        .iter()
+        .flatten()
+        .map(|unit| unit.content.clone())
+        .collect();
+    let support_count = values.len();
+    make_slot(unit_index, medoid, range, values, support_count)
 }
 
 fn template_slot_text(
@@ -317,35 +328,40 @@ fn template_slot_text(
     aligned: &[Option<&CacheUnit>],
     mappings: &[Vec<Option<usize>>],
 ) -> TemplateSlot {
-    let values = aligned.iter().zip(mappings).filter_map(|(unit, mapping)| {
-        let unit = (*unit)?;
-        let member_bytes: Vec<_> = unit
-            .content
-            .char_indices()
-            .map(|(byte, _)| byte)
-            .chain(std::iter::once(unit.content.len()))
-            .collect();
-        let start_char = if char_range.start == 0 {
-            0
-        } else {
-            mapping[char_range.start - 1]?.saturating_add(1)
-        };
-        let end_char = if char_range.end == mapping.len() {
-            member_bytes.len().saturating_sub(1)
-        } else {
-            mapping[char_range.end]?
-        };
-        (start_char <= end_char && end_char < member_bytes.len())
-            .then(|| unit.content[member_bytes[start_char]..member_bytes[end_char]].to_owned())
-    });
-    make_slot(unit_index, medoid, byte_range, values, aligned.len())
+    let values: Vec<_> = aligned
+        .iter()
+        .zip(mappings)
+        .filter_map(|(unit, mapping)| {
+            let unit = (*unit)?;
+            let member_bytes: Vec<_> = unit
+                .content
+                .char_indices()
+                .map(|(byte, _)| byte)
+                .chain(std::iter::once(unit.content.len()))
+                .collect();
+            let start_char = if char_range.start == 0 {
+                0
+            } else {
+                mapping[char_range.start - 1]?.saturating_add(1)
+            };
+            let end_char = if char_range.end == mapping.len() {
+                member_bytes.len().saturating_sub(1)
+            } else {
+                mapping[char_range.end]?
+            };
+            (start_char <= end_char && end_char < member_bytes.len())
+                .then(|| unit.content[member_bytes[start_char]..member_bytes[end_char]].to_owned())
+        })
+        .collect();
+    let support_count = values.len();
+    make_slot(unit_index, medoid, byte_range, values, support_count)
 }
 
 fn make_slot(
     unit_index: usize,
     medoid: &CacheUnit,
     range: std::ops::Range<usize>,
-    values: impl Iterator<Item = String>,
+    values: impl IntoIterator<Item = String>,
     support_count: usize,
 ) -> TemplateSlot {
     const MAX_EXAMPLES: usize = 16;

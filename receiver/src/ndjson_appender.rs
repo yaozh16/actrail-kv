@@ -128,7 +128,7 @@ mod tests {
         thread,
     };
 
-    use actrail_kv_artifacts::CapturedRequest;
+    use actrail_kv_artifacts::{CapturedRequest, ComparisonMetadata};
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -152,6 +152,7 @@ mod tests {
                             .append(&CapturedRequest {
                                 captured_at: "2026-09-02T00:00:00Z".to_owned(),
                                 source: Some(format!("writer-{writer}")),
+                                comparison: comparison(),
                                 payload: json!({
                                     "writer": writer,
                                     "record": record,
@@ -267,7 +268,17 @@ mod tests {
         CapturedRequest {
             captured_at: "2026-09-02T00:00:00Z".to_owned(),
             source: None,
+            comparison: comparison(),
             payload: json!({"model": "example"}),
+        }
+    }
+
+    fn comparison() -> ComparisonMetadata {
+        ComparisonMetadata {
+            endpoint_key: "llm-primary".to_owned(),
+            agent_key: None,
+            model_deployment_key: None,
+            kv_namespace: None,
         }
     }
 

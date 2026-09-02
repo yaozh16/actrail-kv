@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sha2::{Digest, Sha256};
 
-use crate::model::projection::{CacheSequence, CacheUnit, CacheUnitKind};
+use crate::model::projection::{CacheSequence, CacheUnit, CacheUnitKind, ContextCollectionKind};
 
 const MAX_SHINGLES_PER_UNIT: usize = 256;
 const SHINGLE_BYTES: usize = 4;
@@ -29,7 +29,13 @@ impl StructureSignature {
         let keys = sequence
             .units
             .iter()
-            .map(|unit| unit.alignment_key.as_str())
+            .map(|unit| {
+                format!(
+                    "{}:{}",
+                    collection_name(&unit.hierarchy.collection),
+                    unit.alignment_key
+                )
+            })
             .collect::<Vec<_>>()
             .join("\u{1f}");
         let mut digest = Sha256::new();
@@ -75,7 +81,12 @@ pub fn bounded_text_similarity(left: &str, right: &str) -> f64 {
     bounded_byte_similarity(left.as_bytes(), right.as_bytes())
 }
 
-type UnitKey<'a> = (CacheUnitKind, &'a str, Option<&'a str>);
+type UnitKey<'a> = (
+    ContextCollectionKind,
+    CacheUnitKind,
+    &'a str,
+    Option<&'a str>,
+);
 
 fn observable_similarity(left: &CacheSequence, right: &CacheSequence) -> (f64, f64) {
     let mut left_groups: BTreeMap<UnitKey<'_>, Vec<&CacheUnit>> = BTreeMap::new();
@@ -155,10 +166,20 @@ fn observable_similarity(left: &CacheSequence, right: &CacheSequence) -> (f64, f
 
 fn unit_key(unit: &CacheUnit) -> UnitKey<'_> {
     (
+        unit.hierarchy.collection.clone(),
         unit.kind.clone(),
         unit.alignment_key.as_str(),
         unit.tool_identity.as_deref(),
     )
+}
+
+fn collection_name(collection: &ContextCollectionKind) -> &'static str {
+    match collection {
+        ContextCollectionKind::Request => "request",
+        ContextCollectionKind::Tools => "tools",
+        ContextCollectionKind::Messages => "messages",
+        ContextCollectionKind::ContentBlocks => "content-blocks",
+    }
 }
 
 fn bounded_byte_similarity(left: &[u8], right: &[u8]) -> f64 {
@@ -225,14 +246,22 @@ fn tool_jaccard(left: &CacheSequence, right: &CacheSequence) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::projection::{ComparisonDomain, SourceLocation};
+    use crate::model::projection::{
+        ComparisonDomain, ContextCollectionKind, HierarchyLocation, SourceLocation,
+    };
 
     fn sequence(model: &str, units: Vec<CacheUnit>) -> CacheSequence {
         CacheSequence {
             request_id: model.into(),
             domain: ComparisonDomain {
+                time_window_key: 0,
+                endpoint_key: "chat".into(),
                 dialect: "d".into(),
                 model: model.into(),
+                model_deployment_key: None,
+                context_schema_key: "chat/v1".into(),
+                agent_key: None,
+                kv_namespace: None,
                 adapter_revision: "1".into(),
             },
             units,
@@ -252,6 +281,12 @@ mod tests {
             },
             content,
             tool_identity: tool.map(str::to_owned),
+            hierarchy: HierarchyLocation {
+                collection: ContextCollectionKind::Messages,
+                parent_json_path: "$.messages".into(),
+                element_index: None,
+                content_block_index: None,
+            },
         }
     }
 

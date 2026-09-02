@@ -3,18 +3,31 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComparisonMetadata {
+    pub endpoint_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_deployment_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kv_namespace: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapturedRequest {
     pub captured_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    pub comparison: ComparisonMetadata,
     pub payload: Value,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::CapturedRequest;
+    use super::{CapturedRequest, ComparisonMetadata};
     use serde_json::json;
 
     #[test]
@@ -22,6 +35,7 @@ mod tests {
         let record = CapturedRequest {
             captured_at: "2026-09-02T08:09:10.123456789Z".to_owned(),
             source: Some("instrumentation/agent-a".to_owned()),
+            comparison: comparison(),
             payload: json!({"model": "example", "messages": [{"role": "user", "content": "你好"}]}),
         };
 
@@ -37,6 +51,7 @@ mod tests {
         let record = CapturedRequest {
             captured_at: "2026-09-02T08:09:10Z".to_owned(),
             source: None,
+            comparison: comparison(),
             payload: json!({}),
         };
 
@@ -46,5 +61,35 @@ mod tests {
             serde_json::from_value::<CapturedRequest>(encoded).expect("deserialize record"),
             record
         );
+    }
+
+    #[test]
+    fn comparison_endpoint_is_required_but_dimensions_are_optional() {
+        let missing_endpoint = json!({
+            "captured_at": "2026-09-02T08:09:10Z",
+            "comparison": {},
+            "payload": {}
+        });
+        assert!(serde_json::from_value::<CapturedRequest>(missing_endpoint).is_err());
+
+        let minimal = json!({
+            "captured_at": "2026-09-02T08:09:10Z",
+            "comparison": {"endpoint_key": "primary"},
+            "payload": {}
+        });
+        let decoded: CapturedRequest = serde_json::from_value(minimal).expect("minimal envelope");
+        assert_eq!(decoded.comparison.endpoint_key, "primary");
+        assert_eq!(decoded.comparison.agent_key, None);
+        assert_eq!(decoded.comparison.model_deployment_key, None);
+        assert_eq!(decoded.comparison.kv_namespace, None);
+    }
+
+    fn comparison() -> ComparisonMetadata {
+        ComparisonMetadata {
+            endpoint_key: "llm-primary".to_owned(),
+            agent_key: Some("coding-agent".to_owned()),
+            model_deployment_key: Some("deployment-a".to_owned()),
+            kv_namespace: None,
+        }
     }
 }

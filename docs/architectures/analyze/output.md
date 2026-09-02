@@ -1,122 +1,133 @@
-<!-- 本文件定义 actrail-kv-analyze 产物 analysis.json 的字段协议、根因枚举及稳定排序规则。 -->
+<!-- 本文件定义 actrail-kv-analyze 产物 analysis.json 的统一 P1/X/P2 字段协议和排序契约。 -->
 # Analyze 输出
 
-## `analysis.json` 输出协议
+`actrail-kv-analyze` 输出一个 JSON object。字段路径中的 `[]` 表示数组成员，`?` 表示字段可以省略。
 
-`actrail-kv-analyze` 的输出是一个 JSON object。
+## 字段协议
 
-- 字段路径采用 API 参考写法：`[]` 表示数组成员，`?` 表示该字段可省略。
-- object 与 array 本身也有字段行，说明其职责和消费方式。
-- 消费者使用 `run.schema_version` 选择解析逻辑。
-- `top_k[]` 是当前实现给出的行动优先级列表；调用方无需按请求对重新计算排名。
-
-如果你刚开始使用本工具，先阅读[请求模板概念](../../concepts/template.md)，再查阅以下字段协议。
 | 字段路径 | 类型 | 含义 |
 |---|---|---|
-| `run` | object | 本次分析运行摘要、输入处理结果、完整参数快照与解释限制。 |
-| `run.schema_version` | string | 产物 schema 版本，供下游兼容性判断。 |
-| `run.input_records` | integer | 输入 NDJSON 中读取的记录总数。 |
+| `run` | object | 本次分析运行摘要。 |
+| `run.schema_version` | string | 当前为 `0.1.0`。 |
+| `run.input_records` | integer | 读取的 NDJSON 记录数。 |
 | `run.analyzed_records` | integer | 成功投影并进入分析的记录数。 |
-| `run.skipped_records[]` | object array | 未参与分析的输入记录及其原因。 |
-| `run.skipped_records[].record_index` | integer | 未分析记录在输入 NDJSON 中的一基行号。 |
-| `run.skipped_records[].reason` | string | 未分析原因。 |
-| `run.options` | object | 本次实际生效的算法阈值和资源预算快照；不可假定等同于未来运行的默认值。 |
-| `run.options.top_k` | integer | 本次产物请求的 Top K 数量。 |
-| `run.options.min_template_members` | integer | 抽取模板所需的最小成员数。 |
-| `run.options.stable_span_support_ratio` | number | stable span 最小成员支持率。 |
-| `run.options.min_stable_support` | integer | stable span 最小成员支持数。 |
-| `run.options.min_blocked_stable_bytes` | integer | 产生 Finding 所需的最小被阻断稳定 UTF-8 bytes。 |
-| `run.options.min_exact_anchor_bytes` | integer | 恢复稳定内容所需的最小精确锚点 UTF-8 bytes。 |
-| `run.options.text_similarity_threshold` | number | 有界文本 shingle 相似度阈值。 |
-| `run.options.template_compatibility_threshold` | number | 候选请求加入同一模板的结构兼容阈值。 |
-| `run.options.max_dynamic_coverage_ratio` | number | 模板允许的最大动态区域比例。 |
+| `run.skipped_records[]` | object array | 未进入分析的记录。 |
+| `run.skipped_records[].record_index` | integer | 输入文件中的一基行号。 |
+| `run.skipped_records[].reason` | string | 跳过原因。 |
+| `run.options` | object | 本次实际生效的参数快照。 |
+| `run.options.top_k` | integer | Top K 数量。 |
+| `run.options.comparison_window_seconds` | integer | 固定 UTC comparison window 宽度。 |
+| `run.options.min_template_members` | integer | 模板最小成员数。 |
+| `run.options.stable_span_support_ratio` | number | 稳定片段最小支持率。 |
+| `run.options.min_stable_support` | integer | 稳定片段最小支持数。 |
+| `run.options.min_blocked_stable_bytes` | integer | 形成 defect 所需的最小 P2 bytes。 |
+| `run.options.min_exact_anchor_bytes` | integer | P2 精确锚点最小 bytes。 |
+| `run.options.text_similarity_threshold` | number | 候选文本相似度门槛。 |
+| `run.options.template_compatibility_threshold` | number | 模板结构兼容门槛。 |
+| `run.options.max_dynamic_coverage_ratio` | number | 模板最大动态覆盖率。 |
 | `run.options.max_candidates_per_request` | integer | 单请求候选召回上限。 |
 | `run.options.max_projection_units` | integer | 单请求投影单元上限。 |
-| `run.options.max_text_unit_bytes` | integer | 单文本单元 UTF-8 byte 上限。 |
-| `run.options.max_payload_bytes` | integer | 单 payload byte 上限。 |
-| `run.options.max_alignment_cells` | integer | 单次序列对齐 cell 上限。 |
+| `run.options.max_text_unit_bytes` | integer | 单文本单元 byte 上限。 |
+| `run.options.max_payload_bytes` | integer | 单输入记录 byte 上限。 |
+| `run.options.max_alignment_cells` | integer | 单次对齐 cell 上限。 |
 | `run.options.max_total_alignment_cells` | integer | 单 cohort 累计对齐 cell 上限。 |
-| `run.options.max_records` | integer | 单次分析可读取的记录数上限。 |
-| `run.limitations?[]` | string | 影响解释范围的说明。 |
-| `templates[]` | object array | 以相同比较域和相近结构聚合的请求模板。 |
-| `templates[].id` | string | 模板稳定 ID；由 `findings[].template_id` 关联。 |
-| `templates[].dialect` | string | 请求 adapter/dialect。 |
-| `templates[].model` | string | 模型名；不同 model 不进入同一模板。 |
-| `templates[].adapter_revision` | string | adapter 修订号；不同修订号不进入同一模板。 |
-| `templates[].member_request_ids[]` | string | 模板成员的稳定请求 ID。 |
-| `templates[].medoid_request_id` | string | 确定性对齐基准的代表请求 ID。 |
-| `templates[].cohesion` | number，`0..1` | 模板成员的结构一致性；越高越紧凑。 |
-| `templates[].stable_spans[]` | object array | 模板成员共同支持的连续稳定片段。 |
-| `templates[].stable_spans[].source` | object | 稳定片段在原始 payload 中的定位信息。 |
-| `templates[].stable_spans[].source.json_path` | string | 原 payload 的 JSONPath。 |
+| `run.options.max_records` | integer | 单次加载记录数上限。 |
+| `run.limitations?[]` | string array | 本次结果的解释限制。 |
+| `templates[]` | object array | comparison group 内抽取的请求模板。 |
+| `templates[].id` | string | 模板稳定 ID。 |
+| `templates[].comparison_group` | object | 该模板的比较边界。 |
+| `templates[].comparison_group.time_window_key` | string | 固定 UTC 时间窗口起点的 Unix seconds。 |
+| `templates[].comparison_group.endpoint_key` | string | endpoint 或逻辑路由。 |
+| `templates[].comparison_group.model` | string | payload 中的模型。 |
+| `templates[].comparison_group.context_schema_key` | string | adapter 生成的模型可见结构版本。 |
+| `templates[].comparison_group.agent_key?` | string | 可选 Agent key。 |
+| `templates[].comparison_group.model_deployment_key?` | string | 可选模型部署 key。 |
+| `templates[].comparison_group.kv_namespace?` | string | 可选真实 KV namespace。 |
+| `templates[].member_request_ids[]` | string array | 模板成员的稳定请求 ID。 |
+| `templates[].medoid_request_id` | string | 确定性对齐基准成员。 |
+| `templates[].cohesion` | number，`0..1` | 模板结构一致性。 |
+| `templates[].stable_spans[]` | object array | 达到支持门槛的稳定文本片段。 |
+| `templates[].stable_spans[].source` | object | 稳定片段来源。 |
+| `templates[].stable_spans[].source.json_path` | string | 原 payload JSONPath。 |
+| `templates[].stable_spans[].source.logical_scope[]` | string array | 模型可见层级定位。 |
 | `templates[].stable_spans[].source.unit_index?` | integer | 投影单元序号。 |
-| `templates[].stable_spans[].source.byte_start?` | integer | 原 UTF-8 字符串中片段的起始 byte offset。 |
-| `templates[].stable_spans[].source.byte_end?` | integer | 原 UTF-8 字符串中片段的排他结束 byte offset。 |
-| `templates[].stable_spans[].source.role?` | string | chat message role。 |
-| `templates[].stable_spans[].utf8_bytes` | integer | 稳定片段长度。 |
-| `templates[].stable_spans[].support_count` | integer | 支持该片段的模板成员数。 |
-| `templates[].stable_spans[].excerpt?` | string | 用于人工核验的稳定片段摘录。 |
-| `templates[].slots[]` | object array | 模板内的动态区域及其变体统计。 |
-| `templates[].slots[].source` | object | 动态槽位在原始 payload 中的定位信息。 |
-| `templates[].slots[].source.json_path` | string | 原 payload 的 JSONPath。 |
+| `templates[].stable_spans[].source.byte_start?` | integer | UTF-8 起始 byte offset。 |
+| `templates[].stable_spans[].source.byte_end?` | integer | UTF-8 排他结束 byte offset。 |
+| `templates[].stable_spans[].source.role?` | string | message role。 |
+| `templates[].stable_spans[].utf8_bytes` | integer | 稳定片段 bytes。 |
+| `templates[].stable_spans[].support_count` | integer | 支持成员数。 |
+| `templates[].stable_spans[].excerpt?` | string | 有界证据摘录。 |
+| `templates[].slots[]` | object array | 模板动态槽位摘要。 |
+| `templates[].slots[].source` | object | 槽位来源。 |
+| `templates[].slots[].source.json_path` | string | 原 payload JSONPath。 |
+| `templates[].slots[].source.logical_scope[]` | string array | 模型可见层级定位。 |
 | `templates[].slots[].source.unit_index?` | integer | 投影单元序号。 |
-| `templates[].slots[].source.byte_start?` | integer | 原 UTF-8 字符串中槽位的起始 byte offset。 |
-| `templates[].slots[].source.byte_end?` | integer | 原 UTF-8 字符串中槽位的排他结束 byte offset。 |
-| `templates[].slots[].source.role?` | string | chat message role。 |
-| `templates[].slots[].member_count` | integer | 覆盖该槽位的模板成员数。 |
-| `templates[].slots[].distinct_variant_count` | integer | 该槽位观察到的不同取值数量。 |
+| `templates[].slots[].source.byte_start?` | integer | UTF-8 起始 byte offset。 |
+| `templates[].slots[].source.byte_end?` | integer | UTF-8 排他结束 byte offset。 |
+| `templates[].slots[].source.role?` | string | message role。 |
+| `templates[].slots[].member_count` | integer | 参与该槽位的成员数。 |
+| `templates[].slots[].distinct_variant_count` | integer | 不同槽位值数量。 |
 | `templates[].slots[].confidence` | number，`0..1` | 槽位识别置信度。 |
-| `findings[]` | object array | 所有已聚合的结构优化机会；不受 `--top-k` 截断。 |
-| `findings[].id` | string | Finding 稳定 ID；由 `top_k[].finding_id` 引用。 |
-| `findings[].template_id` | string | 所属 `templates[].id`。 |
-| `findings[].cause` | string enum | 根因；允许值见下表。 |
-| `findings[].source` | object | 首个可归因分歧在原始 payload 中的定位信息。 |
-| `findings[].source.json_path` | string | 原 payload 的 JSONPath，定位首个可归因分歧。 |
-| `findings[].source.unit_index?` | integer | 投影单元序号。 |
-| `findings[].source.byte_start?` | integer | 原 UTF-8 字符串中分歧的起始 byte offset。 |
-| `findings[].source.byte_end?` | integer | 原 UTF-8 字符串中分歧的排他结束 byte offset。 |
-| `findings[].source.role?` | string | chat message role。 |
-| `findings[].actual_prefix_bytes` | integer | 当前组织下、分歧前可观察公共前缀的 UTF-8 bytes。 |
-| `findings[].potential_prefix_bytes` | integer | 安全反事实成立时可能达到的公共前缀 UTF-8 bytes。 |
-| `findings[].blocked_stable_bytes` | integer | 被阻断且有成员支持的稳定 UTF-8 bytes；不是 token 数。 |
-| `findings[].affected_count` | integer | 受影响请求数，即模板成员数减最大同变体频次。 |
-| `findings[].confidence` | number，`0..1` | 投影可靠度、cohesion、支持率及归因确定性的组合。 |
-| `findings[].score` | object | 可解释的排名因子及最终得分。 |
-| `findings[].score.blocked_stable_bytes` | integer | 排名时使用的被阻断稳定 bytes 快照。 |
-| `findings[].score.affected_count` | integer | 排名时使用的受影响请求数快照。 |
-| `findings[].score.confidence` | number，`0..1` | 排名时使用的置信度快照。 |
-| `findings[].score.score` | number | `blocked_stable_bytes × affected_count × confidence`。 |
-| `findings[].evidence` | object | 供人工复核的代表请求、差异片段和被阻断稳定片段。 |
-| `findings[].evidence.representative_request_ids[]` | string | 形成该结论的代表请求 ID。 |
-| `findings[].evidence.divergent_excerpts[]` | string | 差异片段；可能含敏感 payload 内容。 |
-| `findings[].evidence.blocked_stable_excerpt` | string | 被差异阻断的稳定片段。 |
-| `findings[].counterfactual` | string | 用于计算 `potential_prefix_bytes` 的单一可解释假设。 |
-| `findings[].recommendation` | string | 建议的请求组织调整；工具不会自动执行。 |
-| `top_k[]` | object array | `findings[]` 的稳定排序前缀，供优先行动。 |
-| `top_k[].rank` | integer | 一基行动优先级名次。 |
-| `top_k[].finding_id` | string | 对应 `findings[].id`。 |
-| `top_k[].score` | object | 关联 Finding 的排名因子与最终得分快照。 |
-| `top_k[].score.blocked_stable_bytes` | integer | 排名时使用的被阻断稳定 bytes 快照。 |
-| `top_k[].score.affected_count` | integer | 排名时使用的受影响请求数快照。 |
-| `top_k[].score.confidence` | number，`0..1` | 排名时使用的置信度快照。 |
-| `top_k[].score.score` | number | 排名最终得分。 |
+| `defects[]` | object array | 全部唯一化的 `P1 / X / P2` 结构问题。 |
+| `defects[].id` | string | 结构稳定 ID，由 `top_k[]` 引用。 |
+| `defects[].comparison_group` | object | 问题的比较边界。 |
+| `defects[].comparison_group.time_window_key` | string | 固定 UTC 时间窗口起点的 Unix seconds。 |
+| `defects[].comparison_group.endpoint_key` | string | endpoint 或逻辑路由。 |
+| `defects[].comparison_group.model` | string | payload 中的模型。 |
+| `defects[].comparison_group.context_schema_key` | string | adapter 生成的模型可见结构版本。 |
+| `defects[].comparison_group.agent_key?` | string | 可选 Agent key。 |
+| `defects[].comparison_group.model_deployment_key?` | string | 可选模型部署 key。 |
+| `defects[].comparison_group.kv_namespace?` | string | 可选真实 KV namespace。 |
+| `defects[].template_id` | string | 关联的 `templates[].id`。 |
+| `defects[].mismatch` | object | 失配区域 X。 |
+| `defects[].mismatch.pattern` | string enum | `value_mismatch`、`insertion_deletion`、`reorder` 或 `mixed`。 |
+| `defects[].mismatch.variants[]` | object array | X 的符号变体分组，至少两个。 |
+| `defects[].mismatch.variants[].fingerprint` | string | 不含原始动态值的变体摘要。 |
+| `defects[].mismatch.variants[].member_request_ids[]` | string array | 属于该变体的请求 ID。不同变体不得重叠。 |
+| `defects[].mismatch.variants[].representative` | object | 该变体的有界代表证据。 |
+| `defects[].mismatch.variants[].representative.request_id` | string | 代表请求，必须属于本变体。 |
+| `defects[].mismatch.variants[].representative.sources[]` | object array | X 在代表请求中的一个或多个来源；缺失变体可以为空。 |
+| `defects[].mismatch.variants[].representative.sources[].json_path` | string | 原 payload JSONPath。 |
+| `defects[].mismatch.variants[].representative.sources[].logical_scope[]` | string array | X 所在的 system/tool/history/content 层级。 |
+| `defects[].mismatch.variants[].representative.sources[].unit_index?` | integer | 投影单元序号。 |
+| `defects[].mismatch.variants[].representative.sources[].byte_start?` | integer | UTF-8 起始 byte offset。 |
+| `defects[].mismatch.variants[].representative.sources[].byte_end?` | integer | UTF-8 排他结束 byte offset。 |
+| `defects[].mismatch.variants[].representative.sources[].role?` | string | message role。 |
+| `defects[].mismatch.variants[].representative.utf8_bytes` | integer | 代表 X 变体的可观察 bytes。 |
+| `defects[].mismatch.variants[].representative.excerpt?` | string | 有界 X 摘录。 |
+| `defects[].mismatch.facts[]` | object array | 对同一个 X 的结构事实，不会拆成额外 defect。 |
+| `defects[].mismatch.facts[].kind` | string enum | `content_variation`、`fixed_variants`、`structured_data_equivalent`、`insertion_deletion`、`reorder` 或 `scope`。 |
+| `defects[].mismatch.facts[].detail?` | string | 事实说明或 scope 定位。 |
+| `defects[].recovered_stable` | object | 分歧后重新出现的稳定 P2。 |
+| `defects[].recovered_stable.sources[]` | object array | P2 的一个或多个来源。 |
+| `defects[].recovered_stable.sources[].json_path` | string | 原 payload JSONPath。 |
+| `defects[].recovered_stable.sources[].logical_scope[]` | string array | P2 所在的模型可见层级。 |
+| `defects[].recovered_stable.sources[].unit_index?` | integer | 投影单元序号。 |
+| `defects[].recovered_stable.sources[].byte_start?` | integer | UTF-8 起始 byte offset。 |
+| `defects[].recovered_stable.sources[].byte_end?` | integer | UTF-8 排他结束 byte offset。 |
+| `defects[].recovered_stable.sources[].role?` | string | message role。 |
+| `defects[].recovered_stable.utf8_bytes` | integer | 保守的连续 P2 bytes。 |
+| `defects[].recovered_stable.support_count` | integer | 支持该 P2 并参与本问题的成员数。 |
+| `defects[].recovered_stable.excerpt` | string | 有界 P2 摘录。 |
+| `defects[].actual_prefix_bytes` | integer | 当前 P1 的可观察 bytes。 |
+| `defects[].potential_prefix_bytes` | integer | 结构反事实下 `P1 + P2` 的 bytes。 |
+| `defects[].blocked_stable_bytes` | integer | 被 X 阻断的保守 P2 bytes。 |
+| `defects[].comparable_count` | integer | 支持同一 P2 并进入 X 变体统计的成员数。 |
+| `defects[].affected_count` | integer | `comparable_count - 最大变体成员数`。 |
+| `defects[].confidence` | number，`0..1` | 模板、P2 支持与结构事实的组合置信度。 |
+| `defects[].score` | object | 可解释评分。 |
+| `defects[].score.blocked_stable_bytes` | integer | 评分使用的 P2 bytes。 |
+| `defects[].score.affected_count` | integer | 评分使用的受影响请求数。 |
+| `defects[].score.confidence` | number | 评分使用的置信度。 |
+| `defects[].score.score` | number | `blocked_stable_bytes × affected_count × confidence`。 |
+| `defects[].insights[]` | object array | 根据结构事实生成的中文优化启示，至少一项。 |
+| `defects[].insights[].summary` | string | 优化方向摘要。 |
+| `defects[].insights[].detail?` | string | 适用前提或补充说明。 |
+| `top_k[]` | string array | 按优先级排列的 defect ID，是完整稳定排序的前缀。 |
 
-所有 `byte_start` 与 `byte_end` 都落在合法 UTF-8 字符边界，`byte_end` 为排他边界。所有 `json_path` 都从原始、未经重写的 payload 定位。
+所有 byte range 必须同时提供 start/end、满足 `start <= end`，并落在合法 UTF-8 字符边界。一个 defect 的所有 variant 成员总数等于 `comparable_count`，`recovered_stable.support_count` 也等于该值。
 
-## `findings[].cause` 枚举
-
-| 值 | 含义 |
-|---|---|
-| `early_variable_content` | 易变内容在稳定上下文之前。 |
-| `inline_dynamic_slot` | 同一文本单元的中间动态槽阻断后续稳定文本。 |
-| `dynamic_block_before_stable` | 独立动态块位于稳定块之前。 |
-| `tool_order_drift` | 内容可一一对应的工具定义顺序不一致。 |
-| `tool_definition_drift` | 同一工具定义的模型可见内容发生漂移。 |
-| `system_prompt_drift` | system prompt 的稳定内容发生漂移。 |
-| `non_append_only_history` | 对话历史存在非追加式插入或改动。 |
-| `model_visible_format_drift` | 模型可见 JSON 文本语义等价但格式不同。 |
-
-## 完整示例
+## 示例
 
 ```json
 {
@@ -126,40 +137,84 @@
     "analyzed_records": 4,
     "skipped_records": [],
     "options": {
-      "top_k": 20, "min_template_members": 3, "stable_span_support_ratio": 0.8,
-      "min_stable_support": 3, "min_blocked_stable_bytes": 64, "min_exact_anchor_bytes": 24,
-      "text_similarity_threshold": 0.8, "template_compatibility_threshold": 0.68,
-      "max_dynamic_coverage_ratio": 0.35, "max_candidates_per_request": 128,
-      "max_projection_units": 512, "max_text_unit_bytes": 1048576,
-      "max_payload_bytes": 8388608, "max_alignment_cells": 2000000,
-      "max_total_alignment_cells": 64000000, "max_records": 1000000
+      "top_k": 20,
+      "comparison_window_seconds": 3600,
+      "min_template_members": 3,
+      "stable_span_support_ratio": 0.8,
+      "min_stable_support": 3,
+      "min_blocked_stable_bytes": 64,
+      "min_exact_anchor_bytes": 24,
+      "text_similarity_threshold": 0.8,
+      "template_compatibility_threshold": 0.68,
+      "max_dynamic_coverage_ratio": 0.35,
+      "max_candidates_per_request": 128,
+      "max_projection_units": 512,
+      "max_text_unit_bytes": 1048576,
+      "max_payload_bytes": 8388608,
+      "max_alignment_cells": 2000000,
+      "max_total_alignment_cells": 64000000,
+      "max_records": 1000000
     },
-    "limitations": ["Structural proxy only; no tokenizer or KV telemetry is available."]
+    "limitations": ["结构代理：未使用 tokenizer、模型内部 chat template 或真实 KV 命中数据"]
   },
   "templates": [{
-    "id": "tpl-6cba...", "dialect": "openai_chat", "model": "gpt-example", "adapter_revision": "1",
-    "member_request_ids": ["req-a", "req-b", "req-c", "req-d"], "medoid_request_id": "req-a", "cohesion": 0.91,
-    "stable_spans": [{"source": {"json_path": "$.messages[1].content", "unit_index": 3, "byte_start": 0, "byte_end": 128, "role": "system"}, "utf8_bytes": 128, "support_count": 4, "excerpt": "Keep the following policy unchanged..."}],
-    "slots": [{"source": {"json_path": "$.messages[0].content", "unit_index": 1, "byte_start": 0, "byte_end": 14, "role": "system"}, "member_count": 4, "distinct_variant_count": 4, "confidence": 0.91}]
+    "id": "template-a",
+    "comparison_group": {
+      "time_window_key": "1788336000",
+      "endpoint_key": "llm-primary",
+      "model": "model-a",
+      "context_schema_key": "openai-compatible-chat/v1",
+      "agent_key": "coding-agent"
+    },
+    "member_request_ids": ["req-a", "req-b", "req-c", "req-d"],
+    "medoid_request_id": "req-a",
+    "cohesion": 0.91,
+    "stable_spans": [],
+    "slots": []
   }],
-  "findings": [{
-    "id": "finding-184a...", "template_id": "tpl-6cba...", "cause": "early_variable_content",
-    "source": {"json_path": "$.messages[0].content", "unit_index": 1, "byte_start": 0, "byte_end": 14, "role": "system"},
-    "actual_prefix_bytes": 0, "potential_prefix_bytes": 128, "blocked_stable_bytes": 128, "affected_count": 3, "confidence": 0.91,
-    "score": {"blocked_stable_bytes": 128, "affected_count": 3, "confidence": 0.91, "score": 349.44},
-    "evidence": {"representative_request_ids": ["req-a", "req-b"], "divergent_excerpts": ["tenant: north", "tenant: south"], "blocked_stable_excerpt": "Keep the following policy unchanged..."},
-    "counterfactual": "Move the variable system content after the stable instruction.",
-    "recommendation": "Emit stable system instructions before tenant-specific content."
+  "defects": [{
+    "id": "defect-a",
+    "comparison_group": {
+      "time_window_key": "1788336000",
+      "endpoint_key": "llm-primary",
+      "model": "model-a",
+      "context_schema_key": "openai-compatible-chat/v1",
+      "agent_key": "coding-agent"
+    },
+    "template_id": "template-a",
+    "mismatch": {
+      "pattern": "value_mismatch",
+      "variants": [
+        {"fingerprint":"variant-a","member_request_ids":["req-a","req-b"],"representative":{"request_id":"req-a","sources":[{"json_path":"$.messages[0].content","logical_scope":["messages","system"],"unit_index":1,"byte_start":0,"byte_end":13,"role":"system"}],"utf8_bytes":13,"excerpt":"tenant: north"}},
+        {"fingerprint":"variant-b","member_request_ids":["req-c","req-d"],"representative":{"request_id":"req-c","sources":[{"json_path":"$.messages[0].content","logical_scope":["messages","system"],"unit_index":1,"byte_start":0,"byte_end":13,"role":"system"}],"utf8_bytes":13,"excerpt":"tenant: south"}}
+      ],
+      "facts": [
+        {"kind":"fixed_variants","detail":"观察到 2 个内容变体"},
+        {"kind":"scope","detail":"messages/system"}
+      ]
+    },
+    "recovered_stable": {
+      "sources": [{"json_path":"$.messages[1].content","logical_scope":["messages","system"],"unit_index":3,"byte_start":0,"byte_end":128,"role":"system"}],
+      "utf8_bytes": 128,
+      "support_count": 4,
+      "excerpt": "Keep the following policy unchanged..."
+    },
+    "actual_prefix_bytes": 0,
+    "potential_prefix_bytes": 128,
+    "blocked_stable_bytes": 128,
+    "comparable_count": 4,
+    "affected_count": 2,
+    "confidence": 0.91,
+    "score": {"blocked_stable_bytes":128,"affected_count":2,"confidence":0.91,"score":232.96},
+    "insights": [{"summary":"统一稳定内容的配置或模板版本","detail":"同一逻辑位置的变化过早阻断了后续稳定前缀"}]
   }],
-  "top_k": [{"rank": 1, "finding_id": "finding-184a...", "score": {"blocked_stable_bytes": 128, "affected_count": 3, "confidence": 0.91, "score": 349.44}}]
+  "top_k": ["defect-a"]
 }
 ```
 
 ## 排序契约
 
-- `affected_count` 表示“有多少请求落在这个问题的非主流分组中”。同一模板的请求会分成“未出现该问题”和“每一种差异变体”这些组；人数最多的一组只作为计数参照，其余各组的请求数相加就是 `affected_count`。这不判断哪种组织方式正确，只避免两两比较把同一问题重复放大。
-- `blocked_stable_bytes` 表示“本来能被复用、却被前面差异挡住的稳定内容有多长”。它按 UTF-8 bytes 计算，是结构代理，不是模型 token 数。
-- 排名先看综合分 `score.score`：被挡住的稳定内容越长、受影响请求越多、判断越有把握，分数越高。分数相同时，依次比较受影响请求数和被挡住的稳定内容长度。
-- 前三项仍相同时，使用稳定 ID 决定顺序。因此无论输入文件中请求行如何调换，`findings[]`、`top_k[]` 和最终 JSON 的顺序都保持一致。
-- 工具顺序问题只在每个工具都能被唯一对应时才会输出，避免把两个相同工具误判为顺序变化。
-- 格式漂移只在模型可见文本表示同一份 JSON 数据、但书写格式不同时才会输出；JSON 数组顺序被视为有意义，不会被当作纯格式差异。
+- score、affected count、blocked stable bytes 依次降序，最后按 defect ID 升序打破并列。
+- `top_k=n` 是完整排序的前 n 个 ID，不复制 score 或展示文案。
+- 输入顺序、成员顺序和展示文案变化不改变问题身份或排序。
+- UTF-8 bytes 是结构代理，不代表真实 token、KV miss、延迟或金额收益。

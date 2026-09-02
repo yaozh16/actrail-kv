@@ -19,8 +19,9 @@ rqst-1：修复 HTTP client 重试超时
     ├── messages[0]
     │   ├── role: system                                   [T5]
     │   └── content
-    │       ├── 你是一个 Coding Agent。                     [T6] @ 这里真的合理吗？为什么"当前工作区："不在模板里？
-    │       ├── 当前工作区：/workspace/service-a            [S1 = /workspace/service-a]
+    │       ├── 你是一个 Coding Agent。                     [T6]
+    │       ├── 当前工作区：                                [T6a]
+    │       ├── /workspace/service-a                       [S1 = /workspace/service-a]
     │       └── 修改前先读代码，修改后必须运行相关测试。     [T7]
     ├── messages[1]
     │   ├── role: user                                     [T8]
@@ -83,7 +84,8 @@ rqst-2：修复配置解析空值崩溃
     │   ├── role: system                                   [T5]
     │   └── content
     │       ├── 你是一个 Coding Agent。                     [T6]
-    │       ├── 当前工作区：/workspace/service-b            [S1 = /workspace/service-b]
+    │       ├── 当前工作区：                                [T6a]
+    │       ├── /workspace/service-b                       [S1 = /workspace/service-b]
     │       └── 修改前先读代码，修改后必须运行相关测试。     [T7]
     ├── messages[1]
     │   ├── role: user                                     [T8]
@@ -155,7 +157,8 @@ rqst-3：为销售部安排周报评审
     │   ├── role: system                                   [T24]
     │   └── content
     │       ├── 你是公司办公助手。                          [T25]
-    │       ├── 当前部门：销售部                            [S20 = 销售部]
+    │       ├── 当前部门：                                  [T25a]
+    │       ├── 销售部                                     [S20 = 销售部]
     │       └── 创建会议前检查空闲时间，创建后发送通知。    [T26]
     ├── messages[1]
     │   ├── role: user                                     [T27]
@@ -213,7 +216,8 @@ rqst-4：为产品部安排发布评审
     │   ├── role: system                                   [T24]
     │   └── content
     │       ├── 你是公司办公助手。                          [T25]
-    │       ├── 当前部门：产品部                            [S20 = 产品部]
+    │       ├── 当前部门：                                  [T25a]
+    │       ├── 产品部                                     [S20 = 产品部]
     │       └── 创建会议前检查空闲时间，创建后发送通知。    [T26]
     ├── messages[1]
     │   ├── role: user                                     [T27]
@@ -263,7 +267,7 @@ rqst-4：为产品部安排发布评审
 
 办公助手的两棵树同样互不连接。相同 T 编号只表示同类共同结构；S20 是部门填充值，S21 到 S23 分别是查询日历、创建会议和发送邮件时的完整 `tool_calls` 单元。
 
-## 为什么这会产生 Finding
+## 模板如何暴露结构缺陷
 
 Coding Agent 的 system content 中，工作区 S1 位于稳定规则 T7 前：
 
@@ -273,37 +277,27 @@ Coding Agent 的 system content 中，工作区 S1 位于稳定规则 T7 前：
 → [T7 修改前先读代码，修改后必须运行相关测试。]
 ```
 
-S1 不同会使公共前缀在此停止，后面的 T7 无法进入更长的共同结构。因此 analyzer 可以报告 `inline_dynamic_slot` 或 `early_variable_content`：它不是要求删除工作区，而是提示业务方评估能否把稳定规则放到工作区信息之前。
+S1 不同会使公共前缀在此停止，后面的 T7 无法进入更长的共同结构。它形成统一的 `P1 / X / P2`：S1 是 X，T7 是分歧后重新出现的稳定 P2。优化启示不是删除工作区，而是评估能否让稳定规则先出现。
 
 办公助手也有同样的结构：部门槽位 S20 位于稳定规则 T26 前。销售部/产品部的差异会提前终止公共前缀，挡住后面的“创建会议前检查空闲时间，创建后发送通知”。
 
-工具结果、补丁内容和最终总结标为 `D`，并不表示它们不重要；它们只是本次 Agent 轨迹特有的内容，没有形成稳定模板块。位于请求末尾的动态内容通常也不会单独产生“挡住后续稳定内容”的 Finding。
-
-模板建立后，analyzer 当前可以识别以下上下文组织问题：
-
-- 较早出现的易变内容挡住后续稳定内容；
-- 同一段文本中间的动态槽位挡住稳定后缀；
-- 独立动态块被放在稳定块之前；
-- 工具定义顺序漂移；
-- 同一工具的定义发生微小漂移；
-- system prompt 发生微小漂移；
-- 对话历史不是只在末尾追加；
-- 模型可见 JSON 数据相同，但序列化格式不同。
-
-这些问题的形成条件、具体请求例子和非缺陷反例见[上下文结构缺陷](context_defect.md)。
+工具结果、补丁内容和最终总结标为 `D`，并不表示它们不重要；它们只是本次 Agent 轨迹特有的内容，没有形成稳定模板块。位于请求末尾的动态内容后面没有稳定 P2，通常不会形成结构缺陷。X 的通用关系、优化启示和非缺陷反例见[上下文结构缺陷](context_defect.md)。
 
 ## 与 `analysis.json` 的关系
 
 | 图中概念 | `analysis.json` 路径 | 含义 |
 |---|---|---|
 | T 标记所属的一组请求 | `templates[].member_request_ids[]` | 同一模板的成员请求。 |
-| model、role 等共同结构 | 比较域、模板成员与 `cohesion` | 参与分组和对齐；当前输出不逐项列出所有短结构标记。 |
+| endpoint、model、Agent 等对比边界 | `templates[].comparison_group` | 只有 comparison group 相同的请求才参与同一模板抽取。 |
+| model、role 等共同结构 | 模板成员与 `cohesion` | 参与对齐；输出不逐项列出所有短结构标记。 |
 | T 标记的稳定文本/工具定义 | `templates[].stable_spans[]` | 达到长度和支持门槛的共同稳定片段。 |
 | S 标记的填充值 | `templates[].slots[]` | 动态位置及其不同取值数量。 |
-| S1 挡住后续 T7 | `findings[].source`、`cause`、`blocked_stable_bytes` | 问题位置、原因和被阻断的稳定内容。 |
-| 优先修复项 | `top_k[]` | 排序后的 Finding。 |
+| S1 形成 X 变体 | `defects[].mismatch.variants[]` | X 的变体、成员和代表来源。 |
+| T7 形成恢复后的 P2 | `defects[].recovered_stable` | 分歧后重新出现的稳定内容及支持数。 |
+| S1 挡住后续 T7 | `defects[].blocked_stable_bytes`、`defects[].insights[]` | 被阻断的稳定内容和优化启示。 |
+| 优先处理项 | `top_k[]` | 排序后的 defect ID。 |
 
-`templates[]` 回答“哪些请求和内容具有共同结构”；`findings[]` 回答“共同结构中哪里组织得不利于复用”；`top_k[]` 回答“先看哪个问题”。完整字段参考见 [Analyze 输出](../architectures/analyze/output.md)，抽取过程见 [Analyze 流水线](../architectures/analyze/pipeline.md)。
+`templates[]` 回答“哪些请求和内容具有共同结构”；`defects[]` 回答“共同结构中哪里出现了 `P1 / X / P2`”；`top_k[]` 回答“先看哪个问题”。完整字段参考见 [Analyze 输出](../architectures/analyze/output.md)，抽取过程见 [Analyze 流水线](../architectures/analyze/pipeline.md)。
 
 ## 边界
 

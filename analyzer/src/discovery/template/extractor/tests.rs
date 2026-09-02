@@ -1,9 +1,13 @@
 //! Template extraction tests cover vocabulary independence, support, Unicode, and determinism.
 
 use crate::{
-    discovery::candidate::{CandidateBuilder, CandidateOptions},
+    discovery::{
+        candidate::{CandidateBuilder, CandidateOptions},
+        template::{CoordinateBindingState, SymbolicAtom},
+    },
     model::projection::{
-        CacheSequence, CacheUnit, CacheUnitKind, ComparisonDomain, SourceLocation,
+        CacheSequence, CacheUnit, CacheUnitKind, ComparisonDomain, ContextCollectionKind,
+        HierarchyLocation, SourceLocation,
     },
 };
 
@@ -13,8 +17,14 @@ fn sequence(id: &str, text: &str) -> CacheSequence {
     CacheSequence {
         request_id: id.into(),
         domain: ComparisonDomain {
+            time_window_key: 0,
+            endpoint_key: "chat".into(),
             dialect: "d".into(),
             model: "m".into(),
+            model_deployment_key: None,
+            context_schema_key: "chat/v1".into(),
+            agent_key: None,
+            kv_namespace: None,
             adapter_revision: "1".into(),
         },
         units: vec![CacheUnit {
@@ -28,9 +38,63 @@ fn sequence(id: &str, text: &str) -> CacheSequence {
                 role: Some("system".into()),
             },
             tool_identity: None,
+            hierarchy: HierarchyLocation {
+                collection: ContextCollectionKind::Messages,
+                parent_json_path: "$.messages".into(),
+                element_index: Some(0),
+                content_block_index: None,
+            },
         }],
         projection_reliability_millis: 1000,
     }
+}
+
+fn multi_sequence(id: &str, values: &[(&str, &str)]) -> CacheSequence {
+    let mut sequence = sequence(id, values.first().map_or("", |value| value.1));
+    sequence.units = values
+        .iter()
+        .enumerate()
+        .map(|(index, (key, content))| CacheUnit {
+            kind: CacheUnitKind::VisibleText,
+            alignment_key: (*key).into(),
+            content: (*content).into(),
+            source: SourceLocation {
+                json_path: format!("$.messages[{index}].content"),
+                utf8_bytes: Some(0..content.len()),
+                message_index: Some(index),
+                role: Some("user".into()),
+            },
+            tool_identity: None,
+            hierarchy: HierarchyLocation {
+                collection: ContextCollectionKind::Messages,
+                parent_json_path: "$.messages".into(),
+                element_index: Some(index),
+                content_block_index: None,
+            },
+        })
+        .collect();
+    sequence
+}
+
+fn extract_explicit(medoid: CacheSequence, members: Vec<CacheSequence>) -> RequestTemplate {
+    let cohort = CandidateCohort {
+        id: "explicit-cohort".into(),
+        domain: medoid.domain.clone(),
+        signature: crate::discovery::candidate::StructureSignature::of(&medoid),
+        medoid,
+        members,
+        cohesion: 0.9,
+    };
+    TemplateExtractor::new(TemplateOptions {
+        stable_support_ratio: 0.8,
+        min_stable_support: 3,
+        min_stable_span_bytes: 2,
+        max_alignment_cells: 100_000,
+        max_total_alignment_cells: 1_000_000,
+    })
+    .extract(vec![cohort])
+    .templates
+    .remove(0)
 }
 
 fn extract(texts: &[&str]) -> RequestTemplate {
@@ -277,6 +341,81 @@ fn slots_keep_true_slices_and_at_most_sixteen_examples() {
         .expect("dynamic slot");
     assert!(slot.observed_values.len() <= 16);
     assert!(slot.observed_values.iter().all(|value| value.len() <= 2));
+}
+
+#[test]
+fn symbolic_maps_make_deletions_explicit_gaps() {
+    let medoid = multi_sequence("a", &[("a", "alpha"), ("b", "beta"), ("c", "gamma")]);
+    let shortened = |id| multi_sequence(id, &[("a", "alpha"), ("c", "gamma")]);
+    let template = extract_explicit(medoid.clone(), vec![medoid, shortened("b"), shortened("c")]);
+    assert!(template.coordinates.len() >= 3);
+    assert!(template
+        .member_maps
+        .iter()
+        .all(|map| { map.bindings.len() == template.coordinates.len() }));
+    let deleted = template
+        .coordinates
+        .iter()
+        .find(|coordinate| coordinate.logical_unit.alignment_key == "b")
+        .expect("deleted coordinate");
+    assert_eq!(deleted.support_count, 1);
+    for member_id in ["b", "c"] {
+        let map = template
+            .member_maps
+            .iter()
+            .find(|map| map.member_request_id == member_id)
+            .unwrap();
+        let binding = map
+            .bindings
+            .iter()
+            .find(|binding| binding.coordinate_id == deleted.id)
+            .unwrap();
+        assert_eq!(binding.state, CoordinateBindingState::Gap);
+    }
+}
+
+#[test]
+fn symbolic_maps_retain_insertions_as_bounded_unmatched_runs() {
+    let medoid = multi_sequence("a", &[("a", "alpha"), ("c", "gamma")]);
+    let inserted = multi_sequence("b", &[("a", "alpha"), ("b", "inserted"), ("c", "gamma")]);
+    let template = extract_explicit(medoid.clone(), vec![medoid.clone(), inserted, medoid]);
+    let map = template
+        .member_maps
+        .iter()
+        .find(|map| map.member_request_id == "b")
+        .unwrap();
+    assert_eq!(map.unmatched_runs.len(), 1);
+    let run = &map.unmatched_runs[0];
+    assert!(run.left_coordinate_id.is_some());
+    assert!(run.right_coordinate_id.is_some());
+    assert_eq!(run.fragments.len(), 1);
+    assert_eq!(run.fragments[0].observable_bytes, "inserted".len());
+}
+
+#[test]
+fn symbolic_slot_ranges_are_utf8_safe_and_slice_true_member_values() {
+    let template = extract(&["前缀甲🌍固定尾部", "前缀乙🌍固定尾部", "前缀丙🌍固定尾部"]);
+    for symbolic in &template.symbolic_members {
+        let member = template
+            .members
+            .iter()
+            .find(|member| member.request_id == symbolic.member_request_id)
+            .unwrap();
+        for atom in &symbolic.atoms {
+            let fragment = match atom {
+                SymbolicAtom::StableRef { fragment, .. }
+                | SymbolicAtom::SlotBinding { fragment, .. } => fragment,
+                SymbolicAtom::UnmatchedRun(_) | SymbolicAtom::Gap { .. } => continue,
+            };
+            let text = &member.units[fragment.unit_index].content;
+            assert!(text.is_char_boundary(fragment.utf8_bytes.start));
+            assert!(text.is_char_boundary(fragment.utf8_bytes.end));
+            assert_eq!(
+                fragment.observable_bytes,
+                text[fragment.utf8_bytes.clone()].len()
+            );
+        }
+    }
 }
 
 #[test]

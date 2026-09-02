@@ -3,14 +3,21 @@
 use std::io::Cursor;
 
 use actrail_kv_analyzer::run::{analyze_reader, AnalysisOptions};
-use actrail_kv_artifacts::FindingCause;
+use actrail_kv_artifacts::DefectFactKind;
 use proptest::prelude::*;
 use serde_json::{json, Value};
 
 fn analyze(payloads: Vec<Value>) -> actrail_kv_artifacts::AnalysisResult {
     let input = payloads
         .into_iter()
-        .map(|payload| serde_json::to_string(&json!({"payload":payload})).expect("fixture"))
+        .map(|payload| {
+            serde_json::to_string(&json!({
+                "captured_at":"2026-01-01T00:00:00Z",
+                "comparison":{"endpoint_key":"primary"},
+                "payload":payload
+            }))
+            .expect("fixture")
+        })
         .collect::<Vec<_>>()
         .join("\n");
     analyze_reader(Cursor::new(input), AnalysisOptions::default()).expect("analysis")
@@ -41,9 +48,10 @@ proptest! {
             .collect();
         let result = analyze(payloads);
         prop_assert!(result
-            .findings
+            .defects
             .iter()
-            .any(|finding| finding.cause == FindingCause::EarlyVariableContent));
+            .flat_map(|defect| &defect.mismatch.facts)
+            .any(|fact| fact.kind == DefectFactKind::ContentVariation));
     }
 
     #[test]
@@ -62,7 +70,7 @@ proptest! {
                 ]
             }))
             .collect();
-        prop_assert!(analyze(payloads).findings.is_empty());
+        prop_assert!(analyze(payloads).defects.is_empty());
     }
 
     #[test]
@@ -74,8 +82,8 @@ proptest! {
         let long_tail = format!("{short_tail}{}", "L".repeat(extra));
         let short = analyze(values.iter().map(|value| request((*value).into(), short_tail.clone())).collect());
         let long = analyze(values.iter().map(|value| request((*value).into(), long_tail.clone())).collect());
-        let short_bytes = short.findings.first().expect("short finding").blocked_stable_bytes;
-        let long_bytes = long.findings.first().expect("long finding").blocked_stable_bytes;
+        let short_bytes = short.defects.first().expect("short defect").blocked_stable_bytes;
+        let long_bytes = long.defects.first().expect("long defect").blocked_stable_bytes;
         prop_assert!(long_bytes >= short_bytes);
     }
 }

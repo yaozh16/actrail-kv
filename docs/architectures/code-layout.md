@@ -1,25 +1,10 @@
-<!-- 本文件用一棵完整目录树说明三个二进制及基于可观察请求结构的离线诊断核心。 -->
+<!-- 本文件用当前真实源码树说明三个二进制、统一 P1/X/P2 分析核心及模块职责。 -->
 # Code Layout
 
-三二进制的输入/输出契约见[Architecture](index.md)；文档树及各文档职责见[Documentation Layout](doc-layout.md)。
-
-## 运行方式
-
-```bash
-# 常驻接收采集方提交的完整模型 HTTP request payload
-actrail-kv-receiver --listen 127.0.0.1:8080 --output ./data/requests.ndjson
-
-# 离线抽模板、诊断结构性缓存破坏并计算 Top K
-actrail-kv-analyze --input ./data/requests.ndjson --output ./data/analysis.json --top-k 100
-
-# 生成报告
-actrail-kv-report --input ./data/analysis.json --output ./data/report.html
-```
-
-具体命令行参数、资源预算与跨主机部署要求见[配置参考](../configuration.md)。
+## 三个二进制
 
 ```text
-请求采集源（网关 / 插桩组件 / Agent 框架 Hook / 其他采集器）
+采集源
   → actrail-kv-receiver
   → requests.ndjson
   → actrail-kv-analyze
@@ -28,139 +13,121 @@ actrail-kv-report --input ./data/analysis.json --output ./data/report.html
   → report.html
 ```
 
-## 分析边界
+```bash
+actrail-kv-receiver --listen 127.0.0.1:8080 --output ./data/requests.ndjson
+actrail-kv-analyze --input ./data/requests.ndjson --output ./data/analysis.json --top-k 100
+actrail-kv-report --input ./data/analysis.json --output ./data/report.html
+```
 
-MVP 不限定请求由谁采集，只假设采集方能够提交发往模型 API 的完整 HTTP JSON payload，其中包含 `model`、`messages`、`tools` 及其他请求字段。系统没有模型内部 tokenizer、chat template 或真实 KV 命中信息。因此：
+运行参数见[配置参考](../configuration.md)，三个二进制的输入输出协议见[架构入口](index.md)。
 
-- 不生成或比较 Token ID。
-- 不声称计算了模型内部的精确 KV 前缀。
-- 比较完整请求中可观察的有序字段、原始 UTF-8 文本和结构片段。
-- 使用“被阻断的稳定字节/字符/片段”作为结构机会代理指标。
-- 所有结论都必须标记为结构优化启示，而不是真实缓存收益。
-
-## 完整目录
-
-下列内容是一棵完整代码树。文件名暂不绑定具体语言扩展名。
+## 当前源码树
 
 ```text
 actrail-kv/
+├── cmd/                                           # 二进制入口；只解析 CLI 并调用对应 library
+│   ├── receiver/src/main.rs                       # 启动 HTTP receiver
+│   ├── analyze/src/main.rs                        # 执行离线分析；设置 Top K 和时间窗口
+│   └── report/src/main.rs                         # 将 analysis.json 渲染为 HTML
 │
-├── cmd/                                         # 三个二进制统一放在一起；入口只解析参数、组装对象和返回退出码
-│   ├── receiver/
-│   │   └── main                                 # 构建并启动 actrail-kv-receiver
-│   ├── analyze/
-│   │   └── main                                 # 构建并运行 actrail-kv-analyze
-│   └── report/
-│       └── main                                 # 构建并运行 actrail-kv-report
+├── artifacts/src/                                 # 三个二进制共享的磁盘协议
+│   ├── captured_request.rs                        # CapturedRequest、显式 ComparisonMetadata
+│   ├── analysis_result.rs                         # template、统一 ContextDefect、Top K ID
+│   └── lib.rs                                     # 公共 DTO re-export
 │
-├── artifacts/                                   # 三个二进制之间唯一共享的磁盘格式
-│   ├── captured_request                         # requests.ndjson 单行：captured_at、可选 source、原始 HTTP JSON payload
-│   └── analysis_result                          # analysis.json：运行信息、模板、Findings 和 Top K
+├── receiver/src/                                  # 最小接收端；不依赖 analyzer
+│   ├── http_receiver.rs                           # POST /requests、metadata headers、captured_at
+│   ├── ndjson_appender.rs                         # 并发安全、原子行追加、文件独占与权限
+│   └── lib.rs                                     # receiver library API
 │
-├── receiver/                                    # actrail-kv-receiver 的实现；不关心上游是网关还是插桩组件
-│   ├── http_receiver                            # POST /requests；读取采集方提交的完整模型 HTTP JSON payload
-│   └── ndjson_appender                          # 补 captured_at，原样追加 payload，不解释请求内容
-│
-├── analyzer/                                    # actrail-kv-analyze 的实现；项目核心代码全部在这里
-│   │
-│   ├── run/                                     # 单次离线分析的入口和阶段编排
-│   │   ├── analysis_options                     # top_k、阈值、字段选择、允许的结构变换
-│   │   ├── analysis_context                     # 本次运行共享的只读配置和统计量
-│   │   ├── analysis_pipeline                    # run(records, options) -> AnalysisResult
-│   │   └── analysis_run                         # 输入范围、样本数、阶段耗时、跳过原因和参数快照
-│   │
-│   ├── model/                                   # 把请求原文变成可比较且能回溯来源的分析模型
-│   │   │
+├── analyzer/src/                                  # 模板抽取与结构诊断核心
+│   ├── model/
+│   │   ├── comparison/
+│   │   │   ├── group_key.rs                      # 时间窗口+endpoint+model/deployment+schema+agent+namespace
+│   │   │   └── mod.rs
 │   │   ├── corpus/
-│   │   │   ├── corpus_loader                    # 流式读取 CapturedRequest，建立 AnalysisCorpus
-│   │   │   ├── payload_parser                   # 直接解析 payload 中的 model、messages、tools 等字段
-│   │   │   ├── request_payload                  # 保留完整 payload 及解析后的字段访问入口
-│   │   │   ├── request_part                     # payload 内的 role、content、tool definition、tool result 等片段
-│   │   │   ├── source_location                  # 原 JSON path、消息索引、角色和字段名
-│   │   │   └── analysis_corpus                  # payload 集合及按模型、时间和结构建立的只读索引
-│   │   │
-│   │   └── projection/
-│   │       ├── field_policy                     # 声明 payload 中参与结构分析的字段及其逻辑顺序
-│   │       ├── request_projector                # 按 payload 的 messages/tools 等有序结构投影为 CacheSequence
-│   │       ├── cache_unit                       # 字段边界、结构标记或原始 UTF-8 内容片段
-│   │       ├── cache_sequence                   # 有序 CacheUnit 列表；不是模型 Token 序列
-│   │       └── unit_origin_map                  # 每个 CacheUnit/字节区间回到 SourceLocation
+│   │   │   ├── loader.rs                         # 有界读取 NDJSON、坏记录 skip、稳定请求 ID
+│   │   │   ├── types.rs                          # CorpusRecord、CaptureComparison、skip 类型
+│   │   │   └── mod.rs
+│   │   ├── projection/
+│   │   │   ├── projector.rs                      # 投影 tools/messages/content blocks 的模型可见顺序
+│   │   │   ├── projector/tests.rs                # 层级、顺序、预算与非上下文字段测试
+│   │   │   ├── types.rs                          # CacheSequence、CacheUnit、HierarchyLocation、source
+│   │   │   └── mod.rs
+│   │   └── mod.rs
 │   │
-│   ├── discovery/                               # 从大量请求中找到模板及其稳定/动态区域
-│   │   │
+│   ├── discovery/
 │   │   ├── candidate/
-│   │   │   ├── structure_signature              # 用字段形状、角色序列、工具集合等生成粗签名
-│   │   │   ├── candidate_index                  # 按模型和结构签名索引可能共享模板的请求
-│   │   │   ├── cohort_builder                   # 生成待抽取模板的 CandidateCohort
-│   │   │   ├── candidate_cohort                 # 可能属于同一模板的一组请求引用
-│   │   │   └── candidate_stats                  # 组大小、过滤数量和过滤原因
-│   │   │
-│   │   └── template/
-│   │       ├── sequence_aligner                 # 对齐 cohort 内的 CacheUnit 和文本区间
-│   │       ├── stability_estimator              # 统计片段或字节区间的重复率
-│   │       ├── slot_inferer                     # 将变化区间抽取成带来源字段的动态槽位
-│   │       ├── stable_span                      # 稳定内容、位置、长度和支持请求数
-│   │       ├── template_slot                    # 动态内容、SourceLocation、取值统计和置信度
-│   │       ├── request_template                 # StableSpan[] + TemplateSlot[] + members
-│   │       └── template_extractor               # 协调对齐、稳定性估计和槽位抽取
+│   │   │   ├── signature.rs                      # 有界结构兼容度与候选召回签名
+│   │   │   ├── cohort.rs                         # 确定性模板 cohort、bridge 防护和预算
+│   │   │   └── mod.rs
+│   │   ├── template/
+│   │   │   ├── align.rs                          # 有界 unit sequence alignment
+│   │   │   ├── extractor.rs                      # stable span、slot、模板坐标与成员映射
+│   │   │   ├── extractor/tests.rs                # Unicode、支持率、预算、插入/缺失和置换测试
+│   │   │   ├── types.rs                          # RequestTemplate 及抽取结果
+│   │   │   ├── symbolic/
+│   │   │   │   ├── coordinate.rs                # TemplateCoordinate、逻辑单元 key
+│   │   │   │   ├── member_map.rs                # 每成员 coordinate binding、Gap、UnmatchedRun
+│   │   │   │   ├── sequence.rs                  # 一等 SymbolicMemberSequence 与 SymbolicAtom
+│   │   │   │   ├── build.rs                     # 从 alignment 构造成员坐标与符号序列
+│   │   │   │   ├── identity.rs                  # 不依赖成员/绝对 unit index 的坐标 ID
+│   │   │   │   ├── tests.rs                     # 成员顺序与公共 prelude 身份不变量
+│   │   │   │   └── mod.rs
+│   │   │   └── mod.rs
+│   │   └── mod.rs
 │   │
-│   ├── diagnosis/                               # 比较实际结构与安全反事实，解释缓存机会为何被破坏
-│   │   │
-│   │   ├── prefix/
-│   │   │   ├── byte_prefix_trie                 # 计算 cohort 的公共 UTF-8 字节前缀，避免请求对枚举
-│   │   │   ├── structural_prefix                # 公共 CacheUnit 前缀及首个不同单元
-│   │   │   ├── actual_prefix                    # 当前请求组织下的公共字节/字符/片段长度
-│   │   │   ├── transform_policy                 # 允许的规范化、稳定排序或字段后移规则
-│   │   │   ├── counterfactual_builder           # 应用允许的变换并记录每一步影响的字段
-│   │   │   ├── potential_prefix                 # 安全反事实下的潜在公共前缀
-│   │   │   └── prefix_opportunity               # actual、potential、blocked、affected requests
-│   │   │
-│   │   └── attribution/
-│   │       ├── divergence_locator               # 定位公共前缀终止处的 CacheUnit/字节区间
-│   │       ├── source_attributor                # 经 UnitOriginMap 回溯到原请求 JSON path
-│   │       ├── cause_classifier                 # 分类动态前置、顺序漂移、序列化噪声等原因
-│   │       ├── evidence_builder                 # 生成代表请求差异和被阻断稳定区域
-│   │       ├── recommendation_builder           # 根据原因及允许的变换生成优化建议
-│   │       └── diagnostic_case                  # 位置、原因、证据、反事实、影响范围和置信度
+│   ├── diagnosis/
+│   │   ├── episode/
+│   │   │   ├── locator.rs                       # 从全部符号成员定位唯一 P1/X/P2 region
+│   │   │   ├── variant.rs                       # 每成员一次的 X 变体和 P2 证据构造
+│   │   │   ├── model.rs                         # DiagnosisOptions、DefectCandidate、EpisodeVariant
+│   │   │   ├── tests.rs                         # P2 门槛、聚合一次性、等价事实和身份稳定
+│   │   │   └── mod.rs
+│   │   ├── facts/
+│   │   │   ├── content.rs                       # 内容变化和少数固定变体事实
+│   │   │   ├── representation.rs                # 模型可见 JSON 严格等价事实
+│   │   │   ├── sequence.rs                      # 插入/缺失及唯一身份重排事实
+│   │   │   └── mod.rs                           # 合并 facts/insights，不拆分同一 episode
+│   │   ├── identity/mod.rs                       # 基于逻辑 region 与完整 P2 anchor 的 defect ID
+│   │   └── mod.rs
 │   │
-│   └── ranking/                                 # 将大量 case 聚合成可行动的问题模式并选 Top K
-│       ├── problem_fingerprint                  # template + cause + source path + fix action
-│       ├── finding_aggregator                   # 按 fingerprint 聚合，避免请求对刷榜
-│       ├── opportunity_scorer                   # blocked stable bytes × affected count × confidence
-│       ├── score_breakdown                      # 保存各评分因子，保证排序可以解释
-│       ├── finding                              # 聚合问题、影响范围、代表证据和建议
-│       ├── top_k_selector                       # 稳定排序、并列处理和 Top K 截断
-│       └── result_builder                       # 生成最终 AnalysisResult
+│   ├── ranking/
+│   │   ├── mod.rs                               # 已唯一化 candidate 的评分、稳定全排序、Top K
+│   │   └── tests.rs                             # 去重、tie-break 和 Top K 前缀测试
+│   ├── run/
+│   │   ├── options.rs                           # 算法阈值、时间窗口和资源预算
+│   │   ├── pipeline.rs                          # 文件/reader 编排、artifact 映射与原子输出
+│   │   └── mod.rs
+│   └── lib.rs
 │
-├── reporter/                                    # actrail-kv-report 的实现；非核心，保持最小
-│   ├── result_loader                            # 读取 AnalysisResult
-│   └── html_report_renderer                     # 展示 Top K、分项得分、证据、限制和建议
+├── reporter/src/                                # 只消费统一 analysis.json；不重新分析
+│   ├── result_loader.rs                         # schema、引用、成员、P2、score、Top K 强校验
+│   ├── html_report_renderer.rs                  # comparison group、P1/X/P2、facts、insights；全转义
+│   └── lib.rs
 │
-└── tests/
-    ├── fixtures/                                # 请求语料及期望模板、Finding 和 Top K
-    ├── analyzer/                                # 与 analyzer 各算法目录对应的测试
-    │   ├── model/
-    │   ├── discovery/
-    │   ├── diagnosis/
-    │   └── ranking/
-    └── end_to_end/
-        └── three_binaries                       # receiver → analyzer → reporter 文件级串联
+└── tests/end_to_end/
+    └── three_binaries.sh                        # 真实 receiver→analyze→report、确定性与 XSS 验收
 ```
 
-## 核心调用顺序
+## 核心调用链
 
 ```text
-AnalysisPipeline.run
-  ├── CorpusLoader.load
-  ├── RequestProjector.project
-  ├── CandidateIndex.add + CohortBuilder.build
-  ├── TemplateExtractor.extract
-  ├── BytePrefixTrie.common_prefix + StructuralPrefix.compare
-  ├── CounterfactualBuilder.build + PotentialPrefix.calculate
-  ├── DivergenceLocator.locate + SourceAttributor.attribute
-  ├── CauseClassifier.classify + EvidenceBuilder.build
-  ├── FindingAggregator.aggregate + OpportunityScorer.score
-  └── TopKSelector.select + ResultBuilder.build
+analyze_reader
+  ├─ CorpusLoader.load
+  ├─ RequestProjector.project
+  │    └─ ComparisonGroupKey.from_record
+  ├─ CandidateBuilder.build
+  ├─ TemplateExtractor.extract
+  │    ├─ SequenceAligner.align
+  │    └─ symbolic::build member maps + sequences
+  ├─ diagnose_template
+  │    ├─ episode::locator locate P1/X/P2
+  │    ├─ episode::variant aggregate one variant per member
+  │    ├─ facts analyze content/sequence/representation
+  │    └─ identity build stable defect ID
+  ├─ rank_defects
+  └─ write_atomic_json
 ```
 
-`receiver` 和 `reporter` 不依赖 `analyzer`。核心实现及测试集中在 `analyzer/`；缓存影响统一以可观察请求结构的代理指标表达。
+`ranking` 不再从请求对猜根因；它只消费已经唯一化的 `DefectCandidate`。scope、内容版本和 JSON 等价都是同一个 episode 的 facts，不会各自生成 defect。

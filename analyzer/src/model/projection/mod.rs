@@ -5,6 +5,6 @@ mod types;
 
 pub use projector::{ProjectionLimits, RequestProjector};
 pub use types::{
-    CacheSequence, CacheUnit, CacheUnitKind, ComparisonDomain, ProjectionSkip,
-    ProjectionSkipReason, SourceLocation,
+    CacheSequence, CacheUnit, CacheUnitKind, ComparisonDomain, ContextCollectionKind,
+    HierarchyLocation, ProjectionSkip, ProjectionSkipReason, SourceLocation,
 };

@@ -7,17 +7,14 @@ use std::{
 };
 
 use actrail_kv_artifacts::{
-    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, Evidence, Finding, FindingCause,
-    RequestTemplate as ArtifactTemplate, ScoreBreakdown, SkipRecord,
-    SourceLocation as ArtifactSource, StableSpan as ArtifactStableSpan,
-    TemplateSlot as ArtifactSlot, TopKEntry,
+    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, ComparisonGroup,
+    RequestTemplate as ArtifactTemplate, SkipRecord, SourceLocation as ArtifactSource,
+    StableSpan as ArtifactStableSpan, TemplateSlot as ArtifactSlot, ANALYSIS_SCHEMA_VERSION,
 };
 use anyhow::{Context, Result};
 
 use crate::{
-    diagnosis::{
-        diagnose_template, Cause, DiagnosisOptions, DiagnosticRequest, DiagnosticTemplate,
-    },
+    diagnosis::{diagnose_template, DiagnosisOptions},
     discovery::{
         candidate::{CandidateBuilder, CandidateOptions},
         template::{RequestTemplate, TemplateExtractor, TemplateOptions},
@@ -26,7 +23,7 @@ use crate::{
         corpus::{CorpusLoadLimits, CorpusLoader, CorpusSkip},
         projection::{ProjectionLimits, ProjectionSkip, RequestProjector},
     },
-    ranking::{rank_findings, RankedFinding},
+    ranking::rank_defects,
 };
 
 use super::AnalysisOptions;
@@ -53,10 +50,13 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
     .load(reader);
     let input_records = loaded.corpus.records.len() + loaded.skipped.len();
     let mut skips: Vec<SkipRecord> = loaded.skipped.iter().map(corpus_skip).collect();
-    let projector = RequestProjector::new(ProjectionLimits {
-        max_units: options.max_projection_units,
-        max_text_unit_bytes: options.max_text_unit_bytes,
-    });
+    let projector = RequestProjector::new(
+        ProjectionLimits {
+            max_units: options.max_projection_units,
+            max_text_unit_bytes: options.max_text_unit_bytes,
+        },
+        options.comparison_window_seconds,
+    );
     let mut sequences = Vec::new();
     for record in &loaded.corpus.records {
         match projector.project(record) {
@@ -82,10 +82,10 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         vec!["结构代理：未使用 tokenizer、模型内部 chat template 或真实 KV 命中数据".to_owned()];
     limitations.extend(candidate_result.skipped.iter().map(|skip| {
         format!(
-            "candidate domain {}/{}/{} skipped for {} members: {}",
-            skip.domain.dialect,
+            "candidate group {}/{}/{} skipped for {} members: {}",
+            skip.domain.endpoint_key,
             skip.domain.model,
-            skip.domain.adapter_revision,
+            skip.domain.time_window_key,
             skip.member_count,
             skip.reason
         )
@@ -109,37 +109,12 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         stable_support_rate: options.stable_span_support_ratio,
         min_blocked_bytes: options.min_blocked_stable_bytes,
         min_anchor_bytes: options.min_exact_anchor_bytes,
-        local_text_similarity: options.text_similarity_threshold,
     };
-    let mut observations = Vec::new();
+    let mut candidates = Vec::new();
     for template in &extraction.templates {
-        let diagnostic = DiagnosticTemplate {
-            template_id: template.id.clone(),
-            members: template
-                .members
-                .iter()
-                .map(DiagnosticRequest::from)
-                .collect(),
-            cohesion: template.cohesion,
-            projection_reliability: template.projection_reliability,
-        };
-        observations.extend(diagnose_template(&diagnostic, &diagnosis_options));
+        candidates.extend(diagnose_template(template, &diagnosis_options));
     }
-    let ranked = rank_findings(&observations, usize::MAX);
-    let findings: Vec<_> = ranked
-        .iter()
-        .map(|finding| finding_to_artifact(finding, &extraction.templates))
-        .collect();
-    let top_k = ranked
-        .iter()
-        .take(options.top_k)
-        .enumerate()
-        .map(|(index, finding)| TopKEntry {
-            rank: index + 1,
-            finding_id: finding.id.clone(),
-            score: score_to_artifact(&finding.score),
-        })
-        .collect();
+    let ranked = rank_defects(candidates, options.top_k);
     let templates = extraction
         .templates
         .iter()
@@ -152,7 +127,7 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
     });
     Ok(AnalysisResult {
         run: AnalysisRunSummary {
-            schema_version: "0.1.0".to_owned(),
+            schema_version: ANALYSIS_SCHEMA_VERSION.to_owned(),
             input_records,
             analyzed_records,
             skipped_records: skips,
@@ -160,8 +135,8 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
             limitations,
         },
         templates,
-        findings,
-        top_k,
+        defects: ranked.defects,
+        top_k: ranked.top_k,
     })
 }
 
@@ -174,9 +149,7 @@ fn template_to_artifact(template: &RequestTemplate) -> ArtifactTemplate {
     member_request_ids.sort();
     ArtifactTemplate {
         id: template.id.clone(),
-        dialect: template.domain.dialect.clone(),
-        model: template.domain.model.clone(),
-        adapter_revision: template.domain.adapter_revision.clone(),
+        comparison_group: comparison_group(&template.domain),
         member_request_ids,
         medoid_request_id: template.medoid_request_id.clone(),
         cohesion: template.cohesion,
@@ -213,59 +186,6 @@ fn template_to_artifact(template: &RequestTemplate) -> ArtifactTemplate {
     }
 }
 
-fn finding_to_artifact(finding: &RankedFinding, templates: &[RequestTemplate]) -> Finding {
-    let representative_request_ids = templates
-        .iter()
-        .find(|template| template.id == finding.template_id)
-        .map(|template| {
-            let mut request_ids = vec![
-                finding.representative_member_id.clone(),
-                template.medoid_request_id.clone(),
-            ];
-            request_ids.sort();
-            request_ids.dedup();
-            request_ids
-        })
-        .unwrap_or_default();
-    Finding {
-        id: finding.id.clone(),
-        template_id: finding.template_id.clone(),
-        cause: cause_to_artifact(&finding.cause),
-        source: source_to_artifact(
-            &finding.source.json_path,
-            None,
-            finding.source.utf8_range,
-            None,
-        ),
-        actual_prefix_bytes: finding.actual_prefix_bytes,
-        potential_prefix_bytes: finding.potential_prefix_bytes,
-        blocked_stable_bytes: finding.blocked_stable_bytes,
-        affected_count: finding.affected,
-        confidence: finding.confidence,
-        score: score_to_artifact(&finding.score),
-        evidence: Evidence {
-            representative_request_ids,
-            divergent_excerpts: vec![finding.evidence.clone()],
-            blocked_stable_excerpt: finding.stable_anchor.clone(),
-        },
-        counterfactual: finding.counterfactual.clone(),
-        recommendation: finding.recommendation.clone(),
-    }
-}
-
-fn cause_to_artifact(cause: &Cause) -> FindingCause {
-    match cause {
-        Cause::EarlyVolatileContent => FindingCause::EarlyVariableContent,
-        Cause::InlineDynamicSlot => FindingCause::InlineDynamicSlot,
-        Cause::DynamicBlockBeforeStatic => FindingCause::DynamicBlockBeforeStable,
-        Cause::ToolOrderDrift => FindingCause::ToolOrderDrift,
-        Cause::ToolDefinitionDrift => FindingCause::ToolDefinitionDrift,
-        Cause::PromptMicroDrift => FindingCause::SystemPromptDrift,
-        Cause::NonAppendHistory => FindingCause::NonAppendOnlyHistory,
-        Cause::ModelVisibleJsonFormattingDrift => FindingCause::ModelVisibleFormatDrift,
-    }
-}
-
 fn source_to_artifact(
     json_path: &str,
     unit_index: Option<usize>,
@@ -274,6 +194,7 @@ fn source_to_artifact(
 ) -> ArtifactSource {
     ArtifactSource {
         json_path: json_path.to_owned(),
+        logical_scope: role.iter().cloned().collect(),
         unit_index,
         byte_start: byte_range.map(|range| range.0),
         byte_end: byte_range.map(|range| range.1),
@@ -281,18 +202,22 @@ fn source_to_artifact(
     }
 }
 
-fn score_to_artifact(score: &crate::ranking::ScoreBreakdown) -> ScoreBreakdown {
-    ScoreBreakdown {
-        blocked_stable_bytes: score.blocked_bytes,
-        affected_count: score.affected,
-        confidence: score.confidence,
-        score: score.score,
+fn comparison_group(domain: &crate::model::projection::ComparisonDomain) -> ComparisonGroup {
+    ComparisonGroup {
+        time_window_key: domain.time_window_key.to_string(),
+        endpoint_key: domain.endpoint_key.clone(),
+        model: domain.model.clone(),
+        context_schema_key: domain.context_schema_key.clone(),
+        agent_key: domain.agent_key.clone(),
+        model_deployment_key: domain.model_deployment_key.clone(),
+        kv_namespace: domain.kv_namespace.clone(),
     }
 }
 
 fn options_snapshot(options: &AnalysisOptions) -> AnalysisOptionsSnapshot {
     AnalysisOptionsSnapshot {
         top_k: options.top_k,
+        comparison_window_seconds: options.comparison_window_seconds,
         min_template_members: options.min_template_members,
         stable_span_support_ratio: options.stable_span_support_ratio,
         min_stable_support: options.min_stable_support,

@@ -241,9 +241,20 @@ fn make_cohort(
 ) -> CandidateCohort {
     let signature = StructureSignature::of(&medoid);
     let mut digest = Sha256::new();
+    digest.update(medoid.domain.time_window_key.to_be_bytes());
+    digest.update([0]);
+    digest.update(medoid.domain.endpoint_key.as_bytes());
+    digest.update([0]);
     digest.update(medoid.domain.dialect.as_bytes());
     digest.update([0]);
     digest.update(medoid.domain.model.as_bytes());
+    digest.update([0]);
+    update_optional(&mut digest, medoid.domain.model_deployment_key.as_deref());
+    digest.update(medoid.domain.context_schema_key.as_bytes());
+    digest.update([0]);
+    update_optional(&mut digest, medoid.domain.agent_key.as_deref());
+    update_optional(&mut digest, medoid.domain.kv_namespace.as_deref());
+    digest.update(medoid.domain.adapter_revision.as_bytes());
     digest.update([0]);
     digest.update(signature.0.as_bytes());
     for member in &members {
@@ -260,17 +271,36 @@ fn make_cohort(
     }
 }
 
+fn update_optional(digest: &mut Sha256, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            digest.update([1]);
+            digest.update(value.as_bytes());
+        }
+        None => digest.update([0]),
+    }
+    digest.update([0]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::projection::{CacheUnit, CacheUnitKind, SourceLocation};
+    use crate::model::projection::{
+        CacheUnit, CacheUnitKind, ContextCollectionKind, HierarchyLocation, SourceLocation,
+    };
 
     fn sequence(id: &str, text: &str) -> CacheSequence {
         CacheSequence {
             request_id: id.into(),
             domain: ComparisonDomain {
+                time_window_key: 0,
+                endpoint_key: "chat".into(),
                 dialect: "d".into(),
                 model: "m".into(),
+                model_deployment_key: None,
+                context_schema_key: "chat/v1".into(),
+                agent_key: None,
+                kv_namespace: None,
                 adapter_revision: "1".into(),
             },
             units: vec![CacheUnit {
@@ -284,6 +314,12 @@ mod tests {
                     role: Some("system".into()),
                 },
                 tool_identity: None,
+                hierarchy: HierarchyLocation {
+                    collection: ContextCollectionKind::Messages,
+                    parent_json_path: "$.messages".into(),
+                    element_index: Some(0),
+                    content_block_index: None,
+                },
             }],
             projection_reliability_millis: 1000,
         }
