@@ -1,0 +1,95 @@
+' 本图展示外部采集入口、actrail-kv 三个二进制及报告产物流向。
+@startdot
+digraph deployment {
+  graph [
+    rankdir=TB,
+    bgcolor="#F8FAFC",
+    fontname="Noto Sans CJK SC",
+    fontsize=18,
+    fontcolor="#0F172A",
+    nodesep=0.42,
+    ranksep=0.72,
+    pad=0.28,
+    splines=spline,
+    compound=true,
+    newrank=true
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Noto Sans CJK SC",
+    fontsize=13,
+    fontcolor="#0F172A",
+    color="#64748B",
+    penwidth=1.4,
+    margin="0.18,0.12"
+  ];
+  edge [
+    fontname="Noto Sans CJK SC",
+    fontsize=11,
+    fontcolor="#475569",
+    color="#64748B",
+    penwidth=1.4,
+    arrowsize=0.72
+  ];
+
+  agent [
+    fillcolor="#E0F2FE",
+    color="#0284C7",
+    label=<<B>Coding / Office Agent</B><BR/><FONT POINT-SIZE="11">产生完整 LLM 请求</FONT>>
+  ];
+
+  subgraph cluster_collection {
+    label="采集与导出环境（可选入口）";
+    labelloc=t;
+    labeljust=l;
+    fontname="Noto Sans CJK SC";
+    fontsize=14;
+    fontcolor="#334155";
+    color="#CBD5E1";
+    fillcolor="#FFFFFF";
+    style="rounded,filled";
+    penwidth=1.4;
+    margin=18;
+
+    actrail [fillcolor="#F1F5F9", label=<<B>Actrail</B><BR/><FONT POINT-SIZE="11">采集组件</FONT>>];
+    plugin [fillcolor="#EDE9FE", color="#7C3AED", label=<<B>Actrail Plugin</B><BR/><FONT POINT-SIZE="11">格式转换 · 数据导出</FONT>>];
+    adapters [fillcolor="#F1F5F9", label=<<B>网关 / Hook / 插桩组件</B><BR/><FONT POINT-SIZE="11">导出完整请求 payload</FONT>>];
+
+    actrail -> plugin [label="完整请求记录"];
+  }
+
+  subgraph cluster_product {
+    label="actrail-kv";
+    labelloc=t;
+    labeljust=l;
+    fontname="Noto Sans CJK SC";
+    fontsize=16;
+    fontcolor="#0F766E";
+    color="#0F766E";
+    fillcolor="#FFFFFF";
+    style="rounded,filled";
+    penwidth=1.8;
+    margin=18;
+
+    receiver [fillcolor="#CCFBF1", color="#0F766E", label=<<B>actrail-kv-receiver</B><BR/><FONT POINT-SIZE="11">接收 HTTP JSON</FONT>>];
+    analyze [fillcolor="#D1FAE5", color="#059669", label=<<B>actrail-kv-analyze</B><BR/><FONT POINT-SIZE="11">模板抽取 · 结构诊断 · 排序</FONT>>];
+    report [fillcolor="#DCFCE7", color="#16A34A", label=<<B>actrail-kv-report</B><BR/><FONT POINT-SIZE="11">生成可读报告</FONT>>];
+
+    receiver -> analyze [label="requests.ndjson\n离线 / 定时分析"];
+    analyze -> report [label="analysis.json\n按需生成"];
+  }
+
+  html [shape=note, style="filled", fillcolor="#FEF3C7", color="#D97706", fontcolor="#7C2D12", label=<<B>report.html</B><BR/><FONT POINT-SIZE="11">最终产物 · 上下文结构优化报告</FONT>>];
+
+  agent -> actrail [label="路径 A：采集"];
+  agent -> adapters [label="路径 B：代理或插桩"];
+  plugin -> receiver [label="转换并导出完整 HTTP JSON", color="#7C3AED"];
+  adapters -> receiver [label="导出完整 HTTP request payload"];
+  report -> html [label="产出", color="#D97706"];
+
+  { rank=same; agent; actrail; plugin; }
+  { rank=same; receiver; analyze; report; html; }
+}
+@enddot

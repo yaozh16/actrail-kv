@@ -15,3 +15,4 @@
 - 需要维护`docs/architectures/doc-layout.md` 和 `docs/architectures/code-layout.md`
 - **文档绝对禁止出现讨论痕迹**
 - 减少无意义单测
+- 完成任务前注意检查是否存在@标记的用户批注

@@ -19,6 +19,8 @@ docs/
 │   └── context_defect.md                        # 上下文结构缺陷、正例及非缺陷边界
 └── architectures/
     ├── code-layout.md                          # 源码模块、三个二进制与调用关系
+    ├── deployment.md                           # 外部采集入口、三个二进制与报告产物流向
+    ├── assets/                                 # 架构图源文件及渲染图片
     ├── doc-layout.md                           # 本文档：文档树及职责边界
     ├── index.md                                # 三个二进制的架构入口
     ├── constraints.md                          # 跨 receiver/analyze/report 的运行与数据处理约束
