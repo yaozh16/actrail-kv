@@ -307,6 +307,36 @@ fn two_fixed_versions_are_reported_as_fixed_variants() {
 }
 
 #[test]
+fn one_template_with_two_dynamic_regions_reports_two_defects() {
+    let mid = stable("first-region-tail");
+    let tail = stable("second-region-tail");
+    let workspaces = ["north", "south", "east", "west"];
+    let modes = ["a", "b", "c", "d"];
+    let payloads = workspaces
+        .iter()
+        .zip(modes)
+        .map(|(workspace, mode)| {
+            chat(vec![json!({
+                "role":"system",
+                "content":format!("You are an agent.\nWorkspace: {workspace}\n{mid}\nMode: {mode}\n{tail}")
+            })])
+        })
+        .collect();
+    let result = analyze(payloads);
+    assert!(result.defects.len() >= 2, "result={result:#?}");
+    assert!(result
+        .defects
+        .iter()
+        .all(|defect| defect.mismatch.pattern == MismatchPattern::ValueMismatch));
+    let distinct_regions: std::collections::BTreeSet<_> = result
+        .defects
+        .iter()
+        .map(|defect| defect.recovered_stable.excerpt.clone())
+        .collect();
+    assert_eq!(distinct_regions.len(), result.defects.len());
+}
+
+#[test]
 fn json_array_reorder_is_not_structured_equivalence() {
     let tail = stable("tail-after-array");
     let payloads = ["[1,2]", "[2,1]", "[1,2]", "[2,1]"]
