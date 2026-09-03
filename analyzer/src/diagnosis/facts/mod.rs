@@ -15,9 +15,9 @@ pub(super) struct FactAnalysis {
     pub certainty: f64,
 }
 
-pub(super) fn analyze(variants: &[LocatedVariant]) -> FactAnalysis {
+pub(super) fn analyze(variants: &[LocatedVariant], fixed_variant_max: usize) -> FactAnalysis {
     let sequence = sequence::analyze(variants);
-    let mut content = content::analyze(variants);
+    let mut content = content::analyze(variants, fixed_variant_max);
     // 同一组唯一身份仅发生排列时，序列指纹变化是重排的结果，不再重复描述为内容漂移。
     if sequence.reorder {
         content.present = false;

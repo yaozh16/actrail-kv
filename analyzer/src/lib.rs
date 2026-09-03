@@ -6,3 +6,4 @@ pub mod discovery;
 pub mod model;
 pub mod ranking;
 pub mod run;
+mod session;

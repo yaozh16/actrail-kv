@@ -21,6 +21,9 @@ pub struct CapturedRequest {
     pub captured_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// 可选会话标识，只做会话内时间序分析，不进入 comparison group。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_key: Option<String>,
     pub comparison: ComparisonMetadata,
     pub payload: Value,
 }
@@ -35,6 +38,7 @@ mod tests {
         let record = CapturedRequest {
             captured_at: "2026-09-02T08:09:10.123456789Z".to_owned(),
             source: Some("instrumentation/agent-a".to_owned()),
+            session_key: Some("session-a".to_owned()),
             comparison: comparison(),
             payload: json!({"model": "example", "messages": [{"role": "user", "content": "你好"}]}),
         };
@@ -44,6 +48,7 @@ mod tests {
             serde_json::from_str(&encoded).expect("deserialize captured request");
 
         assert_eq!(decoded, record);
+        assert_eq!(decoded.session_key.as_deref(), Some("session-a"));
     }
 
     #[test]
@@ -51,6 +56,7 @@ mod tests {
         let record = CapturedRequest {
             captured_at: "2026-09-02T08:09:10Z".to_owned(),
             source: None,
+            session_key: None,
             comparison: comparison(),
             payload: json!({}),
         };
@@ -79,6 +85,7 @@ mod tests {
         });
         let decoded: CapturedRequest = serde_json::from_value(minimal).expect("minimal envelope");
         assert_eq!(decoded.comparison.endpoint_key, "primary");
+        assert_eq!(decoded.session_key, None);
         assert_eq!(decoded.comparison.agent_key, None);
         assert_eq!(decoded.comparison.model_deployment_key, None);
         assert_eq!(decoded.comparison.kv_namespace, None);

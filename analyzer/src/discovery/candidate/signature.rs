@@ -1,6 +1,7 @@
 //! Bounded symmetric pair metrics compare all observable units without quadratic text edit distance.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
 use sha2::{Digest, Sha256};
 
@@ -210,22 +211,31 @@ fn sampled_shingles(bytes: &[u8]) -> Vec<u64> {
         return bytes.iter().map(|byte| u64::from(*byte)).collect();
     }
     let windows = bytes.len() - SHINGLE_BYTES + 1;
-    let samples = windows.min(MAX_SHINGLES_PER_UNIT);
-    (0..samples)
-        .map(|sample| {
-            let index = if samples == 1 {
-                0
-            } else {
-                sample * (windows - 1) / (samples - 1)
-            };
-            let mut hash = 0xcbf29ce484222325u64;
-            for byte in &bytes[index..index + SHINGLE_BYTES] {
-                hash ^= u64::from(*byte);
-                hash = hash.wrapping_mul(0x100000001b3);
-            }
-            hash
-        })
-        .collect()
+    let keep = windows.min(MAX_SHINGLES_PER_UNIT);
+    // bottom-k min-hash：保留哈希值最小的窗口，采样与文本位置无关，
+    // 局部插入/删除不会让后续窗口集体错位。
+    let mut heap = BinaryHeap::new();
+    for index in 0..windows {
+        let hash = fnv_window(&bytes[index..index + SHINGLE_BYTES]);
+        if heap.len() < keep {
+            heap.push(Reverse(hash));
+        } else if hash < heap.peek().expect("nonempty heap").0 {
+            heap.pop();
+            heap.push(Reverse(hash));
+        }
+    }
+    let mut samples: Vec<_> = heap.into_iter().map(|item| item.0).collect();
+    samples.sort_unstable();
+    samples
+}
+
+fn fnv_window(window: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in window {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn tool_jaccard(left: &CacheSequence, right: &CacheSequence) -> Option<f64> {

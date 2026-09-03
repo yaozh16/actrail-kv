@@ -2,7 +2,9 @@
 
 use std::{collections::BTreeMap, fmt::Write};
 
-use actrail_kv_artifacts::{AnalysisResult, ContextDefect, DefectFactKind, MismatchPattern};
+use actrail_kv_artifacts::{
+    AnalysisResult, ContextDefect, DefectFactKind, MismatchPattern, SessionEventType,
+};
 use anyhow::{anyhow, Result};
 use html_escape::encode_text;
 
@@ -47,8 +49,62 @@ pub fn render_html(result: &AnalysisResult) -> Result<String> {
     for defect in &result.defects {
         render_defect(&mut output, defect)?;
     }
+    if !result.session_reports.is_empty() {
+        output.push_str("<h2>会话 Prefix-Switch 证据</h2>");
+        for report in &result.session_reports {
+            render_session_report(&mut output, report)?;
+        }
+    }
     output.push_str("</body></html>");
     Ok(output)
+}
+
+fn render_session_report(
+    output: &mut String,
+    report: &actrail_kv_artifacts::SessionReport,
+) -> Result<()> {
+    write!(
+        output,
+        "<section class=\"defect\"><h3>session={} endpoint={} model={}</h3><p>请求数 {}；append {}，fork {}，reorder {}，reset {}；切换后需重算 {} bytes，可恢复稳定 {} bytes；前缀收缩共 {} bytes（平均 {}）。</p><table><thead><tr><th>类型</th><th>前一请求</th><th>后一请求</th><th>公共前缀</th><th>前缀收缩</th><th>重算 bytes</th><th>可恢复稳定 bytes</th><th>块 run</th></tr></thead><tbody>",
+        encode_text(&report.session_key),
+        encode_text(&report.endpoint_key),
+        encode_text(&report.model),
+        report.request_count,
+        report.append_count,
+        report.fork_count,
+        report.reorder_count,
+        report.reset_count,
+        report.total_recomputed_bytes,
+        report.total_stable_after_switch_bytes,
+        report.total_prefix_cut_bytes,
+        report.avg_prefix_cut_bytes
+    )?;
+    for event in &report.events {
+        write!(
+            output,
+            "<tr><td>{}</td><td><code>{}</code></td><td><code>{}</code></td><td>{} units / {} bytes</td><td>{}</td><td>{}</td><td>{}</td><td><code>{}</code></td></tr>",
+            event_label(&event.event_type),
+            encode_text(&event.prev_request_id),
+            encode_text(&event.next_request_id),
+            event.lcp_units,
+            event.lcp_bytes,
+            event.prefix_cut_bytes,
+            event.recomputed_bytes,
+            event.stable_after_switch_bytes,
+            encode_text(&event.next_block_runs)
+        )?;
+    }
+    output.push_str("</tbody></table></section>");
+    Ok(())
+}
+
+fn event_label(event: &SessionEventType) -> &'static str {
+    match event {
+        SessionEventType::Append => "append",
+        SessionEventType::Fork => "fork",
+        SessionEventType::Reorder => "reorder",
+        SessionEventType::Reset => "reset",
+    }
 }
 
 fn render_defect(output: &mut String, defect: &ContextDefect) -> Result<()> {

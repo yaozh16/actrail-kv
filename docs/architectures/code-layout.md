@@ -97,6 +97,9 @@ actrail-kv/
 │   ├── ranking/
 │   │   ├── mod.rs                               # 已唯一化 candidate 的评分、稳定全排序、Top K
 │   │   └── tests.rs                             # 去重、tie-break 和 Top K 前缀测试
+│   ├── session/
+│   │   ├── mod.rs                               # 会话 prefix-switch 分析模块入口
+│   │   └── lineage.rs                           # 相邻对 append/fork/reorder/reset 与浪费字节
 │   ├── run/
 │   │   ├── options.rs                           # 算法阈值、时间窗口和资源预算
 │   │   ├── pipeline.rs                          # 文件/reader 编排、artifact 映射与原子输出
@@ -111,6 +114,7 @@ actrail-kv/
 ├── examples/
 │   ├── quickstart/
 │   │   └── requests.ndjson                      # 根 README 可直接分析的最小缺陷语料
+│   ├── cases/                                  # 真实语料回归 fixture（workspace/policy/json/insert/natural/session）
 │   ├── analyze.config.example.json              # analyze 全字段 JSON 配置示例
 │   └── receiver.config.example.json             # receiver JSON 配置示例
 │

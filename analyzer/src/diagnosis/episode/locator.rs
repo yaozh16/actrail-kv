@@ -37,16 +37,42 @@ pub fn diagnose_template(
         .iter()
         .map(|map| (map.member_request_id.as_str(), map))
         .collect();
-    let Some((x_start, recovery_search)) = first_mismatch(template, &maps) else {
-        return vec![];
-    };
-    let Some(recovery) = find_recovery(template, &maps, recovery_search, options) else {
-        return vec![];
-    };
-    if recovery.start < x_start {
-        return vec![];
+    let mut candidates = Vec::new();
+    let mut cursor = 0usize;
+    let coordinate_count = template.coordinates.len();
+    while cursor < coordinate_count {
+        let Some((x_start, recovery_search)) = first_mismatch_from(template, &maps, cursor) else {
+            break;
+        };
+        let Some(recovery) = find_recovery(template, &maps, recovery_search.max(cursor), options)
+        else {
+            cursor += 1;
+            continue;
+        };
+        if recovery.start < x_start {
+            cursor = x_start.saturating_add(1);
+            continue;
+        }
+        if let Some(candidate) = build_candidate(template, &maps, x_start, &recovery, options) {
+            candidates.push(candidate);
+        }
+        let next = recovery.end.max(x_start.saturating_add(1));
+        if next <= cursor {
+            cursor += 1;
+        } else {
+            cursor = next;
+        }
     }
+    candidates
+}
 
+fn build_candidate(
+    template: &RequestTemplate,
+    maps: &BTreeMap<&str, &MemberCoordinateMap>,
+    x_start: usize,
+    recovery: &Recovery,
+    options: &DiagnosisOptions,
+) -> Option<DefectCandidate> {
     let mut located = Vec::new();
     for member_id in recovery.supporter_bytes.keys() {
         let Some(map) = maps.get(member_id.as_str()) else {
@@ -65,7 +91,7 @@ pub fn diagnose_template(
     }
     located.sort_by(|left, right| left.member_id.cmp(&right.member_id));
     if located.len() < options.min_stable_support {
-        return vec![];
+        return None;
     }
 
     let mut histogram: BTreeMap<String, Vec<&LocatedVariant>> = BTreeMap::new();
@@ -76,7 +102,7 @@ pub fn diagnose_template(
             .push(variant);
     }
     if histogram.len() < 2 {
-        return vec![];
+        return None;
     }
     let largest = histogram
         .iter()
@@ -90,7 +116,7 @@ pub fn diagnose_template(
         .expect("nonempty histogram");
     let affected_count = located.len() - histogram[&largest].len();
     if affected_count == 0 {
-        return vec![];
+        return None;
     }
     let representative = located
         .iter()
@@ -109,10 +135,10 @@ pub fn diagnose_template(
         .min()
         .unwrap_or(0);
     if blocked < options.min_blocked_bytes {
-        return vec![];
+        return None;
     }
 
-    let fact_analysis = facts::analyze(&located);
+    let fact_analysis = facts::analyze(&located, options.fixed_variant_max);
     let logical_shape = logical_shape(template, x_start, recovery.start);
     let id = identity::defect_id(&template.domain, &logical_shape, &recovery);
     let mut facts = fact_analysis.facts;
@@ -131,7 +157,7 @@ pub fn diagnose_template(
         * (located.len() as f64 / template.symbolic_members.len() as f64)
         * fact_analysis.certainty)
         .clamp(0.0, 1.0);
-    vec![DefectCandidate {
+    Some(DefectCandidate {
         id,
         comparison_group: comparison_group(&template.domain),
         template_id: template.id.clone(),
@@ -147,15 +173,16 @@ pub fn diagnose_template(
         affected_count,
         confidence,
         insights: fact_analysis.insights,
-    }]
+    })
 }
 
-fn first_mismatch(
+fn first_mismatch_from(
     template: &RequestTemplate,
     maps: &BTreeMap<&str, &MemberCoordinateMap>,
+    start: usize,
 ) -> Option<(usize, usize)> {
     let indexes = coordinate_indexes(template);
-    for index in 0..template.coordinates.len() {
+    for index in start..template.coordinates.len() {
         if maps.values().any(|map| {
             map.unmatched_runs.iter().any(|run| {
                 boundary_index(run.right_coordinate_id.as_ref(), &indexes) == Some(index)

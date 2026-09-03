@@ -24,6 +24,7 @@ use crate::{
         projection::{ProjectionLimits, ProjectionSkip, RequestProjector},
     },
     ranking::rank_defects,
+    session::{analyze_reports, SessionRow},
 };
 
 use super::AnalysisOptions;
@@ -71,6 +72,19 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
             skips.len()
         );
     }
+    let session_rows: Vec<SessionRow<'_>> = loaded
+        .corpus
+        .records
+        .iter()
+        .zip(&sequences)
+        .filter_map(|(record, sequence)| {
+            record.session_key.as_deref().map(|session_key| SessionRow {
+                session_key,
+                sequence,
+            })
+        })
+        .collect();
+    let session_reports = analyze_reports(session_rows);
     let candidate_result = CandidateBuilder::new(CandidateOptions {
         compatibility_threshold: options.template_compatibility_threshold,
         max_dynamic_coverage_ratio: options.max_dynamic_coverage_ratio,
@@ -107,6 +121,7 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
     let diagnosis_options = DiagnosisOptions {
         min_stable_support: options.min_stable_support,
         stable_support_rate: options.stable_span_support_ratio,
+        fixed_variant_max: options.fixed_variant_max,
         min_blocked_bytes: options.min_blocked_stable_bytes,
         min_anchor_bytes: options.min_exact_anchor_bytes,
     };
@@ -137,6 +152,7 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         templates,
         defects: ranked.defects,
         top_k: ranked.top_k,
+        session_reports,
     })
 }
 
@@ -221,6 +237,7 @@ fn options_snapshot(options: &AnalysisOptions) -> AnalysisOptionsSnapshot {
         min_template_members: options.min_template_members,
         stable_span_support_ratio: options.stable_span_support_ratio,
         min_stable_support: options.min_stable_support,
+        fixed_variant_max: options.fixed_variant_max,
         min_blocked_stable_bytes: options.min_blocked_stable_bytes,
         min_exact_anchor_bytes: options.min_exact_anchor_bytes,
         text_similarity_threshold: options.text_similarity_threshold,

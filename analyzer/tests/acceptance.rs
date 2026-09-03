@@ -3,7 +3,7 @@
 use std::io::Cursor;
 
 use actrail_kv_analyzer::run::{analyze_reader, AnalysisOptions};
-use actrail_kv_artifacts::{AnalysisResult, DefectFactKind, MismatchPattern};
+use actrail_kv_artifacts::{AnalysisResult, DefectFactKind, MismatchPattern, SessionEventType};
 use serde_json::{json, Value};
 
 fn stable(label: &str) -> String {
@@ -11,26 +11,89 @@ fn stable(label: &str) -> String {
 }
 
 fn analyze(payloads: Vec<Value>) -> AnalysisResult {
+    analyze_with_session(payloads, None)
+}
+
+fn analyze_with_session(payloads: Vec<Value>, session_key: Option<&str>) -> AnalysisResult {
+    analyze_with_options(payloads, session_key, AnalysisOptions::default())
+}
+
+fn analyze_with_options(
+    payloads: Vec<Value>,
+    session_key: Option<&str>,
+    options: AnalysisOptions,
+) -> AnalysisResult {
     let mut input = String::new();
     for payload in payloads {
-        input.push_str(
-            &serde_json::to_string(&json!({
-                "captured_at":"2026-01-01T00:00:00Z",
-                "comparison":{"endpoint_key":"primary"},
-                "payload":payload
-            }))
-            .expect("fixture JSON"),
-        );
+        let mut envelope = json!({
+            "captured_at":"2026-01-01T00:00:00Z",
+            "comparison":{"endpoint_key":"primary"},
+            "payload":payload
+        });
+        if let Some(key) = session_key {
+            envelope["session_key"] = json!(key);
+        }
+        input.push_str(&serde_json::to_string(&envelope).expect("fixture JSON"));
         input.push('\n');
     }
-    analyze_reader(
-        Cursor::new(input),
-        AnalysisOptions {
-            top_k: 20,
-            ..AnalysisOptions::default()
-        },
-    )
-    .expect("analysis succeeds")
+    analyze_reader(Cursor::new(input), options).expect("analysis succeeds")
+}
+
+#[test]
+fn session_prefix_switch_reports_classify_append_fork_reorder_and_reset() {
+    fn conversation(contents: &[&str]) -> Value {
+        chat(
+            contents
+                .iter()
+                .map(|content| json!({"role":"user","content":content}))
+                .collect(),
+        )
+    }
+    let payloads = vec![
+        conversation(&["A1", "A2", "A3", "A4", "B1", "B2", "C1", "C2"]),
+        conversation(&["A1", "A2", "A3", "A4", "B1", "B2", "C1", "C2", "D"]),
+        conversation(&["A1", "A2", "A3", "A4", "E1", "E2"]),
+        conversation(&["A1", "A2", "A3", "A4", "E2", "E1"]),
+        conversation(&["X1", "X2", "X3"]),
+    ];
+    let result = analyze_with_session(payloads, Some("session-aaaabbcc"));
+    assert_eq!(result.session_reports.len(), 1, "result={result:#?}");
+    let report = &result.session_reports[0];
+    assert_eq!(report.request_count, 5);
+    let types: Vec<_> = report
+        .events
+        .iter()
+        .map(|event| &event.event_type)
+        .collect();
+    assert!(
+        types.contains(&&SessionEventType::Append),
+        "report={report:#?}"
+    );
+    assert!(
+        types.contains(&&SessionEventType::Fork),
+        "report={report:#?}"
+    );
+    assert!(
+        types.contains(&&SessionEventType::Reorder),
+        "report={report:#?}"
+    );
+    assert!(
+        types.contains(&&SessionEventType::Reset),
+        "report={report:#?}"
+    );
+    assert!(report.total_recomputed_bytes > 0);
+    assert!(report.total_stable_after_switch_bytes > 0);
+    assert!(
+        report.events.iter().any(|event| event.prefix_cut_bytes > 0),
+        "report={report:#?}"
+    );
+    assert!(
+        report
+            .events
+            .iter()
+            .any(|event| !event.next_block_runs.is_empty()),
+        "report={report:#?}"
+    );
 }
 
 fn has_fact(result: &AnalysisResult, kind: DefectFactKind) -> bool {
@@ -221,7 +284,7 @@ fn mixed_region_with_content_and_missing_members_is_one_mixed_defect() {
 #[test]
 fn two_fixed_versions_are_reported_as_fixed_variants() {
     let tail = stable("tail-after-version");
-    let payloads = [
+    let payloads: Vec<Value> = [
         "follow policy A.",
         "follow policy A.",
         "follow policy B.",
@@ -242,6 +305,65 @@ fn two_fixed_versions_are_reported_as_fixed_variants() {
         result.defects[0].mismatch.pattern,
         MismatchPattern::ValueMismatch
     );
+}
+
+#[test]
+fn fixed_variant_threshold_is_configurable() {
+    let tail = stable("tail-after-version");
+    let payloads: Vec<Value> = [
+        "follow policy A.",
+        "follow policy A.",
+        "follow policy B.",
+        "follow policy B.",
+    ]
+    .into_iter()
+    .map(|version| {
+        chat(vec![json!({
+            "role":"system",
+            "content":format!("{version}\n{tail}")
+        })])
+    })
+    .collect();
+    let strict = analyze_with_options(
+        payloads.clone(),
+        None,
+        AnalysisOptions {
+            fixed_variant_max: 1,
+            ..AnalysisOptions::default()
+        },
+    );
+    assert!(has_fact(&strict, DefectFactKind::ContentVariation));
+    assert!(!has_fact(&strict, DefectFactKind::FixedVariants));
+}
+
+#[test]
+fn one_template_with_two_dynamic_regions_reports_two_defects() {
+    let mid = stable("first-region-tail");
+    let tail = stable("second-region-tail");
+    let workspaces = ["north", "south", "east", "west"];
+    let modes = ["a", "b", "c", "d"];
+    let payloads = workspaces
+        .iter()
+        .zip(modes)
+        .map(|(workspace, mode)| {
+            chat(vec![json!({
+                "role":"system",
+                "content":format!("You are an agent.\nWorkspace: {workspace}\n{mid}\nMode: {mode}\n{tail}")
+            })])
+        })
+        .collect();
+    let result = analyze(payloads);
+    assert!(result.defects.len() >= 2, "result={result:#?}");
+    assert!(result
+        .defects
+        .iter()
+        .all(|defect| defect.mismatch.pattern == MismatchPattern::ValueMismatch));
+    let distinct_regions: std::collections::BTreeSet<_> = result
+        .defects
+        .iter()
+        .map(|defect| defect.recovered_stable.excerpt.clone())
+        .collect();
+    assert_eq!(distinct_regions.len(), result.defects.len());
 }
 
 #[test]
@@ -276,6 +398,27 @@ fn json_value_change_is_not_structured_equivalence() {
     let result = analyze(payloads);
     assert!(has_content_fact(&result));
     assert!(!has_fact(&result, DefectFactKind::StructuredDataEquivalent));
+}
+
+#[test]
+fn labeled_json_equivalent_representations_are_detected() {
+    let tail = stable("tail-after-labeled-json");
+    let payloads = [
+        "Config JSON: {\"alpha\":1,\"beta\":2}",
+        "Config JSON: { \"beta\": 2, \"alpha\": 1 }",
+        "Config JSON: {\n  \"alpha\": 1, \"beta\": 2\n}",
+        "Config JSON: {\"beta\":2,\"alpha\":1}",
+    ]
+    .into_iter()
+    .map(|visible| {
+        chat(vec![
+            json!({"role":"system","content":visible}),
+            json!({"role":"system","content":tail}),
+        ])
+    })
+    .collect();
+    let result = analyze(payloads);
+    assert!(has_fact(&result, DefectFactKind::StructuredDataEquivalent));
 }
 
 #[test]

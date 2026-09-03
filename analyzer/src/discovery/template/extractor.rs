@@ -403,31 +403,67 @@ fn lcs_medoid_positions(
         ));
     }
     charge_cells(remaining_cells, required)?;
-    let columns = right.len() + 1;
-    let mut lengths = vec![0usize; (left.len() + 1) * columns];
-    for i in 1..=left.len() {
-        for j in 1..=right.len() {
-            lengths[i * columns + j] = if left[i - 1] == right[j - 1] {
-                lengths[(i - 1) * columns + j - 1] + 1
-            } else {
-                lengths[(i - 1) * columns + j].max(lengths[i * columns + j - 1])
-            };
-        }
-    }
-    let (mut i, mut j) = (left.len(), right.len());
     let mut matched = vec![None; left.len()];
-    while i > 0 && j > 0 {
-        if left[i - 1] == right[j - 1] {
-            matched[i - 1] = Some(j - 1);
-            i -= 1;
-            j -= 1;
-        } else if lengths[(i - 1) * columns + j] >= lengths[i * columns + j - 1] {
-            i -= 1;
-        } else {
-            j -= 1;
-        }
+    for (left_index, right_index) in hirschberg_lcs(&left, &right) {
+        matched[left_index] = Some(right_index);
     }
     Ok(matched)
+}
+
+/// Hirschberg 线性空间 LCS：返回 (left_idx, right_idx) 单调配对，内存 O(n+m)。
+fn hirschberg_lcs(left: &[char], right: &[char]) -> Vec<(usize, usize)> {
+    if left.is_empty() || right.is_empty() {
+        return Vec::new();
+    }
+    if left.len() == 1 {
+        return right
+            .iter()
+            .position(|candidate| candidate == &left[0])
+            .map(|index| vec![(0, index)])
+            .unwrap_or_default();
+    }
+    let mid = left.len() / 2;
+    let forward = lcs_lengths(&left[..mid], right);
+    let backward = lcs_lengths_rev(&left[mid..], right);
+    let mut split = 0usize;
+    let mut best = 0usize;
+    for index in 0..=right.len() {
+        let score = forward[index] + backward[right.len() - index];
+        if score > best {
+            best = score;
+            split = index;
+        }
+    }
+    let mut pairs = hirschberg_lcs(&left[..mid], &right[..split]);
+    pairs.extend(
+        hirschberg_lcs(&left[mid..], &right[split..])
+            .into_iter()
+            .map(|(left_index, right_index)| (left_index + mid, right_index + split)),
+    );
+    pairs
+}
+
+fn lcs_lengths(left: &[char], right: &[char]) -> Vec<usize> {
+    let mut previous = vec![0usize; right.len() + 1];
+    let mut current = vec![0usize; right.len() + 1];
+    for left_char in left {
+        for (index, right_char) in right.iter().enumerate() {
+            current[index + 1] = if left_char == right_char {
+                previous[index] + 1
+            } else {
+                previous[index + 1].max(current[index])
+            };
+        }
+        std::mem::swap(&mut previous, &mut current);
+        current[0] = 0;
+    }
+    previous
+}
+
+fn lcs_lengths_rev(left: &[char], right: &[char]) -> Vec<usize> {
+    let left_rev: Vec<_> = left.iter().rev().copied().collect();
+    let right_rev: Vec<_> = right.iter().rev().copied().collect();
+    lcs_lengths(&left_rev, &right_rev)
 }
 
 fn charge_cells(remaining: &mut usize, required: usize) -> Result<(), String> {

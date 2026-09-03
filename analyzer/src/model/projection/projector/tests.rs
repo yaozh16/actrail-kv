@@ -10,6 +10,7 @@ fn record(payload: Value) -> CorpusRecord {
         id: "request".into(),
         captured_at: Some("2026-09-02T08:00:00Z".into()),
         source: None,
+        session_key: None,
         comparison: CaptureComparison {
             endpoint_key: "chat".into(),
             agent_key: None,
