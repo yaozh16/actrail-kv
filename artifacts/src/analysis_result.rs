@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const ANALYSIS_SCHEMA_VERSION: &str = "0.1.0";
+pub const ANALYSIS_SCHEMA_VERSION: &str = "0.1.1";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10,8 +10,28 @@ pub struct AnalysisResult {
     pub run: AnalysisRunSummary,
     pub templates: Vec<RequestTemplate>,
     pub defects: Vec<ContextDefect>,
+    pub conditional_local_sites: Vec<ConditionalLocalSite>,
+    pub session_analysis: crate::SessionAnalysis,
     /// 按优先级排列的 defect ID；排名由数组位置表达。
     pub top_k: Vec<String>,
+}
+
+/// 更早差异稳定或修复后才可能成为首断点的模板局部位点。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConditionalLocalSite {
+    pub id: String,
+    pub comparison_group: ComparisonGroup,
+    pub template_id: String,
+    pub episode_index: usize,
+    pub mismatch: MismatchRegion,
+    pub recovered_stable: RecoveredStable,
+    pub local_prefix_bytes: usize,
+    pub blocked_stable_bytes: usize,
+    pub comparable_count: usize,
+    pub affected_count: usize,
+    pub confidence: f64,
+    pub insights: Vec<OptimizationInsight>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -336,6 +356,8 @@ mod tests {
                     detail: Some("在语义允许时将稳定 P2 前移".into()),
                 }],
             }],
+            conditional_local_sites: vec![],
+            session_analysis: crate::SessionAnalysis::default(),
             top_k: vec!["defect-a".into()],
         }
     }

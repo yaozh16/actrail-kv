@@ -32,7 +32,8 @@ actrail-kv/
 │
 ├── artifacts/src/                                 # 三个二进制共享的磁盘协议
 │   ├── captured_request.rs                        # CapturedRequest、显式 ComparisonMetadata
-│   ├── analysis_result.rs                         # template、统一 ContextDefect、Top K ID
+│   ├── analysis_result.rs                         # template、direct defect、conditional local site、Top K ID
+│   ├── session_analysis.rs                        # Session timeline、transition、prefix metrics、history site
 │   └── lib.rs                                     # 公共 DTO re-export
 │
 ├── receiver/src/                                  # 最小接收端；不依赖 analyzer
@@ -81,10 +82,18 @@ actrail-kv/
 │   │
 │   ├── diagnosis/
 │   │   ├── episode/
-│   │   │   ├── locator.rs                       # 从全部符号成员定位唯一 P1/X/P2 region
+│   │   │   ├── locator.rs                       # 编排同模板 direct 与 conditional episodes
+│   │   │   ├── scanner.rs                       # 有界扫描最多四个有序、非重叠 P1/X/P2 region
 │   │   │   ├── variant.rs                       # 每成员一次的 X 变体和 P2 证据构造
 │   │   │   ├── model.rs                         # DiagnosisOptions、DefectCandidate、EpisodeVariant
 │   │   │   ├── tests.rs                         # P2 门槛、聚合一次性、等价事实和身份稳定
+│   │   │   └── mod.rs
+│   │   ├── session/
+│   │   │   ├── model.rs                         # Session observation 与开放投影视图
+│   │   │   ├── prefix.rs                        # append-aware 最长公共结构前缀与分类
+│   │   │   ├── timeline.rs                      # 时间排序、相邻 transition 与边界
+│   │   │   ├── aggregate.rs                     # history transition 按逻辑位置聚合
+│   │   │   ├── tests.rs                         # 追加、改写、截断、边界、Unicode 与顺序测试
 │   │   │   └── mod.rs
 │   │   ├── facts/
 │   │   │   ├── content.rs                       # 内容变化和少数固定变体事实
@@ -104,8 +113,14 @@ actrail-kv/
 │   └── lib.rs
 │
 ├── reporter/src/                                # 只消费统一 analysis.json；不重新分析
-│   ├── result_loader.rs                         # schema、引用、成员、P2、score、Top K 强校验
-│   ├── html_report_renderer.rs                  # comparison group、P1/X/P2、facts、insights；全转义
+│   ├── result_loader/
+│   │   ├── mod.rs                               # schema、模板、Top K 与分层结果编排校验
+│   │   ├── common.rs                            # comparison group、source、概率公共校验
+│   │   ├── defect.rs                            # direct defect 与 conditional site 强校验
+│   │   ├── session.rs                           # timeline、transition metrics 与 history site 强校验
+│   │   └── tests.rs                             # 合法 fixture 与引用/计量拒绝路径
+│   ├── html_report_renderer.rs                  # Top K、direct defect 与 conditional site；全转义
+│   ├── session_report_renderer.rs               # Session 摘要、时间线与 history sites；全转义
 │   └── lib.rs
 │
 ├── examples/
@@ -125,17 +140,21 @@ analyze_reader
   ├─ CorpusLoader.load
   ├─ RequestProjector.project
   │    └─ ComparisonGroupKey.from_record
+  ├─ session::analyze_session
+  │    ├─ timeline sort and adjacent pairing
+  │    ├─ prefix classify one frontier per transition
+  │    └─ aggregate history sites
   ├─ CandidateBuilder.build
   ├─ TemplateExtractor.extract
   │    ├─ SequenceAligner.align
   │    └─ symbolic::build member maps + sequences
   ├─ diagnose_template
-  │    ├─ episode::locator locate P1/X/P2
+  │    ├─ episode::scanner locate bounded P1/X/P2 chain
   │    ├─ episode::variant aggregate one variant per member
   │    ├─ facts analyze content/sequence/representation
-  │    └─ identity build stable defect ID
+  │    └─ identity build stable episode IDs
   ├─ rank_defects
   └─ write_atomic_json
 ```
 
-`ranking` 不再从请求对猜根因；它只消费已经唯一化的 `DefectCandidate`。scope、内容版本和 JSON 等价都是同一个 episode 的 facts，不会各自生成 defect。
+`ranking` 不再从请求对猜根因；它只消费已经唯一化的 `DefectCandidate`。第一个 episode 映射为 direct defect 并参与 Top K，后续 episode 映射为 conditional local sites 并分层输出。Session timeline 独立建模；三类结果不合并字节或分数。scope、内容版本和 JSON 等价都是同一个 episode 的 facts，不会各自生成 defect。

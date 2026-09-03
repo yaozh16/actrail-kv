@@ -77,6 +77,7 @@ mod tests {
         CorpusRecord {
             id: captured_at.into(),
             captured_at: Some(captured_at.into()),
+            session_id: None,
             source: None,
             comparison: CaptureComparison {
                 endpoint_key: "chat".into(),

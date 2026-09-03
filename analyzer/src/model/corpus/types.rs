@@ -14,6 +14,7 @@ pub struct CaptureComparison {
 pub struct CorpusRecord {
     pub id: String,
     pub captured_at: Option<String>,
+    pub session_id: Option<String>,
     pub source: Option<String>,
     pub comparison: CaptureComparison,
     pub payload: Value,
@@ -37,6 +38,8 @@ pub enum CorpusSkipReason {
     EmptyEndpointKey,
     InvalidComparisonKey { field: String },
     EmptyComparisonKey { field: String },
+    InvalidSessionId,
+    EmptySessionId,
     PayloadNotObject,
     RecordBudgetExceeded { limit: usize },
 }

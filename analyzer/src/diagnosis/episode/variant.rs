@@ -11,7 +11,7 @@ use crate::discovery::template::{
 };
 use crate::model::projection::{CacheSequence, ContextCollectionKind};
 
-use super::locator::Recovery;
+use super::scanner::Recovery;
 use super::EpisodeVariant;
 
 #[derive(Clone, Debug)]
@@ -166,6 +166,19 @@ pub(super) fn recovered_evidence(
     let mut sources = Vec::new();
     let mut excerpt = String::new();
     for index in recovery.start..recovery.end {
+        if index > recovery.start {
+            let left = &template.coordinates[index - 1].id;
+            let right = &template.coordinates[index].id;
+            for run in map.unmatched_runs.iter().filter(|run| {
+                run.left_coordinate_id.as_ref() == Some(left)
+                    && run.right_coordinate_id.as_ref() == Some(right)
+            }) {
+                for fragment in &run.fragments {
+                    sources.push(source_from_fragment(member, fragment, None));
+                    excerpt.push_str(fragment_content(member, fragment));
+                }
+            }
+        }
         if let CoordinateBindingState::Present(fragment) = &map.bindings[index].state {
             sources.push(source_from_fragment(
                 member,

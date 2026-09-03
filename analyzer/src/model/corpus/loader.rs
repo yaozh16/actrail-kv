@@ -114,8 +114,14 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
     let agent_key = optional_comparison_key(comparison, "agent_key")?;
     let model_deployment_key = optional_comparison_key(comparison, "model_deployment_key")?;
     let kv_namespace = optional_comparison_key(comparison, "kv_namespace")?;
-    // Capture metadata is part of request identity and comparison grouping, not model context.
-    let canonical = canonical_json(&record);
+    let session_id = optional_session_id(object)?;
+    // Session relationship metadata must not alter request/template identity.
+    let mut identity_record = record.clone();
+    identity_record
+        .as_object_mut()
+        .expect("record was validated as an object")
+        .remove("session_id");
+    let canonical = canonical_json(&identity_record);
     let mut digest = Sha256::new();
     digest.update(canonical.as_bytes());
     let id = hex::encode(digest.finalize());
@@ -125,6 +131,7 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
             .get("captured_at")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        session_id,
         source: object
             .get("source")
             .and_then(Value::as_str)
@@ -138,6 +145,22 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
         payload: payload.clone(),
         input_line,
     })
+}
+
+fn optional_session_id(
+    object: &serde_json::Map<String, Value>,
+) -> Result<Option<String>, CorpusSkipReason> {
+    let Some(value) = object.get("session_id") else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let value = value.as_str().ok_or(CorpusSkipReason::InvalidSessionId)?;
+    if value.trim().is_empty() {
+        return Err(CorpusSkipReason::EmptySessionId);
+    }
+    Ok(Some(value.to_owned()))
 }
 
 fn optional_comparison_key(
@@ -219,6 +242,17 @@ mod tests {
         let a = CorpusLoader::default().load(Cursor::new(a));
         let b = CorpusLoader::default().load(Cursor::new(b));
         assert_eq!(a.corpus.records[0].id, b.corpus.records[0].id);
+    }
+
+    #[test]
+    fn session_id_is_retained_but_excluded_from_canonical_identity() {
+        let a = r#"{"session_id":"session-a","comparison":{"endpoint_key":"chat"},"payload":{"model":"m","messages":[]}}"#;
+        let b = r#"{"session_id":"session-b","comparison":{"endpoint_key":"chat"},"payload":{"model":"m","messages":[]}}"#;
+        let a = CorpusLoader::default().load(Cursor::new(a));
+        let b = CorpusLoader::default().load(Cursor::new(b));
+        assert_eq!(a.corpus.records[0].id, b.corpus.records[0].id);
+        assert_eq!(a.corpus.records[0].session_id.as_deref(), Some("session-a"));
+        assert_eq!(b.corpus.records[0].session_id.as_deref(), Some("session-b"));
     }
 
     #[test]

@@ -22,6 +22,7 @@ const ENDPOINT_KEY_HEADER: &str = "x-actrail-endpoint-key";
 const AGENT_KEY_HEADER: &str = "x-actrail-agent-key";
 const MODEL_DEPLOYMENT_KEY_HEADER: &str = "x-actrail-model-deployment-key";
 const KV_NAMESPACE_HEADER: &str = "x-actrail-kv-namespace";
+const SESSION_ID_HEADER: &str = "x-actrail-session-id";
 
 pub fn router(appender: Arc<NdjsonAppender>) -> Router {
     router_with_limit(appender, DEFAULT_MAX_PAYLOAD_BYTES)
@@ -68,12 +69,17 @@ async fn receive_request(
         Ok(value) => value,
         Err(message) => return client_error(message),
     };
+    let session_id = match session_header(&headers) {
+        Ok(value) => value,
+        Err(message) => return client_error(message),
+    };
     let captured_at = match OffsetDateTime::now_utc().format(&Rfc3339) {
         Ok(value) => value,
         Err(_) => return server_error(),
     };
     let record = CapturedRequest {
         captured_at,
+        session_id,
         source,
         comparison: ComparisonMetadata {
             endpoint_key,
@@ -95,6 +101,19 @@ async fn receive_request(
             server_error()
         }
     }
+}
+
+fn session_header(headers: &HeaderMap) -> Result<Option<String>, &'static str> {
+    let Some(value) = headers.get(SESSION_ID_HEADER) else {
+        return Ok(None);
+    };
+    let value = value
+        .to_str()
+        .map_err(|_| "X-Actrail-Session-Id must contain valid text")?;
+    if value.trim().is_empty() {
+        return Err("X-Actrail-Session-Id must not be empty");
+    }
+    Ok(Some(value.to_owned()))
 }
 
 fn metadata_header(
@@ -162,6 +181,7 @@ mod tests {
                     .header("X-Actrail-Agent-Key", "coding-agent")
                     .header("X-Actrail-Model-Deployment-Key", "deployment-a")
                     .header("X-Actrail-KV-Namespace", "cache-scope-a")
+                    .header("X-Actrail-Session-Id", "session-a")
                     .body(Body::from(
                         r#"{"model":"example","messages":[{"content":"你好"}]}"#,
                     ))
@@ -176,6 +196,7 @@ mod tests {
         assert_eq!(line.lines().count(), 1);
         let captured: CapturedRequest = serde_json::from_str(line.trim_end()).expect("parse line");
         assert_eq!(captured.source.as_deref(), Some("agent-hook"));
+        assert_eq!(captured.session_id.as_deref(), Some("session-a"));
         assert_eq!(captured.comparison.endpoint_key, "llm-primary");
         assert_eq!(
             captured.comparison.agent_key.as_deref(),
@@ -211,6 +232,42 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(fs::metadata(output).expect("output metadata").len(), 0);
+    }
+
+    #[tokio::test]
+    async fn session_header_is_optional_and_empty_values_are_rejected() {
+        let directory = tempdir().expect("create temporary directory");
+        let output = directory.path().join("requests.ndjson");
+        let app = router(Arc::new(
+            NdjsonAppender::open(&output).expect("open appender"),
+        ));
+        let accepted = app
+            .clone()
+            .oneshot(
+                Request::post("/requests")
+                    .header("X-Actrail-Endpoint-Key", "primary")
+                    .body(Body::from(r#"{"model":"example","messages":[]}"#))
+                    .expect("build request"),
+            )
+            .await
+            .expect("serve request");
+        assert_eq!(accepted.status(), StatusCode::ACCEPTED);
+        let captured: CapturedRequest =
+            serde_json::from_str(fs::read_to_string(&output).expect("read output").trim_end())
+                .expect("parse capture");
+        assert_eq!(captured.session_id, None);
+
+        let rejected = app
+            .oneshot(
+                Request::post("/requests")
+                    .header("X-Actrail-Endpoint-Key", "primary")
+                    .header("X-Actrail-Session-Id", "   ")
+                    .body(Body::from(r#"{"model":"example","messages":[]}"#))
+                    .expect("build request"),
+            )
+            .await
+            .expect("serve request");
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

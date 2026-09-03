@@ -28,7 +28,7 @@ actrail-kv-receiver \
 
 `receiver.json` 支持字段：`listen`、`max_payload_bytes`（默认 `8388608`）。示例见 `examples/receiver.config.example.json`。
 
-Receiver 接受 `POST /requests`，body 必须是完整 JSON object。`X-Actrail-Endpoint-Key` 必填；`X-Actrail-Agent-Key`、`X-Actrail-Model-Deployment-Key`、`X-Actrail-KV-Namespace` 和 `X-Actrail-Source` 可选。前三项 metadata 提供后参与 comparison group，source 只记录采集来源。
+Receiver 接受 `POST /requests`，body 必须是完整 JSON object。`X-Actrail-Endpoint-Key` 必填；`X-Actrail-Agent-Key`、`X-Actrail-Model-Deployment-Key`、`X-Actrail-KV-Namespace`、`X-Actrail-Source` 和 `X-Actrail-Session-Id` 可选。前三项 metadata 提供后参与 comparison group，source 只记录采集来源；session ID 只建立 Session 时间线，不进入模型可见内容或 comparison group。
 
 ## Analyze
 
@@ -72,6 +72,8 @@ analyze 的全部算法阈值与资源预算均可通过 `--config` 的 JSON 覆
 | `max_alignment_cells` | `2000000` | 单次文本/单元对齐 cells 上限，超限跳过该对齐。 |
 | `max_total_alignment_cells` | `64000000` | 单 cohort 累计对齐 cells 上限，超限跳过该 cohort。 |
 | `max_records` | `1000000` | 单次分析记录数上限，超限拒绝继续加载。 |
+
+同一模板最多探测四个有序 episode：一个直接缺陷和最多三个条件性局部位点。该上限在当前版本中固定，不提供配置项。Session 时间线只比较同一 `session_id` 的相邻请求，也没有额外配置项。
 
 超限、坏行与未知 payload dialect 均在 `analysis.json` 中以 skipped 原因呈现；系统不会截断请求后输出高置信结论。
 

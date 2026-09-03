@@ -1,27 +1,18 @@
-//! 本文件直接跨符号模板成员定位唯一 P1/X/P2 region，并按成员一次构造变体直方图。
+//! 本文件将扫描器定位的 P1/X/P2 边界转换为直接缺陷或条件性局部候选。
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use actrail_kv_artifacts::{ComparisonGroup, DefectFact, DefectFactKind};
 
 use crate::diagnosis::{facts, identity};
 use crate::discovery::template::{
-    CoordinateBindingState, CoordinateKind, MemberCoordinateMap, MemberFragmentRef,
-    RequestTemplate, TemplateCoordinate, TemplateCoordinateId,
+    CoordinateBindingState, MemberCoordinateMap, RequestTemplate, TemplateCoordinate,
 };
 use crate::model::projection::{ComparisonDomain, ContextCollectionKind};
 
+use super::scanner::{scan, EpisodeBounds};
 use super::variant::{build_variant, episode_variant, member, recovered_evidence, LocatedVariant};
-use super::{DefectCandidate, DiagnosisOptions};
-
-#[derive(Clone, Debug)]
-pub(in crate::diagnosis) struct Recovery {
-    pub start: usize,
-    pub end: usize,
-    pub supporter_bytes: BTreeMap<String, usize>,
-    pub anchor_chain_digest: String,
-    pub local_shape: String,
-}
+use super::{DefectCandidate, DiagnosisOptions, EpisodeKind};
 
 pub fn diagnose_template(
     template: &RequestTemplate,
@@ -37,16 +28,21 @@ pub fn diagnose_template(
         .iter()
         .map(|map| (map.member_request_id.as_str(), map))
         .collect();
-    let Some((x_start, recovery_search)) = first_mismatch(template, &maps) else {
-        return vec![];
-    };
-    let Some(recovery) = find_recovery(template, &maps, recovery_search, options) else {
-        return vec![];
-    };
-    if recovery.start < x_start {
-        return vec![];
-    }
+    scan(template, options, |bounds, episode_index| {
+        candidate(template, &maps, bounds, episode_index, options)
+    })
+}
 
+fn candidate(
+    template: &RequestTemplate,
+    maps: &BTreeMap<&str, &MemberCoordinateMap>,
+    bounds: &EpisodeBounds,
+    episode_index: usize,
+    options: &DiagnosisOptions,
+) -> Option<DefectCandidate> {
+    let local_p1_start = bounds.local_p1_start;
+    let x_start = bounds.x_start;
+    let recovery = &bounds.recovery;
     let mut located = Vec::new();
     for member_id in recovery.supporter_bytes.keys() {
         let Some(map) = maps.get(member_id.as_str()) else {
@@ -65,7 +61,7 @@ pub fn diagnose_template(
     }
     located.sort_by(|left, right| left.member_id.cmp(&right.member_id));
     if located.len() < options.min_stable_support {
-        return vec![];
+        return None;
     }
 
     let mut histogram: BTreeMap<String, Vec<&LocatedVariant>> = BTreeMap::new();
@@ -76,7 +72,7 @@ pub fn diagnose_template(
             .push(variant);
     }
     if histogram.len() < 2 {
-        return vec![];
+        return None;
     }
     let largest = histogram
         .iter()
@@ -90,7 +86,7 @@ pub fn diagnose_template(
         .expect("nonempty histogram");
     let affected_count = located.len() - histogram[&largest].len();
     if affected_count == 0 {
-        return vec![];
+        return None;
     }
     let representative = located
         .iter()
@@ -101,6 +97,13 @@ pub fn diagnose_template(
                 .then_with(|| left.member_id.cmp(&right.member_id))
         })
         .expect("an affected variant exists");
+    let local_prefix_bytes = if episode_index == 1 {
+        representative.actual_prefix_bytes
+    } else {
+        maps.get(representative.member_id.as_str())
+            .map(|map| observable_bytes(template, map, local_p1_start, x_start))
+            .unwrap_or(0)
+    };
     let blocked = located
         .iter()
         .filter(|variant| variant.fingerprint != largest)
@@ -109,12 +112,22 @@ pub fn diagnose_template(
         .min()
         .unwrap_or(0);
     if blocked < options.min_blocked_bytes {
-        return vec![];
+        return None;
     }
 
     let fact_analysis = facts::analyze(&located);
     let logical_shape = logical_shape(template, x_start, recovery.start);
-    let id = identity::defect_id(&template.domain, &logical_shape, &recovery);
+    let logical_id = identity::defect_id(
+        &template.domain,
+        &logical_shape,
+        &template.coordinates[x_start].id.0,
+        recovery,
+    );
+    let id = if episode_index == 1 {
+        logical_id
+    } else {
+        identity::conditional_site_id(&template.id, &logical_id)
+    };
     let mut facts = fact_analysis.facts;
     facts.push(DefectFact {
         kind: DefectFactKind::Scope,
@@ -125,172 +138,75 @@ pub fn diagnose_template(
         .into_iter()
         .map(|(fingerprint, members)| episode_variant(fingerprint, members))
         .collect();
-    let recovered_stable = recovered_evidence(template, &recovery, &representative.member_id);
+    let recovered_stable = recovered_evidence(template, recovery, &representative.member_id);
     let confidence = (template.cohesion
         * template.projection_reliability
         * (located.len() as f64 / template.symbolic_members.len() as f64)
         * fact_analysis.certainty)
         .clamp(0.0, 1.0);
-    vec![DefectCandidate {
+    Some(DefectCandidate {
         id,
         comparison_group: comparison_group(&template.domain),
         template_id: template.id.clone(),
+        episode_index,
+        kind: if episode_index == 1 {
+            EpisodeKind::Direct
+        } else {
+            EpisodeKind::Conditional
+        },
         pattern: fact_analysis.pattern,
         variants,
         facts,
         recovered_stable,
         representative_member_id: representative.member_id.clone(),
         actual_prefix_bytes: representative.actual_prefix_bytes,
+        local_prefix_bytes,
         potential_prefix_bytes: representative.actual_prefix_bytes + blocked,
         blocked_stable_bytes: blocked,
         comparable_count: located.len(),
         affected_count,
         confidence,
         insights: fact_analysis.insights,
-    }]
-}
-
-fn first_mismatch(
-    template: &RequestTemplate,
-    maps: &BTreeMap<&str, &MemberCoordinateMap>,
-) -> Option<(usize, usize)> {
-    let indexes = coordinate_indexes(template);
-    for index in 0..template.coordinates.len() {
-        if maps.values().any(|map| {
-            map.unmatched_runs.iter().any(|run| {
-                boundary_index(run.right_coordinate_id.as_ref(), &indexes) == Some(index)
-            })
-        }) {
-            return Some((index, index));
-        }
-        let signatures: BTreeSet<_> = maps
-            .values()
-            .map(|map| binding_signature(map, index))
-            .collect();
-        if signatures.len() > 1 || template.coordinates[index].kind == CoordinateKind::Slot {
-            return Some((index, index + 1));
-        }
-    }
-    None
-}
-
-fn find_recovery(
-    template: &RequestTemplate,
-    maps: &BTreeMap<&str, &MemberCoordinateMap>,
-    search: usize,
-    options: &DiagnosisOptions,
-) -> Option<Recovery> {
-    for start in search..template.coordinates.len() {
-        if template.coordinates[start].kind != CoordinateKind::Stable {
-            continue;
-        }
-        let mut supporters: BTreeMap<String, usize> = maps
-            .iter()
-            .filter_map(|(member, map)| {
-                exact_fragment(map, start, &template.coordinates[start])
-                    .map(|fragment| ((*member).to_owned(), fragment.observable_bytes))
-            })
-            .collect();
-        for end in start + 1..=template.coordinates.len() {
-            if end > start + 1 {
-                let coordinate = &template.coordinates[end - 1];
-                if coordinate.kind != CoordinateKind::Stable {
-                    break;
-                }
-                supporters.retain(|member, bytes| {
-                    let Some(map) = maps.get(member.as_str()) else {
-                        return false;
-                    };
-                    if has_run_between(map, &template.coordinates[end - 2].id, &coordinate.id) {
-                        return false;
-                    }
-                    exact_fragment(map, end - 1, coordinate).is_some_and(|fragment| {
-                        *bytes += fragment.observable_bytes;
-                        true
-                    })
-                });
-            }
-            let min_bytes = supporters.values().copied().min().unwrap_or(0);
-            if supported(supporters.len(), template.symbolic_members.len(), options)
-                && min_bytes >= options.min_blocked_bytes
-                && min_bytes >= options.min_anchor_bytes
-            {
-                let anchor_chain_digest = identity::digest(
-                    template.coordinates[start..]
-                        .iter()
-                        .filter(|coordinate| coordinate.kind == CoordinateKind::Stable)
-                        .map(|coordinate| coordinate.content_digest.as_bytes()),
-                );
-                let local_shape = template.coordinates[start..end]
-                    .iter()
-                    .map(coordinate_shape)
-                    .collect::<Vec<_>>()
-                    .join("/");
-                return Some(Recovery {
-                    start,
-                    end,
-                    supporter_bytes: supporters,
-                    anchor_chain_digest,
-                    local_shape,
-                });
-            }
-        }
-    }
-    None
-}
-
-fn supported(count: usize, total: usize, options: &DiagnosisOptions) -> bool {
-    count >= options.min_stable_support
-        && count as f64 / total.max(1) as f64 + f64::EPSILON >= options.stable_support_rate
-}
-
-fn binding_signature(map: &MemberCoordinateMap, index: usize) -> String {
-    match &map.bindings[index].state {
-        CoordinateBindingState::Present(fragment) => fragment.content_digest.clone(),
-        CoordinateBindingState::Gap => "<gap>".into(),
-    }
-}
-
-fn exact_fragment<'a>(
-    map: &'a MemberCoordinateMap,
-    index: usize,
-    coordinate: &TemplateCoordinate,
-) -> Option<&'a MemberFragmentRef> {
-    match &map.bindings.get(index)?.state {
-        CoordinateBindingState::Present(fragment)
-            if fragment.content_digest == coordinate.content_digest =>
-        {
-            Some(fragment)
-        }
-        _ => None,
-    }
-}
-
-fn has_run_between(
-    map: &MemberCoordinateMap,
-    left: &TemplateCoordinateId,
-    right: &TemplateCoordinateId,
-) -> bool {
-    map.unmatched_runs.iter().any(|run| {
-        run.left_coordinate_id.as_ref() == Some(left)
-            && run.right_coordinate_id.as_ref() == Some(right)
     })
 }
 
-fn coordinate_indexes(template: &RequestTemplate) -> BTreeMap<&TemplateCoordinateId, usize> {
-    template
+fn observable_bytes(
+    template: &RequestTemplate,
+    map: &MemberCoordinateMap,
+    start: usize,
+    end: usize,
+) -> usize {
+    let binding_bytes: usize = map.bindings[start..end]
+        .iter()
+        .filter_map(|binding| match &binding.state {
+            CoordinateBindingState::Present(fragment) => Some(fragment.observable_bytes),
+            CoordinateBindingState::Gap => None,
+        })
+        .sum();
+    let indexes: BTreeMap<_, _> = template
         .coordinates
         .iter()
         .enumerate()
         .map(|(index, coordinate)| (&coordinate.id, index))
-        .collect()
-}
-
-fn boundary_index(
-    id: Option<&TemplateCoordinateId>,
-    indexes: &BTreeMap<&TemplateCoordinateId, usize>,
-) -> Option<usize> {
-    id.and_then(|id| indexes.get(id).copied())
+        .collect();
+    let unmatched_bytes: usize = map
+        .unmatched_runs
+        .iter()
+        .filter(|run| {
+            run.left_coordinate_id
+                .as_ref()
+                .and_then(|id| indexes.get(id).copied())
+                .is_some_and(|index| index >= start)
+                && run
+                    .right_coordinate_id
+                    .as_ref()
+                    .and_then(|id| indexes.get(id).copied())
+                    .is_some_and(|index| index < end)
+        })
+        .flat_map(|run| &run.fragments)
+        .map(|fragment| fragment.observable_bytes)
+        .sum();
+    binding_bytes + unmatched_bytes
 }
 
 fn collection_name(collection: &ContextCollectionKind) -> &'static str {
@@ -310,7 +226,7 @@ fn logical_shape(template: &RequestTemplate, x_start: usize, p2_start: usize) ->
         .join("/")
 }
 
-fn coordinate_shape(coordinate: &TemplateCoordinate) -> String {
+pub(super) fn coordinate_shape(coordinate: &TemplateCoordinate) -> String {
     format!(
         "{}:{:?}:{}:{}:{}",
         collection_name(&coordinate.logical_unit.collection),

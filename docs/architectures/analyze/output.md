@@ -8,7 +8,7 @@
 | 字段路径 | 类型 | 含义 |
 |---|---|---|
 | `run` | object | 本次分析运行摘要。 |
-| `run.schema_version` | string | 当前为 `0.1.0`。 |
+| `run.schema_version` | string | 当前为 `0.1.1`。 |
 | `run.input_records` | integer | 读取的 NDJSON 记录数。 |
 | `run.analyzed_records` | integer | 成功投影并进入分析的记录数。 |
 | `run.skipped_records[]` | object array | 未进入分析的记录。 |
@@ -123,6 +123,47 @@
 | `defects[].insights[]` | object array | 根据结构事实生成的中文优化启示，至少一项。 |
 | `defects[].insights[].summary` | string | 优化方向摘要。 |
 | `defects[].insights[].detail?` | string | 适用前提或补充说明。 |
+| `conditional_local_sites[]` | object array | 同模板 direct defect 之后的条件性局部位点，不参与 Top K。 |
+| `conditional_local_sites[].id` | string | 稳定且唯一的局部位点 ID。 |
+| `conditional_local_sites[].comparison_group` | object | 必须与引用模板的比较组完全一致。 |
+| `conditional_local_sites[].template_id` | string | 引用已有模板；该模板同时存在 direct defect。 |
+| `conditional_local_sites[].episode_index` | integer | 模板内 1-based episode 序号；每个模板从 `2` 连续递增，最大为 `4`，不得留空洞。 |
+| `conditional_local_sites[].mismatch` | object | 与 defect 相同的 X 变体和 facts 契约。 |
+| `conditional_local_sites[].recovered_stable` | object | 该 X 后到下一真实差异前的最大连续稳定区。 |
+| `conditional_local_sites[].local_prefix_bytes` | integer | 上一局部恢复区之后、当前 X 之前的 episode-local 稳定字节；不是全局实际公共前缀。 |
+| `conditional_local_sites[].blocked_stable_bytes` | integer | 当前局部位点之后的保守稳定字节。 |
+| `conditional_local_sites[].comparable_count` | integer | 进入当前 episode 变体统计的 supporter 数。 |
+| `conditional_local_sites[].affected_count` | integer | `comparable_count - 最大变体成员数`。 |
+| `conditional_local_sites[].confidence` | number，`0..1` | 当前局部证据置信度。 |
+| `conditional_local_sites[].insights[]` | object array | 仅针对该条件性局部位点的优化启示。 |
+| `session_analysis` | object | 独立的 Session 相邻请求分析，不进入模板计量。 |
+| `session_analysis.session_record_count` | integer | 带 Session ID、进入时间线的记录总数。 |
+| `session_analysis.timelines[]` | object array | 按 Session ID 组织的线性时间线。 |
+| `session_analysis.timelines[].session_id` | string | 上游显式提供的 Session ID。 |
+| `session_analysis.timelines[].requests[]` | object array | 按采集时间、输入行号排列的请求引用。 |
+| `requests[].request_id` | string | analyzer 的稳定请求 occurrence ID。 |
+| `requests[].captured_at?` | RFC 3339 string | 合法采集时间；缺失或非法输入被保留为空并形成不可分析边界。 |
+| `requests[].input_line` | integer | 原 NDJSON 行号；时间相同时用于确定性排列。 |
+| `requests[].source?` | string | 原采集来源，仅用于报告追踪。 |
+| `session_analysis.timelines[].transitions[]` | object array | 恰好连接每一对相邻请求的 transition。 |
+| `transitions[].previous_request_id/current_request_id` | string | 必须依次引用时间线中的相邻请求。 |
+| `transitions[].previous_captured_at?/current_captured_at?` | string | 必须与相邻请求引用中的采集时间一致。 |
+| `transitions[].boundary?` | object | 四种可比较 outcome 必须携带的已知上下文边界；三种不可比/歧义/不可分析 outcome 不携带。 |
+| `boundary.endpoint_key/model/context_schema_key` | string | 可比较请求共同的 endpoint、model 和上下文 schema。 |
+| `boundary.agent_key?/model_deployment_key?/kv_namespace?` | string | 请求共同的可选边界维度。 |
+| `boundary.dialect/adapter_revision` | string | 投影请求使用的 dialect 和 adapter revision。 |
+| `session_analysis.timelines[].transitions[].outcome.kind` | string enum | `identical`、`normal_append`、`prefix_truncated`、`history_changed`、`incomparable_boundary`、`ambiguous_order` 或 `unanalyzable_boundary`。 |
+| `outcome.metrics` | object | 可比较结果的上一/当前可观察字节、保留前缀、保留比例与失效旧后缀。 |
+| `outcome.divergence` | object | 截断或历史变化的逻辑位置、两侧 source location 和有界摘录。 |
+| `outcome.reason` | string | 不可比、歧义或不可分析边界的原因。 |
+| `session_analysis.history_sites[]` | object array | 按稳定逻辑位置聚合的截断与历史变化。 |
+| `history_sites[].kind` | string enum | `history_changed` 或 `prefix_truncated`；一个 site 不混合两种行为。 |
+| `history_sites[].boundary` | object | 与全部引用 transition 完全一致的已知上下文边界；site 不跨边界聚合。 |
+| `history_sites[].transition_ids[]` | string array | 恰好引用属于该位点的 history transition。 |
+| `history_sites[].occurrence_count` | integer | 引用 transition 数。 |
+| `history_sites[].affected_session_count` | integer | 引用覆盖的不同 Session 数。 |
+| `history_sites[].invalidated_previous_suffix_bytes_*` | integer | 失效旧后缀字节的 total/min/max。 |
+| `history_sites[].insight?` | object | 同一逻辑位置至少重复两次后才出现的优化启示。 |
 | `top_k[]` | string array | 按优先级排列的 defect ID，是完整稳定排序的前缀。 |
 
 所有 byte range 必须同时提供 start/end、满足 `start <= end`，并落在合法 UTF-8 字符边界。一个 defect 的所有 variant 成员总数等于 `comparable_count`，`recovered_stable.support_count` 也等于该值。
@@ -132,7 +173,7 @@
 ```json
 {
   "run": {
-    "schema_version": "0.1.0",
+    "schema_version": "0.1.1",
     "input_records": 4,
     "analyzed_records": 4,
     "skipped_records": [],
@@ -208,6 +249,8 @@
     "score": {"blocked_stable_bytes":128,"affected_count":2,"confidence":0.91,"score":232.96},
     "insights": [{"summary":"统一稳定内容的配置或模板版本","detail":"同一逻辑位置的变化过早阻断了后续稳定前缀"}]
   }],
+  "conditional_local_sites": [],
+  "session_analysis": {"session_record_count":0,"timelines":[],"history_sites":[]},
   "top_k": ["defect-a"]
 }
 ```
@@ -216,5 +259,7 @@
 
 - score、affected count、blocked stable bytes 依次降序，最后按 defect ID 升序打破并列。
 - `top_k=n` 是完整排序的前 n 个 ID，不复制 score 或展示文案。
+- `conditional_local_sites[]` 按模板与 episode 顺序展示，不进入 `top_k`；同模板多个位点不得累计为一次收益。
+- Session transition 与 history site 独立于模板排序；同一位置的两类证据不得重复计数。
 - 输入顺序、成员顺序和展示文案变化不改变问题身份或排序。
 - UTF-8 bytes 是结构代理，不代表真实 token、KV miss、延迟或金额收益。

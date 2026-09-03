@@ -67,6 +67,32 @@ fn detects_early_variable_content_without_value_shape_rules() {
 }
 
 #[test]
+fn separates_direct_and_conditional_sites_in_a_real_multi_episode_template() {
+    let first_stable = stable("after-first-result");
+    let second_stable = stable("after-second-result");
+    let payloads = ["north", "south", "east", "west"]
+        .into_iter()
+        .map(|value| {
+            chat(vec![
+                json!({"role":"system","content":"fixed prelude"}),
+                json!({"role":"tool","content":format!("first-{value}")}),
+                json!({"role":"system","content":first_stable}),
+                json!({"role":"tool","content":format!("second-{value}")}),
+                json!({"role":"system","content":second_stable}),
+            ])
+        })
+        .collect();
+    let result = analyze(payloads);
+
+    assert_eq!(result.defects.len(), 1, "result={result:#?}");
+    assert_eq!(result.conditional_local_sites.len(), 1);
+    let conditional = &result.conditional_local_sites[0];
+    assert_eq!(conditional.episode_index, 2);
+    assert!(conditional.local_prefix_bytes >= first_stable.len());
+    assert!(!result.top_k.contains(&conditional.id));
+}
+
+#[test]
 fn detects_inline_dynamic_slot_with_unstructured_values() {
     let suffix = stable("common-inline-suffix");
     let contents: Vec<_> = ["青山", "ocean", "Δοκιμή", "客户七"]

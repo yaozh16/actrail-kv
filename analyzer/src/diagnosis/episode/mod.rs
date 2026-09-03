@@ -2,10 +2,11 @@
 
 pub(in crate::diagnosis) mod locator;
 mod model;
+pub(in crate::diagnosis) mod scanner;
 pub(in crate::diagnosis) mod variant;
 
 pub use locator::diagnose_template;
-pub use model::{DefectCandidate, DiagnosisOptions, EpisodeVariant};
+pub use model::{DefectCandidate, DiagnosisOptions, EpisodeKind, EpisodeVariant};
 
 #[cfg(test)]
 mod tests;

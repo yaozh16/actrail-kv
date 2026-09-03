@@ -2,6 +2,7 @@
 
 mod html_report_renderer;
 mod result_loader;
+mod session_report_renderer;
 
 use std::path::Path;
 
@@ -77,12 +78,20 @@ mod tests {
         let mut result = fixture();
         result.templates[0].comparison_group.endpoint_key = "<iframe>endpoint</iframe>".into();
         result.defects[0].comparison_group.endpoint_key = "<iframe>endpoint</iframe>".into();
+        result.conditional_local_sites[0]
+            .comparison_group
+            .endpoint_key = "<iframe>endpoint</iframe>".into();
         result.defects[0].id = "<svg onload=alert(1)>".into();
         result.top_k[0] = result.defects[0].id.clone();
         result.defects[0].mismatch.variants[0]
             .representative
             .request_id = "<u>request-a</u>".into();
         result.defects[0].mismatch.variants[0].member_request_ids[0] = "<u>request-a</u>".into();
+        result.conditional_local_sites[0].mismatch.variants[0]
+            .representative
+            .request_id = "<u>request-a</u>".into();
+        result.conditional_local_sites[0].mismatch.variants[0].member_request_ids[0] =
+            "<u>request-a</u>".into();
         result.templates[0].member_request_ids[0] = "<u>request-a</u>".into();
         result.templates[0].medoid_request_id = "<u>request-a</u>".into();
         result.defects[0].mismatch.variants[0]
@@ -102,6 +111,12 @@ mod tests {
             "<svg onload=alert(1)>",
             "<u>request-a</u>",
             "<a href=evil>path</a>",
+            "<session&one>",
+            "<old-history>",
+            "<new-history>",
+            "<messages/system>",
+            "<source>",
+            "<session-endpoint>",
         ] {
             assert!(!html.contains(unsafe_fragment));
         }
@@ -109,6 +124,10 @@ mod tests {
         assert!(html.contains("<strong>P1</strong>"));
         assert!(html.contains("<strong>X</strong>"));
         assert!(html.contains("<strong>P2</strong>"));
+        assert!(html.contains("条件性局部位点"));
+        assert!(html.contains("Session 时间线"));
+        assert!(html.contains("source=&lt;source&gt;"));
+        assert!(html.contains("endpoint=&lt;session-endpoint&gt;"));
     }
 
     #[test]
@@ -118,5 +137,13 @@ mod tests {
         fs::write(&path, b"not replaced").expect("fixture");
         assert!(write_report(&path, &path).is_err());
         assert_eq!(fs::read(&path).expect("preserved"), b"not replaced");
+    }
+
+    #[test]
+    fn report_distinguishes_missing_session_data_from_zero_history_changes() {
+        let mut result = fixture();
+        result.session_analysis = actrail_kv_artifacts::SessionAnalysis::default();
+        let html = render_html(&result).expect("render report");
+        assert!(html.contains("未提供 Session ID 或没有可分析的时间线"));
     }
 }

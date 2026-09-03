@@ -14,7 +14,7 @@ use actrail_kv_artifacts::{
 use anyhow::{Context, Result};
 
 use crate::{
-    diagnosis::{diagnose_template, DiagnosisOptions},
+    diagnosis::{diagnose_template, session::SessionObservation, DiagnosisOptions},
     discovery::{
         candidate::{CandidateBuilder, CandidateOptions},
         template::{RequestTemplate, TemplateExtractor, TemplateOptions},
@@ -58,13 +58,29 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         options.comparison_window_seconds,
     );
     let mut sequences = Vec::new();
+    let mut session_observations = Vec::new();
     for record in &loaded.corpus.records {
         match projector.project(record) {
-            Ok(sequence) => sequences.push(sequence),
-            Err(skip) => skips.push(projection_skip(record.input_line, &skip)),
+            Ok(sequence) => {
+                let sequence_index = sequences.len();
+                if let Some(observation) =
+                    SessionObservation::from_record(record, Some(sequence_index))
+                {
+                    session_observations.push(observation);
+                }
+                sequences.push(sequence);
+            }
+            Err(skip) => {
+                if let Some(observation) = SessionObservation::from_record(record, None) {
+                    session_observations.push(observation);
+                }
+                skips.push(projection_skip(record.input_line, &skip));
+            }
         }
     }
     let analyzed_records = sequences.len();
+    let session_analysis =
+        crate::diagnosis::session::analyze_session(session_observations, &sequences);
     if analyzed_records == 0 {
         anyhow::bail!(
             "input contains no analyzable OpenAI-compatible chat requests ({} records rejected)",
@@ -109,6 +125,7 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         stable_support_rate: options.stable_span_support_ratio,
         min_blocked_bytes: options.min_blocked_stable_bytes,
         min_anchor_bytes: options.min_exact_anchor_bytes,
+        max_episodes_per_template: 4,
     };
     let mut candidates = Vec::new();
     for template in &extraction.templates {
@@ -136,6 +153,8 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         },
         templates,
         defects: ranked.defects,
+        conditional_local_sites: ranked.conditional_local_sites,
+        session_analysis,
         top_k: ranked.top_k,
     })
 }

@@ -151,6 +151,7 @@ mod tests {
                         appender
                             .append(&CapturedRequest {
                                 captured_at: "2026-09-02T00:00:00Z".to_owned(),
+                                session_id: None,
                                 source: Some(format!("writer-{writer}")),
                                 comparison: comparison(),
                                 payload: json!({
@@ -267,6 +268,7 @@ mod tests {
     fn captured_record() -> CapturedRequest {
         CapturedRequest {
             captured_at: "2026-09-02T00:00:00Z".to_owned(),
+            session_id: None,
             source: None,
             comparison: comparison(),
             payload: json!({"model": "example"}),

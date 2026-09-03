@@ -1,4 +1,4 @@
-//! 本文件以符号模板 fixture 验证统一 P1/X/P2 定位、成员一次聚合和负例抑制。
+//! 本模块提供 episode 测试 fixture，并验证基础与多位点扫描行为。
 
 use std::ops::Range;
 
@@ -8,12 +8,14 @@ use super::*;
 use crate::discovery::template::{
     CoordinateBinding, CoordinateBindingState, CoordinateKind, LogicalUnitKey, MemberCoordinateMap,
     MemberFragmentRef, RequestTemplate, SymbolicMemberSequence, TemplateCoordinate,
-    TemplateCoordinateId,
+    TemplateCoordinateId, UnmatchedRun,
 };
 use crate::model::projection::{
     CacheSequence, CacheUnit, CacheUnitKind, ComparisonDomain, ContextCollectionKind,
     HierarchyLocation, SourceLocation,
 };
+
+mod review;
 
 fn sequence(id: &str, values: &[&str]) -> CacheSequence {
     CacheSequence {
@@ -101,6 +103,64 @@ fn template(values: &[&str], p2: &str) -> RequestTemplate {
     }
 }
 
+fn multi_episode_template(rows: &[Vec<&str>], kinds: &[CoordinateKind]) -> RequestTemplate {
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|row| row.len() == kinds.len()));
+    let members: Vec<_> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| sequence(&format!("member-{index}"), row))
+        .collect();
+    let coordinates: Vec<_> = kinds
+        .iter()
+        .enumerate()
+        .map(|(index, kind)| {
+            coordinate(
+                &format!("coordinate-{index}"),
+                index,
+                kind.clone(),
+                rows[0][index],
+                rows[0][index].len(),
+                rows.len(),
+            )
+        })
+        .collect();
+    let member_maps = members
+        .iter()
+        .zip(rows)
+        .map(|(member, row)| MemberCoordinateMap {
+            member_request_id: member.request_id.clone(),
+            bindings: row
+                .iter()
+                .enumerate()
+                .map(|(index, content)| binding(&format!("coordinate-{index}"), index, content))
+                .collect(),
+            unmatched_runs: vec![],
+        })
+        .collect();
+    let symbolic_members = members
+        .iter()
+        .map(|member| SymbolicMemberSequence {
+            member_request_id: member.request_id.clone(),
+            atoms: vec![],
+            observable_bytes: member.units.iter().map(CacheUnit::observable_bytes).sum(),
+        })
+        .collect();
+    RequestTemplate {
+        id: "multi-template".into(),
+        domain: domain(),
+        medoid_request_id: "member-0".into(),
+        members,
+        stable_spans: vec![],
+        slots: vec![],
+        coordinates,
+        member_maps,
+        symbolic_members,
+        cohesion: 0.9,
+        projection_reliability: 1.0,
+    }
+}
+
 #[test]
 fn content_variants_form_one_episode_and_count_each_member_once() {
     let p2 = "stable recovery".repeat(8);
@@ -165,6 +225,164 @@ fn input_and_member_order_do_not_change_region_identity() {
     let first = diagnose_template(&original, &DiagnosisOptions::default());
     let second = diagnose_template(&reversed, &DiagnosisOptions::default());
     assert_eq!(first, second);
+}
+
+#[test]
+fn emits_direct_then_conditional_episode_with_maximal_non_overlapping_p2() {
+    let stable_a = "first stable recovery ".repeat(4);
+    let stable_b = "second stable recovery ".repeat(4);
+    let rows = ["north", "south", "east", "west"]
+        .into_iter()
+        .map(|variant| {
+            vec![
+                "prefix",
+                variant,
+                stable_a.as_str(),
+                "shared stable continuation",
+                variant,
+                stable_b.as_str(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let template = multi_episode_template(
+        &rows,
+        &[
+            CoordinateKind::Stable,
+            CoordinateKind::Slot,
+            CoordinateKind::Stable,
+            CoordinateKind::Stable,
+            CoordinateKind::Slot,
+            CoordinateKind::Stable,
+        ],
+    );
+    let episodes = diagnose_template(&template, &DiagnosisOptions::default());
+
+    assert_eq!(episodes.len(), 2);
+    assert_eq!(episodes[0].episode_index, 1);
+    assert_eq!(episodes[0].kind, EpisodeKind::Direct);
+    assert_eq!(
+        episodes[0].blocked_stable_bytes,
+        stable_a.len() + "shared stable continuation".len()
+    );
+    assert_eq!(episodes[1].episode_index, 2);
+    assert_eq!(episodes[1].kind, EpisodeKind::Conditional);
+    assert_eq!(
+        episodes[1].local_prefix_bytes,
+        stable_a.len() + "shared stable continuation".len()
+    );
+    assert_eq!(episodes[1].blocked_stable_bytes, stable_b.len());
+    assert_ne!(episodes[0].id, episodes[1].id);
+
+    let mut reversed = template;
+    reversed.members.reverse();
+    reversed.member_maps.reverse();
+    reversed.symbolic_members.reverse();
+    assert_eq!(
+        episodes,
+        diagnose_template(&reversed, &DiagnosisOptions::default())
+    );
+}
+
+#[test]
+fn episode_budget_stops_deterministically() {
+    let stable_a = "first stable recovery ".repeat(4);
+    let stable_b = "second stable recovery ".repeat(4);
+    let rows = ["north", "south", "east", "west"]
+        .into_iter()
+        .map(|variant| {
+            vec![
+                "prefix",
+                variant,
+                stable_a.as_str(),
+                variant,
+                stable_b.as_str(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let options = DiagnosisOptions {
+        max_episodes_per_template: 1,
+        ..DiagnosisOptions::default()
+    };
+    let episodes = diagnose_template(
+        &multi_episode_template(
+            &rows,
+            &[
+                CoordinateKind::Stable,
+                CoordinateKind::Slot,
+                CoordinateKind::Stable,
+                CoordinateKind::Slot,
+                CoordinateKind::Stable,
+            ],
+        ),
+        &options,
+    );
+    assert_eq!(episodes.len(), 1);
+    assert_eq!(episodes[0].kind, EpisodeKind::Direct);
+}
+
+#[test]
+fn recovery_supporters_form_a_monotonic_chain() {
+    let stable_a = "first stable recovery ".repeat(4);
+    let stable_b = "second stable recovery ".repeat(4);
+    let rows = ["north", "south", "east", "west", "minority"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, variant)| {
+            vec![
+                "prefix",
+                variant,
+                stable_a.as_str(),
+                if index < 4 { variant } else { "excluded" },
+                stable_b.as_str(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut value = multi_episode_template(
+        &rows,
+        &[
+            CoordinateKind::Stable,
+            CoordinateKind::Slot,
+            CoordinateKind::Stable,
+            CoordinateKind::Slot,
+            CoordinateKind::Stable,
+        ],
+    );
+    value.member_maps[4].bindings[2].state = CoordinateBindingState::Gap;
+    let episodes = diagnose_template(&value, &DiagnosisOptions::default());
+
+    assert_eq!(episodes.len(), 2);
+    assert_eq!(episodes[0].comparable_count, 4);
+    assert_eq!(episodes[1].comparable_count, 4);
+}
+
+#[test]
+fn maximum_p2_tail_does_not_change_minimum_anchor_identity() {
+    let anchor = "qualified stable anchor ".repeat(4);
+    let first_rows = ["north", "south", "east", "west"]
+        .into_iter()
+        .map(|variant| vec!["prefix", variant, anchor.as_str(), "tail version one"])
+        .collect::<Vec<_>>();
+    let second_rows = ["north", "south", "east", "west"]
+        .into_iter()
+        .map(|variant| vec!["prefix", variant, anchor.as_str(), "tail version two"])
+        .collect::<Vec<_>>();
+    let kinds = [
+        CoordinateKind::Stable,
+        CoordinateKind::Slot,
+        CoordinateKind::Stable,
+        CoordinateKind::Stable,
+    ];
+    let first = diagnose_template(
+        &multi_episode_template(&first_rows, &kinds),
+        &DiagnosisOptions::default(),
+    );
+    let second = diagnose_template(
+        &multi_episode_template(&second_rows, &kinds),
+        &DiagnosisOptions::default(),
+    );
+
+    assert_eq!(first[0].id, second[0].id);
+    assert!(first[0].blocked_stable_bytes > anchor.len());
 }
 
 fn coordinate(

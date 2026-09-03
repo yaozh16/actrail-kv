@@ -3,5 +3,8 @@
 pub mod episode;
 mod facts;
 mod identity;
+pub mod session;
 
-pub use episode::{diagnose_template, DefectCandidate, DiagnosisOptions, EpisodeVariant};
+pub use episode::{
+    diagnose_template, DefectCandidate, DiagnosisOptions, EpisodeKind, EpisodeVariant,
+};

@@ -6,6 +6,7 @@
 | 字段路径 | 类型 | 含义 |
 |---|---|---|
 | `captured_at` | string | receiver 以 UTC 写入的 RFC 3339 采集时间。 |
+| `session_id?` | string | 入站 `X-Actrail-Session-Id` 的原样值；只用于 Session 时间线。 |
 | `source?` | string | 入站 `X-Actrail-Source` 的原样值。 |
 | `comparison` | object | analyzer 建立 comparison group 所需的显式采集元数据。 |
 | `comparison.endpoint_key` | string | LLM endpoint 或逻辑路由标识。 |
@@ -15,7 +16,7 @@
 | `payload` | JSON object | 原始 HTTP body；receiver 不改写其字段和值。 |
 
 ```json
-{"captured_at":"2026-09-02T08:09:10Z","source":"agent-hook","comparison":{"endpoint_key":"llm-primary","agent_key":"coding-agent"},"payload":{"model":"example","messages":[{"role":"user","content":"你好"}]}}
+{"captured_at":"2026-09-02T08:09:10Z","session_id":"session-42","source":"agent-hook","comparison":{"endpoint_key":"llm-primary","agent_key":"coding-agent"},"payload":{"model":"example","messages":[{"role":"user","content":"你好"}]}}
 ```
 
-该文件是 analyzer 的唯一输入格式。它由一个 receiver 进程独占；并发成功请求仍保证一请求一整行。
+该文件是 analyzer 的唯一输入格式。`session_id` 缺失时仍是合法的旧格式记录，不推断 Session；同一 ID 在当前版本中表示一条线性请求流。文件由一个 receiver 进程独占；并发成功请求仍保证一请求一整行。

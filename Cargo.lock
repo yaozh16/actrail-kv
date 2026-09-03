@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "actrail-kv-analyze"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "actrail-kv-analyzer",
  "anyhow",
@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-analyzer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "actrail-kv-artifacts",
  "anyhow",
@@ -30,7 +30,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-artifacts"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-receiver"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "actrail-kv-artifacts",
  "anyhow",
@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-receiver-bin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "actrail-kv-receiver",
  "anyhow",
@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-report"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "actrail-kv-reporter",
  "anyhow",
@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-reporter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "actrail-kv-artifacts",
  "anyhow",
@@ -83,6 +83,7 @@ dependencies = [
  "same-file",
  "serde_json",
  "tempfile",
+ "time",
 ]
 
 [[package]]

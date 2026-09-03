@@ -17,6 +17,8 @@ fn candidate(id: &str, blocked: usize, affected: usize, confidence: f64) -> Defe
             kv_namespace: None,
         },
         template_id: "template".into(),
+        episode_index: 1,
+        kind: EpisodeKind::Direct,
         pattern: MismatchPattern::ValueMismatch,
         variants: vec![],
         facts: vec![],
@@ -35,6 +37,7 @@ fn candidate(id: &str, blocked: usize, affected: usize, confidence: f64) -> Defe
         },
         representative_member_id: "member".into(),
         actual_prefix_bytes: 10,
+        local_prefix_bytes: 10,
         potential_prefix_bytes: 10 + blocked,
         blocked_stable_bytes: blocked,
         comparable_count: affected + 1,
@@ -42,6 +45,14 @@ fn candidate(id: &str, blocked: usize, affected: usize, confidence: f64) -> Defe
         confidence,
         insights: vec![],
     }
+}
+
+fn conditional_candidate(id: &str, episode_index: usize) -> DefectCandidate {
+    let mut value = candidate(id, 50, 2, 1.0);
+    value.kind = EpisodeKind::Conditional;
+    value.episode_index = episode_index;
+    value.local_prefix_bytes = 25;
+    value
 }
 
 #[test]
@@ -58,6 +69,38 @@ fn score_and_top_k_are_a_deterministic_prefix() {
     assert_eq!(forward, backward);
     assert_eq!(forward.top_k, ["high", "mid"]);
     assert_eq!(forward.defects[0].score.score, 60.0);
+    assert!(forward.conditional_local_sites.is_empty());
+}
+
+#[test]
+fn conditional_sites_are_ordered_but_never_scored_or_ranked() {
+    let result = rank_defects(
+        vec![
+            conditional_candidate("later", 3),
+            candidate("direct", 10, 1, 1.0),
+            conditional_candidate("earlier", 2),
+        ],
+        10,
+    );
+    assert_eq!(result.top_k, ["direct"]);
+    assert_eq!(result.defects.len(), 1);
+    assert_eq!(
+        result
+            .conditional_local_sites
+            .iter()
+            .map(|site| site.episode_index)
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+    assert_eq!(result.conditional_local_sites[0].local_prefix_bytes, 25);
+}
+
+#[test]
+fn conditional_site_without_its_template_direct_defect_is_suppressed() {
+    let result = rank_defects(vec![conditional_candidate("orphan", 2)], 10);
+    assert!(result.defects.is_empty());
+    assert!(result.conditional_local_sites.is_empty());
+    assert!(result.top_k.is_empty());
 }
 
 #[test]

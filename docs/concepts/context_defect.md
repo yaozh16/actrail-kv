@@ -49,3 +49,15 @@ request ID、trace ID、session ID、tenant、用户输入和其他高频变化�
 | 内容看似相似，但无法可靠对应 | 重复工具身份、歧义 block 或只有文本相似度 | 无法证明同一位置、同一元素或稳定 `P2` | 不给出结构归因 | 否 |
 
 模板和槽位的详细说明见[请求模板](template.md)，具体分析步骤见 [Analyze 流水线](../architectures/analyze/pipeline.md)，报告字段见 [Analyze 输出](../architectures/analyze/output.md)。
+
+## 一个模板中的多个位点
+
+同一模板可能呈现：
+
+```text
+P1 → X1 → stable1 → X2 → stable2
+```
+
+`X1 → stable1` 是当前直接前缀缺陷。`X2 → stable2` 不是同一次前缀比较中的第二份损失，而是条件性局部位点：只有 `X1` 已在后续请求中保持稳定，或被开发者修复后，`X2` 才可能成为新的首次分叉。因此条件性位点不进入 Top K，也不能与直接缺陷相加。
+
+Session 时间线提供另一种证据：它只判断上一请求的已有前缀在下一请求中保留到哪里。首次尾部追加动态 tool result 不属于缺陷；后续改写该结果才属于既有历史变化。详细概念见 [Session 前缀延续](session-prefix.md)。

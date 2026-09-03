@@ -16,7 +16,8 @@ docs/
 ├── configuration.md                            # 实际 CLI 参数、固定阈值、资源预算与部署参数
 ├── concepts/                                   # 面向新手的稳定业务概念
 │   ├── template.md                              # 请求模板、稳定片段、槽位及其分析产物映射
-│   └── context_defect.md                        # 上下文结构缺陷、正例及非缺陷边界
+│   ├── context_defect.md                        # 上下文结构缺陷、正例及非缺陷边界
+│   └── session-prefix.md                        # Session 相邻请求的前缀延续、分类与指标边界
 └── architectures/
     ├── code-layout.md                          # 源码模块、三个二进制与调用关系
     ├── deployment.md                           # 外部采集入口、三个二进制与报告产物流向
@@ -35,8 +36,15 @@ docs/
         ├── input.md                            # analysis.json 校验契约
         └── output.md                           # report.html 展示契约
 dev/
-├── requirements/<version>/                     # 版本需求和验收案例
-└── designs/<version>/                          # 版本设计索引，不重复当前架构正文
+├── requirements/                              # 版本需求和验收案例
+│   ├── v0.1.0/                                # v0.1.0 已实现需求记录
+│   └── v0.1.1/
+│       └── target.md                          # Session 前缀延续与多位点分析目标
+└── designs/                                   # 版本设计索引与开发期实现设计
+    ├── v0.1.0/                                # v0.1.0 设计记录
+    └── v0.1.1/
+        ├── implementation.md                  # v0.1.1 设计索引
+        └── session-prefix-and-multi-site.md   # Session 与多位点实现设计
 ```
 
 ## 新文档落点

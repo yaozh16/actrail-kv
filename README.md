@@ -80,11 +80,14 @@ curl --fail-with-body \
   -H 'content-type: application/json' \
   -H 'x-actrail-endpoint-key: llm-primary' \
   -H 'x-actrail-agent-key: coding-agent' \
+  -H 'x-actrail-session-id: session-42' \
   --data-binary @request.json \
   http://127.0.0.1:8080/requests
 ```
 
 `X-Actrail-Endpoint-Key` 告诉分析器哪些请求来自同一个逻辑入口。Agent、模型部署和真实 KV namespace 也可以作为可选分组维度，避免比较本来就不会共享缓存的请求。完整 Header 和落盘格式见 [Receiver 输入](docs/architectures/receiver/input.md)与 [Receiver 输出](docs/architectures/receiver/output.md)。
+
+`X-Actrail-Session-Id` 是可选的线性 Session 标识。提供后，分析器还会按时间比较同一 Session 的相邻请求，区分正常追加的新消息或 tool result 与已经形成的历史被改写、截断或重排；它不参与模板分组。
 
 积累一段时间的请求后，使用与示例相同的 Analyze、Report 命令生成报告即可。
 
@@ -114,6 +117,10 @@ curl --fail-with-body \
 | `score` 与 Top K | `blocked_stable_bytes × affected_count × confidence` 的统一排序 | 用于安排排查顺序，不作为 Token 或金额收益预测 |
 | Optimization Insight | 根据差异事实给出的调整方向 | 作为修改入口，实施前仍需确认语义和业务约束 |
 
+同一模板存在多个 `X → P2` 位点时，报告把第一个位点作为直接缺陷进入 Top K，最多再展示三个条件性局部位点。后续位点表示更早差异稳定或修复后可能暴露的下一处问题，不与直接缺陷重复计分。
+
+提供 Session ID 后，报告还会展示每次相邻请求的前缀保留比例、正常追加、历史变化和前缀截断，并聚合重复出现的历史变化位置。动态内容第一次追加不是缺陷；它在下一轮被原样保留时会进入新的保留前缀。
+
 当前版本不读取模型服务的真实 KV 命中遥测。因此，报告指出的是有证据支持的结构问题，不会把它包装成已经发生的缓存 miss，也不会凭空换算 Token 或金额收益。优化前仍应由熟悉业务的人确认语义安全，并用线上指标验证实际收益。
 
 ## 当前可分析的请求
@@ -127,6 +134,7 @@ MVP 面向 OpenAI-compatible chat payload：请求需要包含字符串 `model` 
 - [部署交互视图](docs/architectures/deployment.md)：两种采集链路和三个二进制如何协作。
 - [什么是请求模板](docs/concepts/template.md)：模板、稳定片段、槽位和请求实例之间的关系。
 - [什么是上下文结构缺陷](docs/concepts/context_defect.md)：`P1 / X / P2` 的判定方式和反例。
+- [什么是 Session 前缀延续](docs/concepts/session-prefix.md)：相邻请求的正常追加、历史变化与前缀截断。
 - [分析流水线](docs/architectures/analyze/pipeline.md)：从语料分组到 Top K 的完整过程。
 - [报告数据结构](docs/architectures/analyze/output.md)：`analysis.json` 字段、引用关系和示例。
 - [配置参考](docs/configuration.md)：CLI 参数、资源预算与部署设置。

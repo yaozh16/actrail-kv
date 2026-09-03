@@ -2,11 +2,18 @@
 
 mod analysis_result;
 mod captured_request;
+mod session_analysis;
 
 pub use analysis_result::{
-    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, ComparisonGroup, ContextDefect,
-    DefectFact, DefectFactKind, MismatchPattern, MismatchRegion, MismatchVariant,
-    OptimizationInsight, RecoveredStable, RequestTemplate, ScoreBreakdown, SkipRecord,
-    SourceLocation, StableSpan, TemplateSlot, VariantEvidence, ANALYSIS_SCHEMA_VERSION,
+    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, ComparisonGroup,
+    ConditionalLocalSite, ContextDefect, DefectFact, DefectFactKind, MismatchPattern,
+    MismatchRegion, MismatchVariant, OptimizationInsight, RecoveredStable, RequestTemplate,
+    ScoreBreakdown, SkipRecord, SourceLocation, StableSpan, TemplateSlot, VariantEvidence,
+    ANALYSIS_SCHEMA_VERSION,
 };
 pub use captured_request::{CapturedRequest, ComparisonMetadata};
+pub use session_analysis::{
+    SessionAnalysis, SessionBoundaryContext, SessionDivergence, SessionHistorySite,
+    SessionHistorySiteKind, SessionPrefixMetrics, SessionRequestReference, SessionTimeline,
+    SessionTransition, SessionTransitionOutcome,
+};

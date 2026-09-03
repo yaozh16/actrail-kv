@@ -20,6 +20,7 @@
 | `X-Actrail-Agent-Key?` | HTTP header string | 可选 Agent 标识；提供后进入 comparison group。 |
 | `X-Actrail-Model-Deployment-Key?` | HTTP header string | 可选模型部署标识；提供后进入 comparison group。 |
 | `X-Actrail-KV-Namespace?` | HTTP header string | 可选真实 KV 隔离 namespace；提供后进入 comparison group。 |
+| `X-Actrail-Session-Id?` | HTTP header string | 可选线性 Session 标识；只建立相邻请求时间线，不进入 payload 或 comparison group。 |
 
 | 响应状态 | 条件 | Body |
 |---|---|---|
