@@ -65,7 +65,7 @@ fn render_session_report(
 ) -> Result<()> {
     write!(
         output,
-        "<section class=\"defect\"><h3>session={} endpoint={} model={}</h3><p>请求数 {}；append {}，fork {}，reorder {}，reset {}；切换后需重算 {} bytes，可恢复稳定 {} bytes。</p><table><thead><tr><th>类型</th><th>前一请求</th><th>后一请求</th><th>公共前缀</th><th>重算 bytes</th><th>可恢复稳定 bytes</th></tr></thead><tbody>",
+        "<section class=\"defect\"><h3>session={} endpoint={} model={}</h3><p>请求数 {}；append {}，fork {}，reorder {}，reset {}；切换后需重算 {} bytes，可恢复稳定 {} bytes；前缀收缩共 {} bytes（平均 {}）。</p><table><thead><tr><th>类型</th><th>前一请求</th><th>后一请求</th><th>公共前缀</th><th>前缀收缩</th><th>重算 bytes</th><th>可恢复稳定 bytes</th><th>块 run</th></tr></thead><tbody>",
         encode_text(&report.session_key),
         encode_text(&report.endpoint_key),
         encode_text(&report.model),
@@ -75,19 +75,23 @@ fn render_session_report(
         report.reorder_count,
         report.reset_count,
         report.total_recomputed_bytes,
-        report.total_stable_after_switch_bytes
+        report.total_stable_after_switch_bytes,
+        report.total_prefix_cut_bytes,
+        report.avg_prefix_cut_bytes
     )?;
     for event in &report.events {
         write!(
             output,
-            "<tr><td>{}</td><td><code>{}</code></td><td><code>{}</code></td><td>{} units / {} bytes</td><td>{}</td><td>{}</td></tr>",
+            "<tr><td>{}</td><td><code>{}</code></td><td><code>{}</code></td><td>{} units / {} bytes</td><td>{}</td><td>{}</td><td>{}</td><td><code>{}</code></td></tr>",
             event_label(&event.event_type),
             encode_text(&event.prev_request_id),
             encode_text(&event.next_request_id),
             event.lcp_units,
             event.lcp_bytes,
+            event.prefix_cut_bytes,
             event.recomputed_bytes,
-            event.stable_after_switch_bytes
+            event.stable_after_switch_bytes,
+            encode_text(&event.next_block_runs)
         )?;
     }
     output.push_str("</tbody></table></section>");

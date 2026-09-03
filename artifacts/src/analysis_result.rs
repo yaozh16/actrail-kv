@@ -34,9 +34,15 @@ pub struct SessionSwitchEvent {
     pub next_request_id: String,
     pub lcp_units: usize,
     pub lcp_bytes: usize,
+    /// 相邻前一对的公共前缀字节（首事件为 0）。
+    pub previous_pair_lcp_bytes: usize,
+    /// 前缀收缩字节：previous_pair_lcp 与当前 lcp 的差（无收缩为 0）。
+    pub prefix_cut_bytes: usize,
     pub next_total_bytes: usize,
     pub recomputed_bytes: usize,
     pub stable_after_switch_bytes: usize,
+    /// 下一条请求内容性单位的稳定块 run-length 摘要（如 4 个相同块为 x4）。
+    pub next_block_runs: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +58,8 @@ pub struct SessionReport {
     pub reset_count: usize,
     pub total_recomputed_bytes: usize,
     pub total_stable_after_switch_bytes: usize,
+    pub total_prefix_cut_bytes: usize,
+    pub avg_prefix_cut_bytes: usize,
     pub events: Vec<SessionSwitchEvent>,
 }
 

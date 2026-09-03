@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use actrail_kv_artifacts::{SessionEventType, SessionReport, SessionSwitchEvent};
+use sha2::{Digest, Sha256};
 
 use crate::model::projection::{CacheSequence, CacheUnit, CacheUnitKind, ContextCollectionKind};
 
@@ -65,8 +66,13 @@ fn build_report(
     let mut reset_count = 0usize;
     let mut total_recomputed_bytes = 0usize;
     let mut total_stable_after_switch_bytes = 0usize;
+    let mut total_prefix_cut_bytes = 0usize;
+    let mut previous_lcp_bytes: Option<usize> = None;
     for pair in sequences.windows(2) {
         let (event_type, lcp_units, lcp_bytes) = classify(pair[0], pair[1]);
+        let previous_pair_lcp_bytes = previous_lcp_bytes.unwrap_or(0);
+        let prefix_cut_bytes = previous_pair_lcp_bytes.saturating_sub(lcp_bytes);
+        previous_lcp_bytes = Some(lcp_bytes);
         let next_total_bytes = observable_bytes(&pair[1].units);
         let recomputed_bytes = next_total_bytes.saturating_sub(lcp_bytes);
         let stable_after_switch_bytes = recovered_contiguous_bytes(pair[0], pair[1], lcp_units);
@@ -79,17 +85,22 @@ fn build_report(
         total_recomputed_bytes = total_recomputed_bytes.saturating_add(recomputed_bytes);
         total_stable_after_switch_bytes =
             total_stable_after_switch_bytes.saturating_add(stable_after_switch_bytes);
+        total_prefix_cut_bytes = total_prefix_cut_bytes.saturating_add(prefix_cut_bytes);
         events.push(SessionSwitchEvent {
             event_type,
             prev_request_id: pair[0].request_id.clone(),
             next_request_id: pair[1].request_id.clone(),
             lcp_units,
             lcp_bytes,
+            previous_pair_lcp_bytes,
+            prefix_cut_bytes,
             next_total_bytes,
             recomputed_bytes,
             stable_after_switch_bytes,
+            next_block_runs: run_length_summary(&pair[1].units),
         });
     }
+    let event_count = events.len();
     SessionReport {
         session_key,
         endpoint_key,
@@ -101,8 +112,43 @@ fn build_report(
         reset_count,
         total_recomputed_bytes,
         total_stable_after_switch_bytes,
+        total_prefix_cut_bytes,
+        avg_prefix_cut_bytes: if event_count == 0 {
+            0
+        } else {
+            total_prefix_cut_bytes / event_count
+        },
         events,
     }
+}
+
+fn run_length_summary(units: &[CacheUnit]) -> String {
+    let mut runs = Vec::new();
+    let mut current: Option<(String, usize)> = None;
+    for unit in units.iter().filter(|unit| is_content_bearing(unit)) {
+        let digest = unit_digest(unit);
+        match &mut current {
+            Some((token, count)) if *token == digest => *count += 1,
+            Some((token, count)) => {
+                runs.push(format!("{token}x{count}"));
+                current = Some((digest, 1));
+            }
+            None => current = Some((digest, 1)),
+        }
+    }
+    if let Some((token, count)) = current {
+        runs.push(format!("{token}x{count}"));
+    }
+    runs.join("/")
+}
+
+fn unit_digest(unit: &CacheUnit) -> String {
+    let digest = Sha256::digest(unit.content.as_bytes());
+    digest
+        .iter()
+        .take(4)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn classify(prev: &CacheSequence, next: &CacheSequence) -> (SessionEventType, usize, usize) {

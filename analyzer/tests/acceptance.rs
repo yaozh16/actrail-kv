@@ -82,6 +82,17 @@ fn session_prefix_switch_reports_classify_append_fork_reorder_and_reset() {
     );
     assert!(report.total_recomputed_bytes > 0);
     assert!(report.total_stable_after_switch_bytes > 0);
+    assert!(
+        report.events.iter().any(|event| event.prefix_cut_bytes > 0),
+        "report={report:#?}"
+    );
+    assert!(
+        report
+            .events
+            .iter()
+            .any(|event| !event.next_block_runs.is_empty()),
+        "report={report:#?}"
+    );
 }
 
 fn has_fact(result: &AnalysisResult, kind: DefectFactKind) -> bool {

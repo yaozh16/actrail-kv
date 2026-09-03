@@ -131,12 +131,15 @@
 | `session_reports[].append_count` / `.fork_count` / `.reorder_count` / `.reset_count` | integer | 相邻对四类事件计数。 |
 | `session_reports[].total_recomputed_bytes` | integer | 各事件 `next_total - lcp` 之和。 |
 | `session_reports[].total_stable_after_switch_bytes` | integer | 切换后连续可恢复稳定字节之和（CC 证据）。 |
+| `session_reports[].total_prefix_cut_bytes` / `.avg_prefix_cut_bytes` | integer | 前缀收缩总量与按事件平均（首事件视为 0）。 |
 | `session_reports[].events[]` | object array | 相邻对事件明细。 |
 | `session_reports[].events[].event_type` | enum | `append` / `fork` / `reorder` / `reset`；仅证据分类，不做业务判断。 |
 | `session_reports[].events[].prev_request_id` / `.next_request_id` | string | 参与比较的相邻请求 ID。 |
 | `session_reports[].events[].lcp_units` / `.lcp_bytes` | integer | 公共前缀长度。 |
+| `session_reports[].events[].previous_pair_lcp_bytes` / `.prefix_cut_bytes` | integer | 前一对公共前缀与本次收缩量（收缩为 0 时不放大）。 |
 | `session_reports[].events[].next_total_bytes` / `.recomputed_bytes` | integer | 下一条总字节与切换后需重算字节。 |
 | `session_reports[].events[].stable_after_switch_bytes` | integer | 分歧点后连续对齐稳定段字节；可为 0。 |
+| `session_reports[].events[].next_block_runs` | string | 下一条内容性单位稳定块 run-length 摘要（如 `aabbccddx4/…`）。 |
 
 所有 byte range 必须同时提供 start/end、满足 `start <= end`，并落在合法 UTF-8 字符边界。一个 defect 的所有 variant 成员总数等于 `comparable_count`，`recovered_stable.support_count` 也等于该值。
 
