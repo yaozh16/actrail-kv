@@ -114,6 +114,7 @@ actrail-kv/
 ├── examples/
 │   ├── quickstart/
 │   │   └── requests.ndjson                      # 根 README 可直接分析的最小缺陷语料
+│   ├── cases/                                  # 真实语料回归 fixture（workspace/policy/json/insert/natural/session）
 │   ├── analyze.config.example.json              # analyze 全字段 JSON 配置示例
 │   └── receiver.config.example.json             # receiver JSON 配置示例
 │
