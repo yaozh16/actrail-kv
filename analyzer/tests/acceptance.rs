@@ -15,6 +15,14 @@ fn analyze(payloads: Vec<Value>) -> AnalysisResult {
 }
 
 fn analyze_with_session(payloads: Vec<Value>, session_key: Option<&str>) -> AnalysisResult {
+    analyze_with_options(payloads, session_key, AnalysisOptions::default())
+}
+
+fn analyze_with_options(
+    payloads: Vec<Value>,
+    session_key: Option<&str>,
+    options: AnalysisOptions,
+) -> AnalysisResult {
     let mut input = String::new();
     for payload in payloads {
         let mut envelope = json!({
@@ -28,14 +36,7 @@ fn analyze_with_session(payloads: Vec<Value>, session_key: Option<&str>) -> Anal
         input.push_str(&serde_json::to_string(&envelope).expect("fixture JSON"));
         input.push('\n');
     }
-    analyze_reader(
-        Cursor::new(input),
-        AnalysisOptions {
-            top_k: 20,
-            ..AnalysisOptions::default()
-        },
-    )
-    .expect("analysis succeeds")
+    analyze_reader(Cursor::new(input), options).expect("analysis succeeds")
 }
 
 #[test]
@@ -283,7 +284,7 @@ fn mixed_region_with_content_and_missing_members_is_one_mixed_defect() {
 #[test]
 fn two_fixed_versions_are_reported_as_fixed_variants() {
     let tail = stable("tail-after-version");
-    let payloads = [
+    let payloads: Vec<Value> = [
         "follow policy A.",
         "follow policy A.",
         "follow policy B.",
@@ -304,6 +305,35 @@ fn two_fixed_versions_are_reported_as_fixed_variants() {
         result.defects[0].mismatch.pattern,
         MismatchPattern::ValueMismatch
     );
+}
+
+#[test]
+fn fixed_variant_threshold_is_configurable() {
+    let tail = stable("tail-after-version");
+    let payloads: Vec<Value> = [
+        "follow policy A.",
+        "follow policy A.",
+        "follow policy B.",
+        "follow policy B.",
+    ]
+    .into_iter()
+    .map(|version| {
+        chat(vec![json!({
+            "role":"system",
+            "content":format!("{version}\n{tail}")
+        })])
+    })
+    .collect();
+    let strict = analyze_with_options(
+        payloads.clone(),
+        None,
+        AnalysisOptions {
+            fixed_variant_max: 1,
+            ..AnalysisOptions::default()
+        },
+    );
+    assert!(has_fact(&strict, DefectFactKind::ContentVariation));
+    assert!(!has_fact(&strict, DefectFactKind::FixedVariants));
 }
 
 #[test]

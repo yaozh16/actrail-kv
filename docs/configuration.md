@@ -60,6 +60,7 @@ analyze 的全部算法阈值与资源预算均可通过 `--config` 的 JSON 覆
 | `min_template_members` | `3` | 少于三条请求不抽取模板。 |
 | `stable_span_support_ratio` | `0.80` | 同一连续稳定片段所需支持率。 |
 | `min_stable_support` | `3` | 稳定片段最小支持条数。 |
+| `fixed_variant_max` | `3` | 变体数不超过该值且少于成员数时归为少数固定版本，否则内容持续变化。 |
 | `min_blocked_stable_bytes` | `64` | 小于此值不产生优化机会（字节）。 |
 | `min_exact_anchor_bytes` | `24` | 反事实恢复稳定内容所需的最小锚点（字节）。 |
 | `text_similarity_threshold` | `0.80` | 候选文本的有界 shingle 相似度门槛。 |

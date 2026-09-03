@@ -14,6 +14,8 @@ pub struct AnalyzeConfig {
     pub min_template_members: usize,
     pub stable_span_support_ratio: f64,
     pub min_stable_support: usize,
+    #[serde(default = "default_fixed_variant_max")]
+    pub fixed_variant_max: usize,
     pub min_blocked_stable_bytes: usize,
     pub min_exact_anchor_bytes: usize,
     pub text_similarity_threshold: f64,
@@ -43,6 +45,7 @@ impl AnalyzeConfig {
             min_template_members: options.min_template_members,
             stable_span_support_ratio: options.stable_span_support_ratio,
             min_stable_support: options.min_stable_support,
+            fixed_variant_max: options.fixed_variant_max,
             min_blocked_stable_bytes: options.min_blocked_stable_bytes,
             min_exact_anchor_bytes: options.min_exact_anchor_bytes,
             text_similarity_threshold: options.text_similarity_threshold,
@@ -66,6 +69,7 @@ impl AnalyzeConfig {
             min_template_members: self.min_template_members,
             stable_span_support_ratio: self.stable_span_support_ratio,
             min_stable_support: self.min_stable_support,
+            fixed_variant_max: self.fixed_variant_max,
             min_blocked_stable_bytes: self.min_blocked_stable_bytes,
             min_exact_anchor_bytes: self.min_exact_anchor_bytes,
             text_similarity_threshold: self.text_similarity_threshold,
@@ -95,6 +99,10 @@ impl AnalyzeConfig {
     pub fn to_json_pretty(&self) -> Result<String> {
         serde_json::to_string_pretty(self).context("serialize analyze config")
     }
+}
+
+fn default_fixed_variant_max() -> usize {
+    3
 }
 
 #[cfg(test)]

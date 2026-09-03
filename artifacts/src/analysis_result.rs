@@ -83,6 +83,8 @@ pub struct AnalysisOptionsSnapshot {
     pub min_template_members: usize,
     pub stable_span_support_ratio: f64,
     pub min_stable_support: usize,
+    #[serde(default = "default_fixed_variant_max")]
+    pub fixed_variant_max: usize,
     pub min_blocked_stable_bytes: usize,
     pub min_exact_anchor_bytes: usize,
     pub text_similarity_threshold: f64,
@@ -95,6 +97,10 @@ pub struct AnalysisOptionsSnapshot {
     pub max_alignment_cells: usize,
     pub max_total_alignment_cells: usize,
     pub max_records: usize,
+}
+
+fn default_fixed_variant_max() -> usize {
+    3
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
