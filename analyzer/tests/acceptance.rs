@@ -401,6 +401,27 @@ fn json_value_change_is_not_structured_equivalence() {
 }
 
 #[test]
+fn labeled_json_equivalent_representations_are_detected() {
+    let tail = stable("tail-after-labeled-json");
+    let payloads = [
+        "Config JSON: {\"alpha\":1,\"beta\":2}",
+        "Config JSON: { \"beta\": 2, \"alpha\": 1 }",
+        "Config JSON: {\n  \"alpha\": 1, \"beta\": 2\n}",
+        "Config JSON: {\"beta\":2,\"alpha\":1}",
+    ]
+    .into_iter()
+    .map(|visible| {
+        chat(vec![
+            json!({"role":"system","content":visible}),
+            json!({"role":"system","content":tail}),
+        ])
+    })
+    .collect();
+    let result = analyze(payloads);
+    assert!(has_fact(&result, DefectFactKind::StructuredDataEquivalent));
+}
+
+#[test]
 fn suppresses_dynamic_suffix_non_context_distinct_template_and_cross_domain() {
     let suffix_only = ["question a", "问题乙", "third request", "delta"]
         .into_iter()
