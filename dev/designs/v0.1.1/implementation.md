@@ -5,6 +5,7 @@
 
 - [v0.1.1 开发目标](../../requirements/v0.1.1/target.md)
 - [feat/hx-development 特性集成要求](../../requirements/v0.1.1/hx-feature-integration.md)
+- [客户能力说明文档要求](../../requirements/v0.1.1/customer-capabilities.md)
 
 ## 实现设计
 
@@ -16,6 +17,7 @@
 - [文档布局](../../../docs/architectures/doc-layout.md)
 - [Analyzer 流水线](../../../docs/architectures/analyze/pipeline.md)
 - [Analyzer 输出](../../../docs/architectures/analyze/output.md)
+- [客户能力说明](../../../docs/capabilities.md)
 
 ## 失效设计索引
 

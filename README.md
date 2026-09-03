@@ -131,6 +131,7 @@ MVP 面向 OpenAI-compatible chat payload：请求需要包含字符串 `model` 
 
 ## 继续阅读
 
+- [Agent 请求中的 KV 缓存优化机会](docs/capabilities.md)：具体提示词、工具、JSON 和会话场景，以及报告提供的排查方向。
 - [部署交互视图](docs/architectures/deployment.md)：两种采集链路和三个二进制如何协作。
 - [什么是请求模板](docs/concepts/template.md)：模板、稳定片段、槽位和请求实例之间的关系。
 - [什么是上下文结构缺陷](docs/concepts/context_defect.md)：`P1 / X / P2` 的判定方式和反例。

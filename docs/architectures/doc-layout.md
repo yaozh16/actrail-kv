@@ -13,6 +13,7 @@
 ```text
 README.md                                      # 构建、三二进制启动方式与用户入口
 docs/
+├── capabilities.md                             # 面向客户的可识别问题、报告价值与使用条件
 ├── configuration.md                            # 实际 CLI 参数、固定阈值、资源预算与部署参数
 ├── concepts/                                   # 面向新手的稳定业务概念
 │   ├── template.md                              # 请求模板、稳定片段、槽位及其分析产物映射
@@ -40,7 +41,8 @@ dev/
 │   ├── v0.1.0/                                # v0.1.0 已实现需求记录
 │   └── v0.1.1/
 │       ├── target.md                          # Session 前缀延续与多位点分析目标
-│       └── hx-feature-integration.md          # 固定版本、JSON 等价、候选采样、LCS 与 fixtures 集成要求
+│       ├── hx-feature-integration.md          # 固定版本、JSON 等价、候选采样、LCS 与 fixtures 集成要求
+│       └── customer-capabilities.md           # 面向客户的能力说明文档要求
 └── designs/                                   # 版本设计索引与开发期实现设计
     ├── v0.1.0/                                # v0.1.0 设计记录
     └── v0.1.1/
@@ -54,6 +56,7 @@ dev/
 
 | 内容 | 落点 |
 |---|---|
+| 面向客户的当前能力、典型问题和使用条件 | `docs/capabilities.md` |
 | 用户可操作的参数、默认值、部署设置 | `docs/configuration.md` |
 | 面向新手的稳定业务概念 | `docs/concepts/` |
 | 当前模块依赖、目录或二进制调用关系 | `docs/architectures/` |
