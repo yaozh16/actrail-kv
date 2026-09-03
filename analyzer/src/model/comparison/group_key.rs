@@ -78,6 +78,7 @@ mod tests {
             id: captured_at.into(),
             captured_at: Some(captured_at.into()),
             source: None,
+            session_key: None,
             comparison: CaptureComparison {
                 endpoint_key: "chat".into(),
                 agent_key: Some("agent-a".into()),

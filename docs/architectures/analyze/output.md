@@ -124,6 +124,19 @@
 | `defects[].insights[].summary` | string | 优化方向摘要。 |
 | `defects[].insights[].detail?` | string | 适用前提或补充说明。 |
 | `top_k[]` | string array | 按优先级排列的 defect ID，是完整稳定排序的前缀。 |
+| `session_reports[]?` | object array | 会话内 prefix-switch 证据；旧版文件缺省为空。 |
+| `session_reports[].session_key` | string | 会话标识。 |
+| `session_reports[].endpoint_key` / `.model` | string | 该会话所在比较域的 endpoint 与 model。 |
+| `session_reports[].request_count` | integer | 会话内带投影记录数。 |
+| `session_reports[].append_count` / `.fork_count` / `.reorder_count` / `.reset_count` | integer | 相邻对四类事件计数。 |
+| `session_reports[].total_recomputed_bytes` | integer | 各事件 `next_total - lcp` 之和。 |
+| `session_reports[].total_stable_after_switch_bytes` | integer | 切换后连续可恢复稳定字节之和（CC 证据）。 |
+| `session_reports[].events[]` | object array | 相邻对事件明细。 |
+| `session_reports[].events[].event_type` | enum | `append` / `fork` / `reorder` / `reset`；仅证据分类，不做业务判断。 |
+| `session_reports[].events[].prev_request_id` / `.next_request_id` | string | 参与比较的相邻请求 ID。 |
+| `session_reports[].events[].lcp_units` / `.lcp_bytes` | integer | 公共前缀长度。 |
+| `session_reports[].events[].next_total_bytes` / `.recomputed_bytes` | integer | 下一条总字节与切换后需重算字节。 |
+| `session_reports[].events[].stable_after_switch_bytes` | integer | 分歧点后连续对齐稳定段字节；可为 0。 |
 
 所有 byte range 必须同时提供 start/end、满足 `start <= end`，并落在合法 UTF-8 字符边界。一个 defect 的所有 variant 成员总数等于 `comparable_count`，`recovered_stable.support_count` 也等于该值。
 

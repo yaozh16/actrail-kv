@@ -12,6 +12,47 @@ pub struct AnalysisResult {
     pub defects: Vec<ContextDefect>,
     /// 按优先级排列的 defect ID；排名由数组位置表达。
     pub top_k: Vec<String>,
+    /// 会话内 prefix-switch 证据；旧版文件缺省为空。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub session_reports: Vec<SessionReport>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "lowercase")]
+pub enum SessionEventType {
+    Append,
+    Fork,
+    Reorder,
+    Reset,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionSwitchEvent {
+    pub event_type: SessionEventType,
+    pub prev_request_id: String,
+    pub next_request_id: String,
+    pub lcp_units: usize,
+    pub lcp_bytes: usize,
+    pub next_total_bytes: usize,
+    pub recomputed_bytes: usize,
+    pub stable_after_switch_bytes: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionReport {
+    pub session_key: String,
+    pub endpoint_key: String,
+    pub model: String,
+    pub request_count: usize,
+    pub append_count: usize,
+    pub fork_count: usize,
+    pub reorder_count: usize,
+    pub reset_count: usize,
+    pub total_recomputed_bytes: usize,
+    pub total_stable_after_switch_bytes: usize,
+    pub events: Vec<SessionSwitchEvent>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -337,6 +378,7 @@ mod tests {
                 }],
             }],
             top_k: vec!["defect-a".into()],
+            session_reports: vec![],
         }
     }
 

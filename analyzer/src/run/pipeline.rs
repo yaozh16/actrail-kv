@@ -24,6 +24,7 @@ use crate::{
         projection::{ProjectionLimits, ProjectionSkip, RequestProjector},
     },
     ranking::rank_defects,
+    session::{analyze_reports, SessionRow},
 };
 
 use super::AnalysisOptions;
@@ -71,6 +72,19 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
             skips.len()
         );
     }
+    let session_rows: Vec<SessionRow<'_>> = loaded
+        .corpus
+        .records
+        .iter()
+        .zip(&sequences)
+        .filter_map(|(record, sequence)| {
+            record.session_key.as_deref().map(|session_key| SessionRow {
+                session_key,
+                sequence,
+            })
+        })
+        .collect();
+    let session_reports = analyze_reports(session_rows);
     let candidate_result = CandidateBuilder::new(CandidateOptions {
         compatibility_threshold: options.template_compatibility_threshold,
         max_dynamic_coverage_ratio: options.max_dynamic_coverage_ratio,
@@ -137,6 +151,7 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         templates,
         defects: ranked.defects,
         top_k: ranked.top_k,
+        session_reports,
     })
 }
 

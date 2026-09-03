@@ -7,6 +7,7 @@
 |---|---|---|
 | `captured_at` | string | receiver 以 UTC 写入的 RFC 3339 采集时间。 |
 | `source?` | string | 入站 `X-Actrail-Source` 的原样值。 |
+| `session_key?` | string | 入站 `X-Actrail-Session-Key` 的原样值；缺失表示未知会话。 |
 | `comparison` | object | analyzer 建立 comparison group 所需的显式采集元数据。 |
 | `comparison.endpoint_key` | string | LLM endpoint 或逻辑路由标识。 |
 | `comparison.agent_key?` | string | 可选 Agent 标识。 |

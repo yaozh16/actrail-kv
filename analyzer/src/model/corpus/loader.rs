@@ -114,6 +114,12 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
     let agent_key = optional_comparison_key(comparison, "agent_key")?;
     let model_deployment_key = optional_comparison_key(comparison, "model_deployment_key")?;
     let kv_namespace = optional_comparison_key(comparison, "kv_namespace")?;
+    let session_key = match object.get("session_key") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) if !value.trim().is_empty() => Some(value.trim().to_owned()),
+        Some(Value::String(_)) => return Err(CorpusSkipReason::EmptySessionKey),
+        Some(_) => return Err(CorpusSkipReason::InvalidSessionKey),
+    };
     // Capture metadata is part of request identity and comparison grouping, not model context.
     let canonical = canonical_json(&record);
     let mut digest = Sha256::new();
@@ -129,6 +135,7 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
             .get("source")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        session_key,
         comparison: CaptureComparison {
             endpoint_key: endpoint_key.to_owned(),
             agent_key,

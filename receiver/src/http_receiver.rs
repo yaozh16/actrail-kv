@@ -18,6 +18,7 @@ use crate::config::DEFAULT_MAX_PAYLOAD_BYTES;
 use crate::NdjsonAppender;
 
 const SOURCE_HEADER: &str = "x-actrail-source";
+const SESSION_KEY_HEADER: &str = "x-actrail-session-key";
 const ENDPOINT_KEY_HEADER: &str = "x-actrail-endpoint-key";
 const AGENT_KEY_HEADER: &str = "x-actrail-agent-key";
 const MODEL_DEPLOYMENT_KEY_HEADER: &str = "x-actrail-model-deployment-key";
@@ -51,6 +52,10 @@ async fn receive_request(
         },
         None => None,
     };
+    let session_key = match metadata_header(&headers, SESSION_KEY_HEADER, false) {
+        Ok(value) => value,
+        Err(message) => return client_error(message),
+    };
     let endpoint_key = match metadata_header(&headers, ENDPOINT_KEY_HEADER, true) {
         Ok(Some(value)) => value,
         Ok(None) => return client_error("X-Actrail-Endpoint-Key is required"),
@@ -75,6 +80,7 @@ async fn receive_request(
     let record = CapturedRequest {
         captured_at,
         source,
+        session_key,
         comparison: ComparisonMetadata {
             endpoint_key,
             agent_key,
@@ -158,6 +164,7 @@ mod tests {
                 Request::post("/requests")
                     .header("content-type", "application/json")
                     .header("X-Actrail-Source", "agent-hook")
+                    .header("X-Actrail-Session-Key", "session-001")
                     .header("X-Actrail-Endpoint-Key", "llm-primary")
                     .header("X-Actrail-Agent-Key", "coding-agent")
                     .header("X-Actrail-Model-Deployment-Key", "deployment-a")
@@ -176,6 +183,7 @@ mod tests {
         assert_eq!(line.lines().count(), 1);
         let captured: CapturedRequest = serde_json::from_str(line.trim_end()).expect("parse line");
         assert_eq!(captured.source.as_deref(), Some("agent-hook"));
+        assert_eq!(captured.session_key.as_deref(), Some("session-001"));
         assert_eq!(captured.comparison.endpoint_key, "llm-primary");
         assert_eq!(
             captured.comparison.agent_key.as_deref(),

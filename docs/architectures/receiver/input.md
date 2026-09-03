@@ -16,6 +16,7 @@
 |---|---|---|
 | HTTP body | JSON object | 原始模型请求 payload。JSON array、scalar、空或非法 JSON 均被拒绝。 |
 | `X-Actrail-Source?` | HTTP header string | 可选采集来源，例如 `agent-hook`；只保存证据，不参与模板与诊断。 |
+| `X-Actrail-Session-Key?` | HTTP header string | 可选会话标识；只做会话内 prefix-switch 分析，不进入 comparison group。 |
 | `X-Actrail-Endpoint-Key` | HTTP header string | 必填的 LLM endpoint 或逻辑路由标识，进入 comparison group。 |
 | `X-Actrail-Agent-Key?` | HTTP header string | 可选 Agent 标识；提供后进入 comparison group。 |
 | `X-Actrail-Model-Deployment-Key?` | HTTP header string | 可选模型部署标识；提供后进入 comparison group。 |

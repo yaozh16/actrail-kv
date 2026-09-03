@@ -152,6 +152,7 @@ mod tests {
                             .append(&CapturedRequest {
                                 captured_at: "2026-09-02T00:00:00Z".to_owned(),
                                 source: Some(format!("writer-{writer}")),
+                                session_key: Some(format!("session-{writer}")),
                                 comparison: comparison(),
                                 payload: json!({
                                     "writer": writer,
@@ -268,6 +269,7 @@ mod tests {
         CapturedRequest {
             captured_at: "2026-09-02T00:00:00Z".to_owned(),
             source: None,
+            session_key: None,
             comparison: comparison(),
             payload: json!({"model": "example"}),
         }

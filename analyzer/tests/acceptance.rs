@@ -3,7 +3,7 @@
 use std::io::Cursor;
 
 use actrail_kv_analyzer::run::{analyze_reader, AnalysisOptions};
-use actrail_kv_artifacts::{AnalysisResult, DefectFactKind, MismatchPattern};
+use actrail_kv_artifacts::{AnalysisResult, DefectFactKind, MismatchPattern, SessionEventType};
 use serde_json::{json, Value};
 
 fn stable(label: &str) -> String {
@@ -11,16 +11,21 @@ fn stable(label: &str) -> String {
 }
 
 fn analyze(payloads: Vec<Value>) -> AnalysisResult {
+    analyze_with_session(payloads, None)
+}
+
+fn analyze_with_session(payloads: Vec<Value>, session_key: Option<&str>) -> AnalysisResult {
     let mut input = String::new();
     for payload in payloads {
-        input.push_str(
-            &serde_json::to_string(&json!({
-                "captured_at":"2026-01-01T00:00:00Z",
-                "comparison":{"endpoint_key":"primary"},
-                "payload":payload
-            }))
-            .expect("fixture JSON"),
-        );
+        let mut envelope = json!({
+            "captured_at":"2026-01-01T00:00:00Z",
+            "comparison":{"endpoint_key":"primary"},
+            "payload":payload
+        });
+        if let Some(key) = session_key {
+            envelope["session_key"] = json!(key);
+        }
+        input.push_str(&serde_json::to_string(&envelope).expect("fixture JSON"));
         input.push('\n');
     }
     analyze_reader(
@@ -31,6 +36,52 @@ fn analyze(payloads: Vec<Value>) -> AnalysisResult {
         },
     )
     .expect("analysis succeeds")
+}
+
+#[test]
+fn session_prefix_switch_reports_classify_append_fork_reorder_and_reset() {
+    fn conversation(contents: &[&str]) -> Value {
+        chat(
+            contents
+                .iter()
+                .map(|content| json!({"role":"user","content":content}))
+                .collect(),
+        )
+    }
+    let payloads = vec![
+        conversation(&["A1", "A2", "A3", "A4", "B1", "B2", "C1", "C2"]),
+        conversation(&["A1", "A2", "A3", "A4", "B1", "B2", "C1", "C2", "D"]),
+        conversation(&["A1", "A2", "A3", "A4", "E1", "E2"]),
+        conversation(&["A1", "A2", "A3", "A4", "E2", "E1"]),
+        conversation(&["X1", "X2", "X3"]),
+    ];
+    let result = analyze_with_session(payloads, Some("session-aaaabbcc"));
+    assert_eq!(result.session_reports.len(), 1, "result={result:#?}");
+    let report = &result.session_reports[0];
+    assert_eq!(report.request_count, 5);
+    let types: Vec<_> = report
+        .events
+        .iter()
+        .map(|event| &event.event_type)
+        .collect();
+    assert!(
+        types.contains(&&SessionEventType::Append),
+        "report={report:#?}"
+    );
+    assert!(
+        types.contains(&&SessionEventType::Fork),
+        "report={report:#?}"
+    );
+    assert!(
+        types.contains(&&SessionEventType::Reorder),
+        "report={report:#?}"
+    );
+    assert!(
+        types.contains(&&SessionEventType::Reset),
+        "report={report:#?}"
+    );
+    assert!(report.total_recomputed_bytes > 0);
+    assert!(report.total_stable_after_switch_bytes > 0);
 }
 
 fn has_fact(result: &AnalysisResult, kind: DefectFactKind) -> bool {
