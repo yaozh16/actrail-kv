@@ -393,9 +393,11 @@ mod tests {
     #[test]
     fn boundary_validation_rejects_bridge_members() {
         let common = "shared-observable-prefix-".repeat(4);
-        let a = format!("{common}{}", "A".repeat(100));
-        let bridge = format!("{common}{}{}", "A".repeat(50), "Z".repeat(50));
-        let c = format!("{common}{}", "Z".repeat(100));
+        let a_suffix = "alpha-one-two-three-four-five-";
+        let c_suffix = "zulu-six-seven-eight-nine-ten-";
+        let a = format!("{common}{}", a_suffix.repeat(4));
+        let bridge = format!("{common}{}{}", a_suffix.repeat(2), c_suffix.repeat(2));
+        let c = format!("{common}{}", c_suffix.repeat(4));
         let result = CandidateBuilder::new(CandidateOptions {
             compatibility_threshold: 0.78,
             max_dynamic_coverage_ratio: 0.30,

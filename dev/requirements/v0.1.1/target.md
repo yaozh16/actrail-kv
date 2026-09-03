@@ -183,4 +183,5 @@ Session 时间线描述每轮已经形成的历史如何延续；模板多位点
 
 ## 已失效决策索引
 
-- 无。
+- `dev/requirements/v0.1.0/session-prefix-switch.md` 中的 `session_key / session_reports` 协议已由本文件的 `session_id / session_analysis` 协议取代。
+- `dev/designs/v0.1.0/session-prefix-switch.md` 中的四类 switch event 与文件顺序模型已由 v0.1.1 的时间排序和 transition outcome 模型取代。

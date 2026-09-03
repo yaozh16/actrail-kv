@@ -43,7 +43,7 @@ actrail-kv/
 │   └── lib.rs                                     # receiver library API
 │
 ├── analyzer/src/                                  # 模板抽取与结构诊断核心
-│   ├── config.rs                                  # AnalyzeConfig：17 项阈值/预算 JSON 读写与校验
+│   ├── config.rs                                  # AnalyzeConfig：18 项阈值/预算 JSON 读写与校验
 │   ├── model/
 │   │   ├── comparison/
 │   │   │   ├── group_key.rs                      # 时间窗口+endpoint+model/deployment+schema+agent+namespace
@@ -61,12 +61,12 @@ actrail-kv/
 │   │
 │   ├── discovery/
 │   │   ├── candidate/
-│   │   │   ├── signature.rs                      # 有界结构兼容度与候选召回签名
+│   │   │   ├── signature.rs                      # shift-robust bottom-k shingle 候选召回签名
 │   │   │   ├── cohort.rs                         # 确定性模板 cohort、bridge 防护和预算
 │   │   │   └── mod.rs
 │   │   ├── template/
 │   │   │   ├── align.rs                          # 有界 unit sequence alignment
-│   │   │   ├── extractor.rs                      # stable span、slot、模板坐标与成员映射
+│   │   │   ├── extractor.rs                      # stable span、slot、文本 LCS、模板坐标与成员映射
 │   │   │   ├── extractor/tests.rs                # Unicode、支持率、预算、插入/缺失和置换测试
 │   │   │   ├── types.rs                          # RequestTemplate 及抽取结果
 │   │   │   ├── symbolic/
@@ -112,11 +112,15 @@ actrail-kv/
 │   │   └── mod.rs
 │   └── lib.rs
 │
+├── analyzer/tests/
+│   └── case_fixtures.rs                         # examples/cases 文件入口回归
+│
 ├── reporter/src/                                # 只消费统一 analysis.json；不重新分析
 │   ├── result_loader/
 │   │   ├── mod.rs                               # schema、模板、Top K 与分层结果编排校验
 │   │   ├── common.rs                            # comparison group、source、概率公共校验
 │   │   ├── defect.rs                            # direct defect 与 conditional site 强校验
+│   │   ├── options.rs                           # Analyzer 运行参数快照边界校验
 │   │   ├── session.rs                           # timeline、transition metrics 与 history site 强校验
 │   │   └── tests.rs                             # 合法 fixture 与引用/计量拒绝路径
 │   ├── html_report_renderer.rs                  # Top K、direct defect 与 conditional site；全转义
@@ -126,6 +130,7 @@ actrail-kv/
 ├── examples/
 │   ├── quickstart/
 │   │   └── requests.ndjson                      # 根 README 可直接分析的最小缺陷语料
+│   ├── cases/                                   # 真实 Agent 请求回归语料
 │   ├── analyze.config.example.json              # analyze 全字段 JSON 配置示例
 │   └── receiver.config.example.json             # receiver JSON 配置示例
 │

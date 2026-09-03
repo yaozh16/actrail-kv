@@ -20,6 +20,7 @@
 | `run.options.min_template_members` | integer | 模板最小成员数。 |
 | `run.options.stable_span_support_ratio` | number | 稳定片段最小支持率。 |
 | `run.options.min_stable_support` | integer | 稳定片段最小支持数。 |
+| `run.options.fixed_variant_max` | integer | 少数固定版本判定阈值。 |
 | `run.options.min_blocked_stable_bytes` | integer | 形成 defect 所需的最小 P2 bytes。 |
 | `run.options.min_exact_anchor_bytes` | integer | P2 精确锚点最小 bytes。 |
 | `run.options.text_similarity_threshold` | number | 候选文本相似度门槛。 |
@@ -183,6 +184,7 @@
       "min_template_members": 3,
       "stable_span_support_ratio": 0.8,
       "min_stable_support": 3,
+      "fixed_variant_max": 3,
       "min_blocked_stable_bytes": 64,
       "min_exact_anchor_bytes": 24,
       "text_similarity_threshold": 0.8,

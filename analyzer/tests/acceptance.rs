@@ -11,26 +11,32 @@ fn stable(label: &str) -> String {
 }
 
 fn analyze(payloads: Vec<Value>) -> AnalysisResult {
+    analyze_with_session(payloads, None)
+}
+
+fn analyze_with_session(payloads: Vec<Value>, session_id: Option<&str>) -> AnalysisResult {
+    analyze_with_options(payloads, session_id, AnalysisOptions::default())
+}
+
+fn analyze_with_options(
+    payloads: Vec<Value>,
+    session_id: Option<&str>,
+    options: AnalysisOptions,
+) -> AnalysisResult {
     let mut input = String::new();
     for payload in payloads {
-        input.push_str(
-            &serde_json::to_string(&json!({
-                "captured_at":"2026-01-01T00:00:00Z",
-                "comparison":{"endpoint_key":"primary"},
-                "payload":payload
-            }))
-            .expect("fixture JSON"),
-        );
+        let mut envelope = json!({
+            "captured_at":"2026-01-01T00:00:00Z",
+            "comparison":{"endpoint_key":"primary"},
+            "payload":payload
+        });
+        if let Some(id) = session_id {
+            envelope["session_id"] = json!(id);
+        }
+        input.push_str(&serde_json::to_string(&envelope).expect("fixture JSON"));
         input.push('\n');
     }
-    analyze_reader(
-        Cursor::new(input),
-        AnalysisOptions {
-            top_k: 20,
-            ..AnalysisOptions::default()
-        },
-    )
-    .expect("analysis succeeds")
+    analyze_reader(Cursor::new(input), options).expect("analysis succeeds")
 }
 
 fn has_fact(result: &AnalysisResult, kind: DefectFactKind) -> bool {
@@ -247,7 +253,7 @@ fn mixed_region_with_content_and_missing_members_is_one_mixed_defect() {
 #[test]
 fn two_fixed_versions_are_reported_as_fixed_variants() {
     let tail = stable("tail-after-version");
-    let payloads = [
+    let payloads: Vec<Value> = [
         "follow policy A.",
         "follow policy A.",
         "follow policy B.",
@@ -268,6 +274,35 @@ fn two_fixed_versions_are_reported_as_fixed_variants() {
         result.defects[0].mismatch.pattern,
         MismatchPattern::ValueMismatch
     );
+}
+
+#[test]
+fn fixed_variant_threshold_is_configurable() {
+    let tail = stable("tail-after-version");
+    let payloads: Vec<Value> = [
+        "follow policy A.",
+        "follow policy A.",
+        "follow policy B.",
+        "follow policy B.",
+    ]
+    .into_iter()
+    .map(|version| {
+        chat(vec![json!({
+            "role":"system",
+            "content":format!("{version}\n{tail}")
+        })])
+    })
+    .collect();
+    let strict = analyze_with_options(
+        payloads.clone(),
+        None,
+        AnalysisOptions {
+            fixed_variant_max: 1,
+            ..AnalysisOptions::default()
+        },
+    );
+    assert!(has_fact(&strict, DefectFactKind::ContentVariation));
+    assert!(!has_fact(&strict, DefectFactKind::FixedVariants));
 }
 
 #[test]
@@ -302,6 +337,67 @@ fn json_value_change_is_not_structured_equivalence() {
     let result = analyze(payloads);
     assert!(has_content_fact(&result));
     assert!(!has_fact(&result, DefectFactKind::StructuredDataEquivalent));
+}
+
+#[test]
+fn labeled_json_equivalent_representations_are_detected() {
+    let tail = stable("tail-after-labeled-json");
+    let payloads = [
+        "Config JSON: {\"alpha\":1,\"beta\":2}",
+        "Config JSON: { \"beta\": 2, \"alpha\": 1 }",
+        "Config JSON: {\n  \"alpha\": 1, \"beta\": 2\n}",
+        "Config JSON: {\"beta\":2,\"alpha\":1}",
+    ]
+    .into_iter()
+    .map(|visible| {
+        chat(vec![
+            json!({"role":"system","content":visible}),
+            json!({"role":"system","content":tail}),
+        ])
+    })
+    .collect();
+    let result = analyze(payloads);
+    assert!(has_fact(&result, DefectFactKind::StructuredDataEquivalent));
+}
+
+#[test]
+fn differing_labels_and_json_suffixes_are_not_equivalent_representations() {
+    let analyze_visible = |values: [&str; 4], label: &str| {
+        analyze(
+            values
+                .into_iter()
+                .map(|visible| {
+                    chat(vec![
+                        json!({"role":"system","content":visible}),
+                        json!({"role":"system","content":stable(label)}),
+                    ])
+                })
+                .collect(),
+        )
+    };
+    let labels = analyze_visible(
+        [
+            "Config A: {\"a\":1}",
+            "Config B: {\"a\":1}",
+            "Config A: {\"a\":1}",
+            "Config B: {\"a\":1}",
+        ],
+        "after-labels",
+    );
+    let suffixes = analyze_visible(
+        [
+            "Config: {\"a\":1} one",
+            "Config: {\"a\":1} two",
+            "Config: {\"a\":1} one",
+            "Config: {\"a\":1} two",
+        ],
+        "after-suffixes",
+    );
+    assert!(!has_fact(&labels, DefectFactKind::StructuredDataEquivalent));
+    assert!(!has_fact(
+        &suffixes,
+        DefectFactKind::StructuredDataEquivalent
+    ));
 }
 
 #[test]

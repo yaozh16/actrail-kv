@@ -39,13 +39,16 @@ dev/
 ├── requirements/                              # 版本需求和验收案例
 │   ├── v0.1.0/                                # v0.1.0 已实现需求记录
 │   └── v0.1.1/
-│       └── target.md                          # Session 前缀延续与多位点分析目标
+│       ├── target.md                          # Session 前缀延续与多位点分析目标
+│       └── hx-feature-integration.md          # 固定版本、JSON 等价、候选采样、LCS 与 fixtures 集成要求
 └── designs/                                   # 版本设计索引与开发期实现设计
     ├── v0.1.0/                                # v0.1.0 设计记录
     └── v0.1.1/
         ├── implementation.md                  # v0.1.1 设计索引
         └── session-prefix-and-multi-site.md   # Session 与多位点实现设计
 ```
+
+`dev/requirements/v0.1.0/` 和 `dev/designs/v0.1.0/` 同时保留候选相似度位移鲁棒记录，以及已由 v0.1.1 取代的 Session prefix-switch 历史记录；失效状态在对应文件内明确标注。
 
 ## 新文档落点
 

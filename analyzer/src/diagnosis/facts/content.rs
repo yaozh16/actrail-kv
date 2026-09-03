@@ -13,7 +13,7 @@ pub(super) struct ContentFacts {
     pub certainty: f64,
 }
 
-pub(super) fn analyze(variants: &[LocatedVariant]) -> ContentFacts {
+pub(super) fn analyze(variants: &[LocatedVariant], fixed_variant_max: usize) -> ContentFacts {
     let nonempty: Vec<_> = variants
         .iter()
         .filter(|variant| {
@@ -34,7 +34,7 @@ pub(super) fn analyze(variants: &[LocatedVariant]) -> ContentFacts {
             certainty: 1.0,
         };
     }
-    let fixed = signatures.len() <= 3 && signatures.len() < nonempty.len();
+    let fixed = signatures.len() <= fixed_variant_max && signatures.len() < nonempty.len();
     ContentFacts {
         present: true,
         facts: vec![DefectFact {

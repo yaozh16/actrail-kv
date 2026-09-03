@@ -189,43 +189,47 @@ fn bounded_byte_similarity(left: &[u8], right: &[u8]) -> f64 {
     if left.is_empty() || right.is_empty() {
         return 0.0;
     }
-    let mut left_counts = BTreeMap::<u64, usize>::new();
-    let mut right_counts = BTreeMap::<u64, usize>::new();
-    for sample in sampled_shingles(left) {
-        *left_counts.entry(sample).or_default() += 1;
-    }
-    for sample in sampled_shingles(right) {
-        *right_counts.entry(sample).or_default() += 1;
-    }
-    let intersection: usize = left_counts
+    let left_samples = sampled_shingles(left);
+    let right_samples = sampled_shingles(right);
+    let intersection = left_samples
         .iter()
-        .map(|(sample, count)| count.min(right_counts.get(sample).unwrap_or(&0)))
-        .sum();
-    let total = left_counts.values().sum::<usize>() + right_counts.values().sum::<usize>();
+        .filter(|sample| right_samples.binary_search(sample).is_ok())
+        .count();
+    let total = left_samples.len() + right_samples.len();
     2.0 * intersection as f64 / total.max(1) as f64
 }
 
 fn sampled_shingles(bytes: &[u8]) -> Vec<u64> {
     if bytes.len() < SHINGLE_BYTES {
-        return bytes.iter().map(|byte| u64::from(*byte)).collect();
+        return bytes
+            .iter()
+            .map(|byte| u64::from(*byte))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
     }
     let windows = bytes.len() - SHINGLE_BYTES + 1;
-    let samples = windows.min(MAX_SHINGLES_PER_UNIT);
-    (0..samples)
-        .map(|sample| {
-            let index = if samples == 1 {
-                0
-            } else {
-                sample * (windows - 1) / (samples - 1)
-            };
-            let mut hash = 0xcbf29ce484222325u64;
-            for byte in &bytes[index..index + SHINGLE_BYTES] {
-                hash ^= u64::from(*byte);
-                hash = hash.wrapping_mul(0x100000001b3);
-            }
-            hash
-        })
-        .collect()
+    let keep = windows.min(MAX_SHINGLES_PER_UNIT);
+    // bottom-k min-hash：先按哈希集合去重，再保留最小值；重复片段不增加权重。
+    // 局部插入/删除不会让后续窗口集体错位。
+    let mut samples = BTreeSet::new();
+    for index in 0..windows {
+        let hash = fnv_window(&bytes[index..index + SHINGLE_BYTES]);
+        samples.insert(hash);
+        if samples.len() > keep {
+            samples.pop_last();
+        }
+    }
+    samples.into_iter().collect()
+}
+
+fn fnv_window(window: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in window {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn tool_jaccard(left: &CacheSequence, right: &CacheSequence) -> Option<f64> {
@@ -337,5 +341,48 @@ mod tests {
         let metrics = pair_metrics(&a, &b);
         assert!(metrics.dynamic_coverage_ratio > 0.95, "{metrics:?}");
         assert!(metrics.compatibility < 0.68, "{metrics:?}");
+    }
+
+    #[test]
+    fn bottom_k_keeps_the_globally_smallest_window_hashes() {
+        let content = (0..2048)
+            .map(|index| ((index * 73 + 19) % 251) as u8)
+            .collect::<Vec<_>>();
+        let sampled = sampled_shingles(&content);
+        let mut expected = content
+            .windows(SHINGLE_BYTES)
+            .map(fnv_window)
+            .collect::<Vec<_>>();
+        expected.sort_unstable();
+        expected.dedup();
+        expected.truncate(MAX_SHINGLES_PER_UNIT);
+        assert_eq!(sampled, expected);
+    }
+
+    #[test]
+    fn repeated_shingles_do_not_consume_budget_or_change_the_fingerprint() {
+        let short = "a".repeat(300);
+        let long = "a".repeat(3_000);
+        let short_samples = sampled_shingles(short.as_bytes());
+        let long_samples = sampled_shingles(long.as_bytes());
+        assert_eq!(short_samples.len(), 1);
+        assert_eq!(short_samples, long_samples);
+        assert_eq!(
+            bounded_byte_similarity(short.as_bytes(), long.as_bytes()),
+            1.0
+        );
+    }
+
+    #[test]
+    fn local_insertion_does_not_shift_the_entire_similarity_sample() {
+        let base = (0..800)
+            .map(|index| format!("stable-context-{index:04x};"))
+            .collect::<String>();
+        let mut shifted = base.clone();
+        shifted.insert_str(200, "small-dynamic-insertion");
+        assert!(
+            bounded_byte_similarity(base.as_bytes(), shifted.as_bytes()) > 0.9,
+            "bottom-k sampling should remain shift robust"
+        );
     }
 }

@@ -6,6 +6,7 @@ reporter 只读取 analyzer 生成的 `analysis.json`，不重新分析请求。
 | 校验路径 | 要求 |
 |---|---|
 | `run.schema_version` | 必须等于当前 artifact schema。 |
+| `run.options` | Top K、时间窗口、固定版本阈值和资源预算必须大于零；模板/稳定支持数至少为二；所有比例必须为 `0..1` 内的有限数。 |
 | `templates[].id` | 必须唯一。 |
 | `defects[].id` | 必须唯一。 |
 | `defects[].template_id` | 必须引用已存在的 `templates[].id`。 |

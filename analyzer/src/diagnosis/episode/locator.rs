@@ -115,7 +115,7 @@ fn candidate(
         return None;
     }
 
-    let fact_analysis = facts::analyze(&located);
+    let fact_analysis = facts::analyze(&located, options.fixed_variant_max);
     let logical_shape = logical_shape(template, x_start, recovery.start);
     let logical_id = identity::defect_id(
         &template.domain,

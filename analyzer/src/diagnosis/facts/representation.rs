@@ -1,4 +1,4 @@
-//! 本文件仅在全部非空 X 文本可解析且 JSON AST 严格相等时附加等价表示事实。
+//! 本文件识别纯 JSON 或相同标签前导的 JSON 表示漂移，并拒绝标签或尾随内容差异。
 
 use actrail_kv_artifacts::{DefectFact, DefectFactKind, OptimizationInsight};
 
@@ -15,13 +15,13 @@ pub(super) fn analyze(variants: &[LocatedVariant]) -> RepresentationFacts {
         .iter()
         .filter_map(|variant| (!variant.text.is_empty()).then_some(&variant.text))
         .collect();
-    let parsed: Option<Vec<serde_json::Value>> = texts
-        .iter()
-        .map(|text| serde_json::from_str(text).ok())
-        .collect();
+    let parsed: Option<Vec<(String, serde_json::Value)>> =
+        texts.iter().map(|text| loose_json(text)).collect();
     let equivalent = parsed.as_ref().is_some_and(|values| {
         values.len() >= 2
-            && values.iter().all(|value| value == &values[0])
+            && values
+                .iter()
+                .all(|(label, value)| label == &values[0].0 && value == &values[0].1)
             && texts.iter().any(|text| text.as_str() != texts[0].as_str())
     });
     if !equivalent {
@@ -42,4 +42,18 @@ pub(super) fn analyze(variants: &[LocatedVariant]) -> RepresentationFacts {
         }],
         certainty: 1.0,
     }
+}
+
+/// 先整体解析；失败时剥离相同的前导标签后解析（标签必须完全一致，避免误判）。
+fn loose_json(text: &str) -> Option<(String, serde_json::Value)> {
+    if let Ok(value) = serde_json::from_str(text) {
+        return Some((String::new(), value));
+    }
+    let start = text.find(['{', '['])?;
+    let (label, rest) = text.split_at(start);
+    if label.trim().is_empty() {
+        return None;
+    }
+    let value = serde_json::from_str(rest).ok()?;
+    Some((label.to_owned(), value))
 }

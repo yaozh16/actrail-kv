@@ -445,3 +445,17 @@ fn stable_span_requires_the_same_members_to_support_the_whole_contiguous_range()
     .extract(vec![cohort]);
     assert!(result.templates[0].stable_spans.is_empty());
 }
+
+#[test]
+fn repeated_character_lcs_keeps_the_legacy_backtracking_tie_break() {
+    let mut budget = 100;
+    assert_eq!(
+        lcs_medoid_positions("a", "aa", 100, &mut budget).unwrap(),
+        vec![Some(1)]
+    );
+    let mut budget = 100;
+    assert_eq!(
+        lcs_medoid_positions("aa", "ab", 100, &mut budget).unwrap(),
+        vec![Some(0), None]
+    );
+}

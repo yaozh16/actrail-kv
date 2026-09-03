@@ -2,6 +2,7 @@
 
 mod common;
 mod defect;
+mod options;
 mod session;
 
 use std::{
@@ -36,6 +37,7 @@ fn validate(result: &AnalysisResult) -> Result<()> {
             result.run.schema_version
         );
     }
+    options::validate_options(&result.run.options)?;
     let templates: BTreeMap<_, _> = result
         .templates
         .iter()

@@ -60,6 +60,7 @@ analyze 的全部算法阈值与资源预算均可通过 `--config` 的 JSON 覆
 | `min_template_members` | `3` | 少于三条请求不抽取模板。 |
 | `stable_span_support_ratio` | `0.80` | 同一连续稳定片段所需支持率。 |
 | `min_stable_support` | `3` | 稳定片段最小支持条数。 |
+| `fixed_variant_max` | `3` | 变体数不超过该值且少于成员数时归为少数固定版本，否则归为内容持续变化。 |
 | `min_blocked_stable_bytes` | `64` | 小于此值不产生优化机会（字节）。 |
 | `min_exact_anchor_bytes` | `24` | 反事实恢复稳定内容所需的最小锚点（字节）。 |
 | `text_similarity_threshold` | `0.80` | 候选文本的有界 shingle 相似度门槛。 |
@@ -77,7 +78,7 @@ analyze 的全部算法阈值与资源预算均可通过 `--config` 的 JSON 覆
 
 超限、坏行与未知 payload dialect 均在 `analysis.json` 中以 skipped 原因呈现；系统不会截断请求后输出高置信结论。
 
-放开 `max_alignment_cells` / `max_total_alignment_cells` 时，单次 LCS 内存约为 cells × 8 字节，请按机器内存设置。
+放开 `max_alignment_cells` / `max_total_alignment_cells` 会同时增加对齐计算量和内存；当前文本 LCS 为保持 canonical tie-break 使用完整矩阵，单次内存约为 cells × 8 字节，请按机器内存设置预算。
 
 ## Report
 

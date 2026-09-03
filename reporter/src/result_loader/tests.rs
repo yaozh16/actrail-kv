@@ -4,7 +4,7 @@ use std::{fs, path::Path};
 
 use actrail_kv_artifacts::*;
 
-use super::load_result;
+use super::{load_result, options::validate_options};
 
 #[test]
 fn accepts_valid_v011_result() {
@@ -27,6 +27,51 @@ fn rejects_wrong_schema_and_broken_top_k() {
     result.top_k = vec!["unknown".into()];
     write(&path, &result);
     assert!(load_result(&path).is_err());
+}
+
+#[test]
+fn rejects_invalid_run_option_snapshot_fields() {
+    let zero_mutations: [fn(&mut AnalysisOptionsSnapshot); 12] = [
+        |value| value.top_k = 0,
+        |value| value.comparison_window_seconds = 0,
+        |value| value.fixed_variant_max = 0,
+        |value| value.min_blocked_stable_bytes = 0,
+        |value| value.min_exact_anchor_bytes = 0,
+        |value| value.max_candidates_per_request = 0,
+        |value| value.max_projection_units = 0,
+        |value| value.max_text_unit_bytes = 0,
+        |value| value.max_payload_bytes = 0,
+        |value| value.max_alignment_cells = 0,
+        |value| value.max_total_alignment_cells = 0,
+        |value| value.max_records = 0,
+    ];
+    for mutate in zero_mutations {
+        let mut value = options();
+        mutate(&mut value);
+        assert!(validate_options(&value).is_err());
+    }
+
+    for mutate in [
+        (|value: &mut AnalysisOptionsSnapshot| value.min_template_members = 1)
+            as fn(&mut AnalysisOptionsSnapshot),
+        |value| value.min_stable_support = 1,
+    ] {
+        let mut value = options();
+        mutate(&mut value);
+        assert!(validate_options(&value).is_err());
+    }
+
+    for mutate in [
+        (|value: &mut AnalysisOptionsSnapshot| value.stable_span_support_ratio = f64::NAN)
+            as fn(&mut AnalysisOptionsSnapshot),
+        |value| value.text_similarity_threshold = -0.1,
+        |value| value.template_compatibility_threshold = 1.1,
+        |value| value.max_dynamic_coverage_ratio = f64::INFINITY,
+    ] {
+        let mut value = options();
+        mutate(&mut value);
+        assert!(validate_options(&value).is_err());
+    }
 }
 
 #[test]
@@ -374,6 +419,7 @@ fn options() -> AnalysisOptionsSnapshot {
         min_template_members: 3,
         stable_span_support_ratio: 0.8,
         min_stable_support: 3,
+        fixed_variant_max: 3,
         min_blocked_stable_bytes: 64,
         min_exact_anchor_bytes: 24,
         text_similarity_threshold: 0.8,

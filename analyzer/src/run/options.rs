@@ -9,6 +9,7 @@ pub struct AnalysisOptions {
     pub min_template_members: usize,
     pub stable_span_support_ratio: f64,
     pub min_stable_support: usize,
+    pub fixed_variant_max: usize,
     pub min_blocked_stable_bytes: usize,
     pub min_exact_anchor_bytes: usize,
     pub text_similarity_threshold: f64,
@@ -31,6 +32,7 @@ impl Default for AnalysisOptions {
             min_template_members: 3,
             stable_span_support_ratio: 0.80,
             min_stable_support: 3,
+            fixed_variant_max: 3,
             min_blocked_stable_bytes: 64,
             min_exact_anchor_bytes: 24,
             text_similarity_threshold: 0.80,
@@ -75,6 +77,7 @@ impl AnalysisOptions {
             }
         }
         for (name, value) in [
+            ("fixed_variant_max", self.fixed_variant_max),
             ("min_blocked_stable_bytes", self.min_blocked_stable_bytes),
             ("min_exact_anchor_bytes", self.min_exact_anchor_bytes),
             (

@@ -403,6 +403,9 @@ fn lcs_medoid_positions(
         ));
     }
     charge_cells(remaining_cells, required)?;
+    // The full matrix is intentional: traceback prefers moving up on equal scores. That
+    // deterministic choice defines stable-span boundaries and cannot be reproduced by the
+    // proposed Hirschberg split rule for repeated characters.
     let columns = right.len() + 1;
     let mut lengths = vec![0usize; (left.len() + 1) * columns];
     for i in 1..=left.len() {
