@@ -50,7 +50,8 @@ dev/
 │   │   ├── feature-integration.md             # 固定版本、JSON 等价、候选采样、LCS 与 fixtures 集成要求
 │   │   └── customer-capabilities.md           # 面向客户的能力说明文档要求
 │   └── v0.1.2/
-│       └── target.md                          # 报告路径、兼容配置与交付维护要求
+│       ├── target.md                          # 报告路径、兼容配置与交付维护要求
+│       └── windows-integration.md             # Windows 文件共享、读取中止与部署兼容集成
 └── designs/                                   # 版本设计索引与开发期实现设计
     ├── v0.1.0/                                # v0.1.0 设计记录
     ├── v0.1.1/

@@ -35,22 +35,29 @@ workspace 发布版本更新为 v0.1.2；包版本与分析产物 schema 独立�
 - 将 `text_similarity_threshold` 描述为候选文本相似度门槛的说明已失效；当前含义为兼容字段，见[配置参考](../../../docs/configuration.md)和[分析输出](../../../docs/architectures/analyze/output.md)。[v0.1.0 配置设计](../v0.1.0/config-file.md#兼容性)保留历史序列化记录并标注失效用途。
 - 部署脚本使用固定个人目录及临时 Cargo 缓存目录的默认策略已失效，当前规则见[部署环境与中性命名](#部署环境与中性命名)。
 
+## Windows 兼容集成
+
+需求见 [Windows 兼容集成](../../requirements/v0.1.2/windows-integration.md)。Windows 追加文件通过 `FILE_SHARE_READ` 允许并发读取并排除第二写者，Unix 保留原锁行为。语料读取接口返回 `Result`，遇 I/O 失败立即中止；成功结果和坏 JSON 行的处理语义保持不变。Session 身份回归同步处理新返回类型。
+
+Linux 使用本版本环境解析及报告子模块。案例语料保留当前中性内容和 `session_id` 契约；集成来源对旧语料的用户名替换已被当前语料覆盖。PowerShell 5.1 兼容调整及部署指南纳入当前版本。
+
 ## 验收结果
 
 2026-09-08，在 Linux、Rust 1.90.0 环境完成：
 
 | 验收 | 结果 |
 |---|---|
-| `cargo test --workspace --locked` | 138 个测试通过。 |
-| `cargo test --release --workspace --locked` | 138 个测试通过。 |
+| `cargo test --workspace --locked` | Windows 兼容集成后 140 个测试通过，包含读取失败中止与写入期间读取回归。 |
+| `cargo test --release --workspace --locked` | Windows 兼容集成后 140 个测试通过。 |
 | `cargo fmt --all -- --check` | 通过。 |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | 通过。 |
+| `cargo check --workspace --all-targets --locked --target x86_64-pc-windows-gnu` | 全 workspace 及测试目标交叉编译检查通过。 |
 | `bash tests/end_to_end/three_binaries.sh` | 三程序链路、确定性、XSS、Session、裸文件名创建/替换及输入保护通过；旧文本阈值变化只影响快照。 |
 | Linux 脚本 | `bash -n` 与入口帮助通过；在含空格的临时目录，从任意工作目录调用完整 report 入口，以本次构建的 debug 二进制运行 Session 样例，正确显示 `sessions 1` 并生成 HTML。 |
 | 拆分等价性 | 完整 `cmd_report` 函数提取为子模块，函数内仅修改 Session 字段；环境路径配置单独按 13 更新，停止、权限及其他命令函数内容保持一致。 |
 | 部署环境 | 以完整 report 入口分别验证 PATH 优先、显式 CARGO_BIN、自定义 CARGO_HOME 回退及当前用户标准安装目录回退；调用真实 debug 二进制生成 Session 报告，四组均通过。显式 RUSTUP_HOME/CARGO_HOME 保持原值，未设置时保持未设置。默认部署根目录、doc 报告目录及显式覆盖通过。 |
 | 文件与文档 | Linux 入口 473 行，报告模块 46 行；全仓代码文件不超过 500 行且有开头注释；文档本地链接有效，集成需求改为中性名称并同步引用，未发现用户批注。 |
 
-本次未在 Windows 环境执行验证；Windows 脚本未修改。包发布版本为 v0.1.2，实际生成的分析产物继续标记 schema v0.1.1。
+Windows 目标完成交叉编译检查；未在原生 Windows 环境执行文件共享测试或 PowerShell 5.1 脚本。Linux 合并后再次通过完整报告入口验证，Session 样例显示 `sessions 1`。包发布版本为 v0.1.2，实际生成的分析产物继续标记 schema v0.1.1。
 
-13 仅变更 Shell 与文档，采用脚本语法、环境矩阵和实际报告入口验证；Rust 全量测试结果沿用上表，Rust 代码自该验收后未变化。
+13 的 Shell 与文档变更通过环境矩阵及实际报告入口验证；Windows 集成后 Linux 入口与六份中性案例语料保持该版本内容。

@@ -5,6 +5,7 @@
 
 - 01、05、06、08、09、10、11、13 已实现并通过本地验收；结果见[实现设计](../../designs/v0.1.2/implementation.md#验收结果)。
 - 发布版本为 v0.1.2；分析产物字段保持兼容，继续使用 schema v0.1.1。
+- Windows 兼容集成范围与验收见 [Windows 兼容集成](windows-integration.md)。
 
 ## 范围
 

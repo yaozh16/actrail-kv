@@ -1,6 +1,9 @@
 //! NDJSON corpus loader enforces byte/count budgets and reports skips instead of hiding loss.
 
-use std::{collections::BTreeMap, io::BufRead};
+use std::{
+    collections::BTreeMap,
+    io::{self, BufRead},
+};
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -27,12 +30,22 @@ pub struct CorpusLoader {
     limits: CorpusLoadLimits,
 }
 
+/// Reading the corpus failed: the caller must treat the load as failed instead
+/// of retrying the same unreadable offset.
+#[derive(Debug, thiserror::Error)]
+#[error("failed to read captured requests at line {input_line}")]
+pub struct CorpusReadError {
+    pub input_line: usize,
+    #[source]
+    pub source: io::Error,
+}
+
 impl CorpusLoader {
     pub fn new(limits: CorpusLoadLimits) -> Self {
         Self { limits }
     }
 
-    pub fn load<R: BufRead>(&self, reader: R) -> CorpusLoadResult {
+    pub fn load<R: BufRead>(&self, reader: R) -> Result<CorpusLoadResult, CorpusReadError> {
         let mut result = CorpusLoadResult::default();
         let mut occurrences = BTreeMap::<String, usize>::new();
         for (zero_based, line_result) in reader.split(b'\n').enumerate() {
@@ -40,11 +53,15 @@ impl CorpusLoader {
             let line = match line_result {
                 Ok(line) => line,
                 Err(error) => {
-                    result.skipped.push(CorpusSkip {
+                    // A read failure does not advance the underlying cursor, so
+                    // every retry observes the same error again: skipping the
+                    // line loops forever at the same offset (observed on Windows
+                    // as an unbounded memory climb while the receiver held the
+                    // output). Abort with the I/O error so callers fail fast.
+                    return Err(CorpusReadError {
                         input_line,
-                        reason: CorpusSkipReason::InvalidJson(error.to_string()),
+                        source: error,
                     });
-                    continue;
                 }
             };
             if line.iter().all(u8::is_ascii_whitespace) {
@@ -83,7 +100,7 @@ impl CorpusLoader {
                 Err(reason) => result.skipped.push(CorpusSkip { input_line, reason }),
             }
         }
-        result
+        Ok(result)
     }
 }
 
@@ -229,7 +246,9 @@ mod tests {
             "{\"source\":\"x\"}\n",
             "{\"payload\":42}\n"
         );
-        let result = CorpusLoader::default().load(Cursor::new(input));
+        let result = CorpusLoader::default()
+            .load(Cursor::new(input))
+            .expect("load succeeds");
         assert_eq!(result.corpus.records.len(), 1);
         assert_eq!(result.skipped.len(), 5);
         assert_eq!(result.corpus.records[0].captured_at.as_deref(), Some("now"));
@@ -239,8 +258,12 @@ mod tests {
     fn stable_id_ignores_outer_object_key_order() {
         let a = "{\"comparison\":{\"endpoint_key\":\"chat\"},\"payload\":{\"model\":\"m\",\"messages\":[]}}";
         let b = "{\"payload\":{\"messages\":[],\"model\":\"m\"},\"comparison\":{\"endpoint_key\":\"chat\"}}";
-        let a = CorpusLoader::default().load(Cursor::new(a));
-        let b = CorpusLoader::default().load(Cursor::new(b));
+        let a = CorpusLoader::default()
+            .load(Cursor::new(a))
+            .expect("load succeeds");
+        let b = CorpusLoader::default()
+            .load(Cursor::new(b))
+            .expect("load succeeds");
         assert_eq!(a.corpus.records[0].id, b.corpus.records[0].id);
     }
 
@@ -248,8 +271,12 @@ mod tests {
     fn session_id_is_retained_but_excluded_from_canonical_identity() {
         let a = r#"{"session_id":"session-a","comparison":{"endpoint_key":"chat"},"payload":{"model":"m","messages":[]}}"#;
         let b = r#"{"session_id":"session-b","comparison":{"endpoint_key":"chat"},"payload":{"model":"m","messages":[]}}"#;
-        let a = CorpusLoader::default().load(Cursor::new(a));
-        let b = CorpusLoader::default().load(Cursor::new(b));
+        let a = CorpusLoader::default()
+            .load(Cursor::new(a))
+            .expect("load succeeds");
+        let b = CorpusLoader::default()
+            .load(Cursor::new(b))
+            .expect("load succeeds");
         assert_eq!(a.corpus.records[0].id, b.corpus.records[0].id);
         assert_eq!(a.corpus.records[0].session_id.as_deref(), Some("session-a"));
         assert_eq!(b.corpus.records[0].session_id.as_deref(), Some("session-b"));
@@ -259,8 +286,12 @@ mod tests {
     fn duplicate_records_keep_frequency_with_permutation_stable_ids() {
         let a = "{\"source\":\"a\",\"comparison\":{\"endpoint_key\":\"chat\"},\"payload\":{\"model\":\"m\"}}";
         let b = "{\"source\":\"b\",\"comparison\":{\"endpoint_key\":\"chat\"},\"payload\":{\"model\":\"m\"}}";
-        let first = CorpusLoader::default().load(Cursor::new(format!("{a}\n{b}\n{a}")));
-        let second = CorpusLoader::default().load(Cursor::new(format!("{a}\n{a}\n{b}")));
+        let first = CorpusLoader::default()
+            .load(Cursor::new(format!("{a}\n{b}\n{a}")))
+            .expect("load succeeds");
+        let second = CorpusLoader::default()
+            .load(Cursor::new(format!("{a}\n{a}\n{b}")))
+            .expect("load succeeds");
         let mut first_ids: Vec<_> = first
             .corpus
             .records
@@ -287,7 +318,9 @@ mod tests {
             "{\"comparison\":{\"endpoint_key\":\"chat\",\"agent_key\":42},\"payload\":{}}\n",
             "{\"comparison\":{\"endpoint_key\":\"chat\",\"kv_namespace\":\" \"},\"payload\":{}}"
         );
-        let result = CorpusLoader::default().load(Cursor::new(input));
+        let result = CorpusLoader::default()
+            .load(Cursor::new(input))
+            .expect("load succeeds");
         assert!(result.corpus.records.is_empty());
         assert!(matches!(
             result.skipped[0].reason,
@@ -311,11 +344,52 @@ mod tests {
             max_records: 1,
         };
         let input = format!("{at_limit}\n{at_limit} ");
-        let result = CorpusLoader::new(limits).load(Cursor::new(input));
+        let result = CorpusLoader::new(limits)
+            .load(Cursor::new(input))
+            .expect("load succeeds");
         assert_eq!(result.corpus.records.len(), 1);
         assert!(matches!(
             result.skipped[0].reason,
             CorpusSkipReason::RecordTooLarge { .. }
         ));
+    }
+
+    #[test]
+    fn read_failures_abort_loading_instead_of_retrying_forever() {
+        // Emulates a persistent read error (e.g. Windows ERROR_LOCK_VIOLATION
+        // on the receiver's live output): `split` yields the error again on
+        // every subsequent `next()` call, so skipping the line would loop
+        // forever at the same offset.
+        struct FailingReader<'a> {
+            remaining: &'a [u8],
+        }
+        impl io::Read for FailingReader<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                let copied = self.remaining.len().min(buf.len());
+                buf[..copied].copy_from_slice(&self.remaining[..copied]);
+                self.remaining = &self.remaining[copied..];
+                Ok(copied)
+            }
+        }
+        impl BufRead for FailingReader<'_> {
+            fn fill_buf(&mut self) -> io::Result<&[u8]> {
+                if self.remaining.is_empty() {
+                    return Err(io::Error::other("injected read failure"));
+                }
+                Ok(self.remaining)
+            }
+            fn consume(&mut self, n: usize) {
+                self.remaining = &self.remaining[n..];
+            }
+        }
+
+        let input = "{\"comparison\":{\"endpoint_key\":\"chat\"},\"payload\":{\"model\":\"m\"}}\n";
+        let error = CorpusLoader::default()
+            .load(FailingReader {
+                remaining: input.as_bytes(),
+            })
+            .expect_err("persistent read failures must abort");
+        assert_eq!(error.input_line, 2);
+        assert!(error.source.to_string().contains("injected read failure"));
     }
 }

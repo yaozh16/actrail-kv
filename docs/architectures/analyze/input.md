@@ -3,6 +3,8 @@
 
 analyzer 读取 [Receiver 输出](../receiver/output.md) 的 NDJSON。它逐行处理，坏行、资源超限记录或无法投影的 payload 不会中断整批分析，而会写入 `analysis.json` 的 `run.skipped_records[]`。
 
+底层 I/O 读取失败会立即中止分析并返回错误及行号，避免在同一不可读位置重复读取；这类错误不作为坏 JSON 行跳过。
+
 | 输入路径 | 类型 | 要求 |
 |---|---|---|
 | `captured_at` | RFC 3339 string，必填 | 用于计算固定分析时间窗口，不进入模型上下文投影。 |

@@ -39,7 +39,7 @@ actrail-kv/
 ├── receiver/src/                                  # 最小接收端；不依赖 analyzer
 │   ├── config.rs                                  # ReceiverConfig：listen/max_payload_bytes JSON 读写
 │   ├── http_receiver.rs                           # POST /requests、metadata headers、captured_at
-│   ├── ndjson_appender.rs                         # 并发安全、原子行追加、文件独占与权限
+│   ├── ndjson_appender.rs                         # 原子行追加、单写者/读者共享、Unix 权限与 Windows share mode
 │   └── lib.rs                                     # receiver library API
 │
 ├── analyzer/src/                                  # 模板抽取与结构诊断核心
@@ -49,7 +49,7 @@ actrail-kv/
 │   │   │   ├── group_key.rs                      # 时间窗口+endpoint+model/deployment+schema+agent+namespace
 │   │   │   └── mod.rs
 │   │   ├── corpus/
-│   │   │   ├── loader.rs                         # 有界读取 NDJSON、坏记录 skip、稳定请求 ID
+│   │   │   ├── loader.rs                         # NDJSON 预算、坏记录 skip、I/O 失败中止、稳定请求 ID
 │   │   │   ├── types.rs                          # CorpusRecord、CaptureComparison、skip 类型
 │   │   │   └── mod.rs
 │   │   ├── projection/

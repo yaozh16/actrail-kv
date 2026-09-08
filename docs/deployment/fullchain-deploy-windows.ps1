@@ -10,6 +10,9 @@
 #   --stop    stop processes started with the cassette conf / receiver output
 
 $ErrorActionPreference = 'Stop'
+# HttpClient lives in System.Net.Http, which PowerShell 5.1 does not load by
+# default; without this the OpenAI/Anthropic probes in --health crash.
+Add-Type -AssemblyName System.Net.Http
 
 function Get-EnvOrDefault([string]$name, [string]$fallback) {
     $value = [Environment]::GetEnvironmentVariable($name)
@@ -55,15 +58,15 @@ function Pass([string]$message) {
 
 function Show-Usage {
     @"
-Usage: powershell -ExecutionPolicy Bypass -File anthropic-agent-chain.ps1 <command>
+Usage: powershell -ExecutionPolicy Bypass -File fullchain-deploy-windows.ps1 <command>
 
-Commands:
-  --init     Start/reuse receiver + agent-cassette and print agent env lines
-  --env      Print ANTHROPIC_* env lines for the current session
-  --health   Check healthz, receiver port, ndjson, OpenAI and Anthropic endpoints
-  --report   Run actrail-kv analyze + report on existing ndjson
-  --stop     Stop processes started with the cassette conf / receiver output
-  -h|--help  Show this help
+Commands (with or without leading "--", same as the Linux script):
+  init      Start/reuse receiver + agent-cassette and print agent env lines
+  env       Print ANTHROPIC_* env lines for the current session
+  health    Check healthz, receiver port, ndjson, OpenAI and Anthropic endpoints
+  report    Run actrail-kv analyze + report on existing ndjson
+  stop      Stop processes started with the cassette conf / receiver output
+  -h|--help Show this help
 
 Environment overrides: KV_ROOT, CASSETTE_REPO, ACTRAIL_REPO, DOC_ROOT,
                        CASSETTE_CONF, CASSETTE_PORT, RECEIVER_PORT, RECEIVER_OUT
@@ -74,7 +77,10 @@ Environment overrides: KV_ROOT, CASSETTE_REPO, ACTRAIL_REPO, DOC_ROOT,
 function Get-TomlValue([string]$path, [string]$section, [string]$key) {
     if (-not (Test-Path $path)) { return '' }
     $current = ''
-    foreach ($line in Get-Content -Path $path) {
+    # -Encoding UTF8 is required: PowerShell 5.1 reads non-BOM files as ANSI/GBK,
+    # and multi-byte UTF-8 comment tails can swallow the following LF, merging
+    # lines so section headers like [gateway.transport] stop being detected.
+    foreach ($line in Get-Content -Path $path -Encoding UTF8) {
         $trimmed = $line.Trim()
         if ($trimmed -match '^\[(.+)\]$') {
             $current = $Matches[1].Trim()
@@ -113,17 +119,19 @@ function Wait-Port([int]$port, [int]$tries = 60) {
 }
 
 function Resolve-Ports {
-    if (-not $CassettePort) {
+    # Assignments must go through $script: — a plain assignment inside a
+    # function creates a local copy and callers keep seeing the old (empty) value.
+    if (-not $script:CassettePort) {
         $listen = Get-TomlValue $CassetteConf 'gateway.transport' 'listen_addr'
-        if ($listen) { $CassettePort = Get-PortFromValue $listen }
+        if ($listen) { $script:CassettePort = Get-PortFromValue $listen }
     }
-    if (-not $ReceiverPort) {
+    if (-not $script:ReceiverPort) {
         $url = Get-TomlValue $CassetteConf 'recorder.actrail' 'receiver_url'
-        if ($url) { $ReceiverPort = Get-PortFromValue $url }
+        if ($url) { $script:ReceiverPort = Get-PortFromValue $url }
     }
-    if (-not $CassettePort) { $CassettePort = '18194' }
-    if (-not $ReceiverPort) { $ReceiverPort = '8100' }
-    Log ("ports: cassette=" + $CassettePort + " receiver=" + $ReceiverPort)
+    if (-not $script:CassettePort) { $script:CassettePort = '18194' }
+    if (-not $script:ReceiverPort) { $script:ReceiverPort = '8100' }
+    Log ("ports: cassette=" + $script:CassettePort + " receiver=" + $script:ReceiverPort)
 }
 
 function Save-State {
@@ -140,7 +148,7 @@ function Save-State {
 
 function Load-State {
     if (-not (Test-Path $StateFile)) { return $false }
-    foreach ($line in Get-Content $StateFile) {
+    foreach ($line in Get-Content -Path $StateFile -Encoding UTF8) {
         if ($line -match '^([^=]+)=(.*)$') {
             switch ($Matches[1]) {
                 'RUN_NAME'       { $script:RunName = $Matches[2] }
@@ -154,17 +162,31 @@ function Load-State {
     return $true
 }
 
+function Get-RunningReceiverOutput {
+    $proc = Get-CimInstance Win32_Process -Filter "Name = 'actrail-kv-receiver.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match '--output' } |
+        Select-Object -First 1
+    if ($proc -and $proc.CommandLine -match '--output[= ]"?([^"\s]+)"?') { return $Matches[1] }
+    return ''
+}
+
 function Invoke-CmdInit {
     Resolve-Ports
+    if (-not (Test-Path $CassetteConf)) { Fail ("cassette config not found: " + $CassetteConf + " (set CASSETTE_CONF)") }
     $runDir = Join-Path $KVRoot 'run'
     if (-not (Test-Path $runDir)) { New-Item -ItemType Directory -Force -Path $runDir | Out-Null }
     $receiverLog = Join-Path $runDir ("receiver-" + $RunName + '.log')
     $cassetteLog = Join-Path $runDir ("agent-cassette-" + $RunName + '.log')
-    $recvStarted = $false
-    $cassStarted = $false
 
     if (Test-PortOpen ([int]$ReceiverPort)) {
         Log ("receiver port " + $ReceiverPort + " in use: reuse existing receiver")
+        # The reused receiver may write to a different --output file than this
+        # run's default; resolve the real path so health/report point at it.
+        $runningOut = Get-RunningReceiverOutput
+        if ($runningOut) {
+            $script:ReceiverOut = $runningOut
+            Log ("receiver ndjson (from running process): " + $runningOut)
+        }
     } else {
         Log ("start receiver :" + $ReceiverPort)
         if (-not (Test-Path $ReceiverExe)) { Fail ("receiver binary missing: " + $ReceiverExe) }
@@ -173,7 +195,6 @@ function Invoke-CmdInit {
             -RedirectStandardOutput $receiverLog -RedirectStandardError ($receiverLog + '.err') `
             -WindowStyle Hidden -PassThru
         if (-not (Wait-Port ([int]$ReceiverPort))) { Fail ("receiver did not listen; see " + $receiverLog) }
-        $recvStarted = $true
         Pass 'receiver started'
     }
 
@@ -182,16 +203,23 @@ function Invoke-CmdInit {
     } else {
         Log ("start agent-cassette :" + $CassettePort)
         if (-not (Test-Path $CassetteExe)) { Fail ("agent-cassette binary missing: " + $CassetteExe) }
+        # agent-cassette reads the provider key at startup; fail fast instead of
+        # waiting for the port timeout.
+        $keyEnv = Get-TomlValue $CassetteConf 'proxy.provider' 'api_key_env'
+        if ($keyEnv -and -not [Environment]::GetEnvironmentVariable($keyEnv)) {
+            Fail ("environment variable " + $keyEnv + " (from [proxy.provider].api_key_env) is not set; set it before starting agent-cassette")
+        }
         $proc = Start-Process -FilePath $CassetteExe `
             -ArgumentList @('-c', $CassetteConf, 'start') `
             -RedirectStandardOutput $cassetteLog -RedirectStandardError ($cassetteLog + '.err') `
             -WindowStyle Hidden -PassThru
         if (-not (Wait-Port ([int]$CassettePort))) { Fail ("agent-cassette did not listen; see " + $cassetteLog) }
-        $cassStarted = $true
         Pass 'agent-cassette started'
     }
 
-    if ($recvStarted -or $cassStarted) { Save-State }
+    # Persist even when everything was reused, so health/report/stop reference
+    # the resolved receiver output file.
+    Save-State
 
     $token = if ($env:ANTHROPIC_API_KEY) { $env:ANTHROPIC_API_KEY } else { 'cassette-proxy' }
     $model = if ($env:ANTHROPIC_MODEL) { $env:ANTHROPIC_MODEL } else { Get-TomlValue $CassetteConf 'proxy.provider' 'model' }
@@ -223,7 +251,7 @@ function Invoke-CmdEnv {
     $model = if ($env:ANTHROPIC_MODEL) { $env:ANTHROPIC_MODEL } else { Get-TomlValue $CassetteConf 'proxy.provider' 'model' }
     if (-not $model) { $model = 'default' }
     @"
-# run: iex (& 'C:\path\to\anthropic-agent-chain.ps1' --env)
+# run: iex (& '$PSCommandPath' --env)
 `$env:ANTHROPIC_BASE_URL = "http://127.0.0.1:$CassettePort"
 `$env:ANTHROPIC_API_KEY   = "$token"
 `$env:ANTHROPIC_MODEL     = "$model"
@@ -260,8 +288,14 @@ function Invoke-CmdHealth {
         $ok = $false
     }
     if (Test-Path $ReceiverOut) {
-        $lines = (Get-Content $ReceiverOut | Measure-Object -Line).Lines
-        Log ("ndjson: " + $ReceiverOut + " (" + $lines + " lines)")
+        try {
+            $lines = (Get-Content $ReceiverOut | Measure-Object -Line).Lines
+            Log ("ndjson: " + $ReceiverOut + " (" + $lines + " lines)")
+        } catch {
+            # Windows 使用 FILE_SHARE_READ 排除写方、不阻塞读方，不再使用
+            # LockFileEx；此处即使出现偶发读错误也仅提示，不作为健康失败。
+            Log ("ndjson: " + $ReceiverOut + " (present; read skipped: " + $_.Exception.Message + ")")
+        }
     } else {
         Log ("ndjson: not found " + $ReceiverOut)
     }
@@ -286,6 +320,14 @@ function Invoke-CmdHealth {
 }
 
 function Invoke-CmdReport {
+    # Prefer the state file, then the newest requests-*.ndjson in run\, so --report
+    # also works from a fresh terminal (RunName changes on every invocation).
+    if (-not (Test-Path $ReceiverOut)) { $null = Load-State }
+    if (-not (Test-Path $ReceiverOut)) {
+        $newest = Get-ChildItem -Path (Join-Path $KVRoot 'run') -Filter 'requests-*.ndjson' -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($newest) { $script:ReceiverOut = $newest.FullName }
+    }
     if (-not (Test-Path $ReceiverOut)) {
         Fail ("ndjson not found: " + $ReceiverOut + " (set RECEIVER_OUT or run --init first)")
     }
@@ -330,11 +372,13 @@ function Invoke-CmdStop {
 
 $command = $args[0]
 if (-not $command -or $command -in @('-h', '--help', 'help')) { Show-Usage }
+# Accept both "--init" and "init" forms, same as fullchain-deploy-linux.sh.
+if ($command.StartsWith('--')) { $command = $command.Substring(1) }
 switch ($command) {
-    '--init'   { Invoke-CmdInit }
-    '--env'    { Invoke-CmdEnv }
-    '--health' { Invoke-CmdHealth }
-    '--report' { Invoke-CmdReport }
-    '--stop'   { Invoke-CmdStop }
-    default    { Show-Usage }
+    'init'   { Invoke-CmdInit }
+    'env'    { Invoke-CmdEnv }
+    'health' { Invoke-CmdHealth }
+    'report' { Invoke-CmdReport }
+    'stop'   { Invoke-CmdStop }
+    default  { Show-Usage }
 }

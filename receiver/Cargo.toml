@@ -8,13 +8,15 @@ license.workspace = true
 actrail-kv-artifacts.workspace = true
 anyhow.workspace = true
 axum.workspace = true
-fs2 = "0.4"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
 tower.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+fs2 = "0.4"
 
 [dev-dependencies]
 tempfile.workspace = true
