@@ -7,28 +7,28 @@
 
 ## 报告路径
 
-报告模块使用统一的父目录解析函数，未取得父路径或父路径为空时归一为 `.`。路径冲突校验与同目录原子写入共用该函数。端到端脚本在临时目录以裸文件名运行 report，验证创建与替换行为，避免测试修改进程全局工作目录。
+报告模块使用统一的父目录解析函数，未取得父路径或父路径为空时归一为 `.`。路径冲突校验与同目录原子写入共用该函数。端到端脚本在临时目录的子进程中验证裸文件名创建、替换和输入保护。
 
 ## 部署脚本
 
-保留 `docs/deployment/fullchain-deploy-linux.sh` 入口，将 `cmd_report` 按完整职责提取到 `docs/deployment/fullchain-deploy-linux/report.sh`，通过入口的绝对脚本目录加载。仅将 Session 统计改为 `session_analysis.timelines`，其余命令及报告权限保持原行为。部署分发需保留入口与子目录的相对布局。
+`docs/deployment/fullchain-deploy-linux.sh` 是 Linux 管理入口，通过绝对脚本目录加载 `docs/deployment/fullchain-deploy-linux/report.sh` 中的报告命令。Session 数量取 `session_analysis.timelines` 的数组长度。部署分发需保留入口与子目录的相对布局。
 
 ## 发布与文档
 
-workspace 发布版本更新为 v0.1.2；包版本与分析产物 schema 独立管理。输入说明明确上游插件执行 Anthropic → OAI 转换，分析器消费转换后的请求。更新 v0.1.1 状态与当前文档布局，保留原版本设计记录。
+workspace 包版本为 v0.1.2，分析产物使用 schema v0.1.1。上游插件执行 Anthropic → OAI 转换，分析器消费转换后的请求。版本需求与实现设计存放在 `dev/`，当前架构和操作说明存放在 `docs/`。
 
 ## 部署环境与中性命名
 
 - 显式 `KV_ROOT` 优先；未设置时根据脚本目录定位部署根目录，定位失败直接报错。`DOC_ROOT` 默认为 `$KV_ROOT/doc`，与 Windows 一致，仍可显式覆盖。
-- 不设置或覆盖 `RUSTUP_HOME`、`CARGO_HOME`。显式 `CARGO_BIN` 优先加入 PATH；否则优先使用 PATH 中的 Cargo，仅在未找到时查找已有 `CARGO_HOME/bin` 或当前用户的 `.cargo/bin`。仅在对应 cargo 可执行时补充 PATH。
-- 集成需求文件使用 `feature-integration.md` 和“v0.1.1 特性集成要求”；同步目录索引与引用，保留技术事实及 Git 历史。
-- 旧报告服务如依赖固定目录，应显式设置 `DOC_ROOT`；跨用户工具链路径由部署环境显式提供。
+- `RUSTUP_HOME`、`CARGO_HOME` 继承调用环境。显式 `CARGO_BIN` 优先加入 PATH；否则优先使用 PATH 中的 Cargo，仅在未找到时查找已有 `CARGO_HOME/bin` 或当前用户的 `.cargo/bin`。对应 cargo 可执行时补充 PATH。
+- 集成需求文件使用 `feature-integration.md` 和“v0.1.1 特性集成要求”。
+- `DOC_ROOT` 指定报告服务目录；工具链路径通过部署环境配置。
 
 ## 配置契约
 
-`text_similarity_threshold` 是旧局部差异分类的遗留参数：提交 `dfa12c9` 将其用于 `local_text_similarity`，统一 P1/X/P2 重写提交 `3a06cdf` 删除了对应诊断用途。当前候选发现通过 `template_compatibility_threshold` 和 `max_dynamic_coverage_ratio` 判定；该遗留字段不应作为新的候选门槛接入。
+候选发现由 `template_compatibility_threshold` 和 `max_dynamic_coverage_ratio` 控制。
 
-保留该字段的配置读写、有限值区间校验及结果快照，明确标注“已废弃，仅为兼容保留，不参与分析”。保持 schema v0.1.1；通过端到端配置变更验证仅快照字段变化，分析结果保持一致。
+`text_similarity_threshold` 是已废弃的兼容字段，支持配置读写、有限值区间校验及结果快照。修改该值只改变快照，诊断结果相同。
 
 ## 已失效决策索引
 
@@ -37,9 +37,7 @@ workspace 发布版本更新为 v0.1.2；包版本与分析产物 schema 独立�
 
 ## Windows 兼容集成
 
-需求见 [Windows 兼容集成](../../requirements/v0.1.2/windows-integration.md)。Windows 追加文件通过 `FILE_SHARE_READ` 允许并发读取并排除第二写者，Unix 保留原锁行为。语料读取接口返回 `Result`，遇 I/O 失败立即中止；成功结果和坏 JSON 行的处理语义保持不变。Session 身份回归同步处理新返回类型。
-
-Linux 使用本版本环境解析及报告子模块。案例语料保留当前中性内容和 `session_id` 契约；集成来源对旧语料的用户名替换已被当前语料覆盖。PowerShell 5.1 兼容调整及部署指南纳入当前版本。
+需求见 [Windows 兼容集成](../../requirements/v0.1.2/windows-integration.md)。Windows 追加文件通过 `FILE_SHARE_READ` 支持单写者和并发读者，Unix 使用 advisory 文件锁。语料读取接口返回 `Result`，I/O 失败返回错误及行号，坏 JSON 行记为 skipped。Session 标识使用 `session_id`。Windows 部署入口兼容 PowerShell 5.1。
 
 ## 验收结果
 
@@ -47,17 +45,13 @@ Linux 使用本版本环境解析及报告子模块。案例语料保留当前�
 
 | 验收 | 结果 |
 |---|---|
-| `cargo test --workspace --locked` | Windows 兼容集成后 140 个测试通过，包含读取失败中止与写入期间读取回归。 |
-| `cargo test --release --workspace --locked` | Windows 兼容集成后 140 个测试通过。 |
+| `cargo test --workspace --locked` | 140 个测试通过，包含读取失败中止与写入期间读取回归。 |
+| `cargo test --release --workspace --locked` | 140 个测试通过。 |
 | `cargo fmt --all -- --check` | 通过。 |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | 通过。 |
 | `cargo check --workspace --all-targets --locked --target x86_64-pc-windows-gnu` | 全 workspace 及测试目标交叉编译检查通过。 |
 | `bash tests/end_to_end/three_binaries.sh` | 三程序链路、确定性、XSS、Session、裸文件名创建/替换及输入保护通过；旧文本阈值变化只影响快照。 |
-| Linux 脚本 | `bash -n` 与入口帮助通过；在含空格的临时目录，从任意工作目录调用完整 report 入口，以本次构建的 debug 二进制运行 Session 样例，正确显示 `sessions 1` 并生成 HTML。 |
-| 拆分等价性 | 完整 `cmd_report` 函数提取为子模块，函数内仅修改 Session 字段；环境路径配置单独按 13 更新，停止、权限及其他命令函数内容保持一致。 |
-| 部署环境 | 以完整 report 入口分别验证 PATH 优先、显式 CARGO_BIN、自定义 CARGO_HOME 回退及当前用户标准安装目录回退；调用真实 debug 二进制生成 Session 报告，四组均通过。显式 RUSTUP_HOME/CARGO_HOME 保持原值，未设置时保持未设置。默认部署根目录、doc 报告目录及显式覆盖通过。 |
-| 文件与文档 | Linux 入口 473 行，报告模块 46 行；全仓代码文件不超过 500 行且有开头注释；文档本地链接有效，集成需求改为中性名称并同步引用，未发现用户批注。 |
-
-Windows 目标完成交叉编译检查；未在原生 Windows 环境执行文件共享测试或 PowerShell 5.1 脚本。Linux 合并后再次通过完整报告入口验证，Session 样例显示 `sessions 1`。包发布版本为 v0.1.2，实际生成的分析产物继续标记 schema v0.1.1。
-
-13 的 Shell 与文档变更通过环境矩阵及实际报告入口验证；Windows 集成后 Linux 入口与六份中性案例语料保持该版本内容。
+| Linux 脚本 | 语法、入口帮助、含空格路径和外部工作目录调用通过；Session 样例显示 `sessions 1` 并生成 HTML。 |
+| 部署环境 | PATH 优先、显式 CARGO_BIN、自定义 CARGO_HOME 回退及当前用户标准安装目录回退四组通过；环境变量继承、默认目录和显式覆盖通过。 |
+| 文件与文档 | Linux 入口 473 行，报告模块 46 行；代码文件长度、职责注释、文档链接与目录索引检查通过，未发现用户批注。 |
+| 原生 Windows 文件共享与 PowerShell 5.1 运行 | 未执行。 |

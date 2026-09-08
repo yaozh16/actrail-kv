@@ -377,7 +377,7 @@ Linux 入口会加载同目录下的 `fullchain-deploy-linux/report.sh`。复制
 
 `DOC_ROOT` 默认是 `$KV_ROOT/doc`（Windows 为对应的 `doc` 子目录）。已有报告服务若使用其他目录，需显式设置 `DOC_ROOT`。
 
-Linux 构建优先使用当前 `PATH` 中的 Cargo，并保留已有 `RUSTUP_HOME`、`CARGO_HOME`。只有 PATH 中没有 Cargo 时，才查找 `CARGO_HOME/bin`；未设置 `CARGO_HOME` 时查找当前用户的 `$HOME/.cargo/bin`。可通过 `CARGO_BIN` 显式指定优先使用的可执行文件目录。脚本不再提供固定个人目录或临时 Cargo 缓存目录默认值。
+Linux 构建优先使用当前 `PATH` 中的 Cargo，并继承已有 `RUSTUP_HOME`、`CARGO_HOME`。只有 PATH 中没有 Cargo 时，才查找 `CARGO_HOME/bin`；未设置 `CARGO_HOME` 时查找当前用户的 `$HOME/.cargo/bin`。可通过 `CARGO_BIN` 显式指定优先使用的可执行文件目录。
 
 Linux：
 
