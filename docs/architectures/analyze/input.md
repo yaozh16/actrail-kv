@@ -19,6 +19,8 @@ analyzer 读取 [Receiver 输出](../receiver/output.md) 的 NDJSON。它逐行�
 
 当前 OpenAI-compatible adapter 会按 `tools`、message role，以及 `name`、`content`、`function_call`、`tool_calls`、`tool_call_id`、`refusal` 的逻辑顺序投影。未知模型字段不会自动作为模型可见上下文加入分析。
 
+Anthropic 请求由上游插件先转换为 OAI 格式，再发送给 Receiver。此处的 `payload` 是转换后的请求，系统提示词等上下文应已映射到 OAI 字段；当前分析器不提供原生 Anthropic adapter。
+
 comparison group 由固定时间窗口、endpoint、model/deployment、context schema、agent 和 KV namespace 组成；任一维度不同都不聚类。HTTP 外层 object key 顺序和空白不进入投影；模型可见字符串保留原始 UTF-8，非字符串模型可见字段使用 canonical JSON 结构代理。
 
 Session 分析是独立通道：只连接同一显式 `session_id` 的相邻记录，不受 comparison time window 截断，也不会根据请求内容、时间邻近或相似度猜测 Session。缺失或非法采集时间会保留为不可分析边界，不跨过该记录连接前后请求。

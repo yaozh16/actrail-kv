@@ -18,6 +18,7 @@ pub struct AnalyzeConfig {
     pub fixed_variant_max: usize,
     pub min_blocked_stable_bytes: usize,
     pub min_exact_anchor_bytes: usize,
+    /// 已废弃的兼容字段；保留配置读写与校验，不参与分析。
     pub text_similarity_threshold: f64,
     pub template_compatibility_threshold: f64,
     pub max_dynamic_coverage_ratio: f64,

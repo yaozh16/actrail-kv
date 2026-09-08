@@ -3,7 +3,8 @@
 
 ## 状态
 
-- 目标已确定，进入设计阶段。
+- Session 前缀延续与多位点分析已实现；回归覆盖见 `analyzer/tests/session_timeline.rs`、`analyzer/tests/acceptance.rs` 和 `tests/end_to_end/three_binaries.sh`。
+- 后续兼容修复与交付维护见 [v0.1.2 开发目标](../v0.1.2/target.md)。
 - v0.1.1 延续 v0.1.0 的 Agent 侧请求结构分析边界，只使用采集到的 LLM 请求及显式采集元数据。
 - v0.1.0 的模板、事实、缺陷和 Top K 语义保持有效；v0.1.1 在此基础上增加 Session 前缀延续与有界多位点分析。
 

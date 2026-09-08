@@ -17,6 +17,8 @@ docs/configuration.md           # 参数表与 JSON 示例
 
 ### AnalyzeConfig（与 `run.options` 快照一一对应）
 
+`text_similarity_threshold` 的算法用途已失效，字段仍为配置与结果兼容保留；当前语义见 [v0.1.2 配置契约](../v0.1.2/implementation.md#配置契约)。以下示例保留本版本序列化记录。
+
 ```json
 {
   "top_k": 20,
@@ -65,4 +67,4 @@ CLI 参数改为 `Option`，显式传入时覆盖文件；未传时回退文件�
 
 - 不传 `--config` 时 analyze 的 `run.options` 快照与旧版逐字段一致。
 - receiver 无配置文件时监听地址与请求体上限保持旧值。
-- 已失效决策索引：无。
+- 已失效决策索引：`text_similarity_threshold` 不再作为有效算法阈值，兼容保留策略见 [v0.1.2 实现设计](../v0.1.2/implementation.md#已失效决策索引)。

@@ -13,11 +13,15 @@ set -euo pipefail
 
 # ============================ 可覆盖配置区 ============================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_ROOT="$(cd "$SCRIPT_DIR/../../.." 2>/dev/null && pwd || echo /home/hx/kv)"
-KV_ROOT="${KV_ROOT:-$DEFAULT_ROOT}"
+if [ -z "${KV_ROOT:-}" ]; then
+  if ! KV_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"; then
+    echo "无法定位部署根目录，请设置 KV_ROOT" >&2
+    exit 1
+  fi
+fi
 CASSETTE_REPO="${CASSETTE_REPO:-$KV_ROOT/agent-cassette}"
 ACTRAIL_REPO="${ACTRAIL_REPO:-$KV_ROOT/actrail-kv}"
-DOC_ROOT="${DOC_ROOT:-/home/hx/doc}"
+DOC_ROOT="${DOC_ROOT:-$KV_ROOT/doc}"
 
 # 已配好的 agent-cassette 配置（真实上游 + recorder.actrail 均已配好；脚本只读）
 CASSETTE_CONF="${CASSETTE_CONF:-$KV_ROOT/conf/agent-cassette.toml}"
@@ -30,10 +34,16 @@ RECEIVER_LOG="$KV_ROOT/run/receiver-$RUN_NAME.log"
 CASSETTE_LOG="$KV_ROOT/run/agent-cassette-$RUN_NAME.log"
 OUT_DIR="$DOC_ROOT/actrail-kv-run-anthropic-agent-report-$(date +%Y%m%d-%H%M%S)"
 
-RUSTUP_HOME="${RUSTUP_HOME:-/home/yzh/.rustup}"
-CARGO_HOME="${CARGO_HOME:-/tmp/cargo-home}"
-CARGO_BIN="${CARGO_BIN:-/home/yzh/.cargo/bin}"
-export RUSTUP_HOME CARGO_HOME PATH="$CARGO_BIN:$PATH"
+# 尊重当前工具链环境；仅在 PATH 缺少 cargo 时补充标准安装目录。
+if [ -n "${CARGO_BIN:-}" ]; then
+  export PATH="$CARGO_BIN:$PATH"
+elif ! command -v cargo >/dev/null 2>&1; then
+  if [ -n "${CARGO_HOME:-}" ] && [ -x "$CARGO_HOME/bin/cargo" ]; then
+    export PATH="$CARGO_HOME/bin:$PATH"
+  elif [ -z "${CARGO_HOME:-}" ] && [ -n "${HOME:-}" ] && [ -x "$HOME/.cargo/bin/cargo" ]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+  fi
+fi
 
 SKIP_BUILD="${SKIP_BUILD:-0}"
 FORCE_BUILD="${FORCE_BUILD:-0}"
@@ -66,6 +76,8 @@ usage() {
 
 接入参数（cassette 已配好时一般不用传）:
   CASSETTE_CONF      已配好的 agent-cassette 配置路径（默认 \$KV_ROOT/conf/agent-cassette.toml）
+  KV_ROOT / DOC_ROOT 部署根目录 / 报告目录（默认根据脚本位置定位 / \$KV_ROOT/doc）
+  CARGO_BIN         可选 Cargo 可执行文件目录；未设置时优先使用当前 PATH
   ANTHROPIC_API_KEY（回退 ANTHROPIC_AUTH_TOKEN）/ ANTHROPIC_MODEL
                      --env 原样透传到启动 agent 的终端（可省）
 EOF
@@ -370,49 +382,7 @@ cmd_health() {
   return 1
 }
 
-cmd_report() {
-  local input="${1:-}"
-  if [ -z "$input" ]; then
-    if load_state && [ -n "${RECEIVER_OUT:-}" ] && [ -f "$RECEIVER_OUT" ]; then
-      input="$RECEIVER_OUT"
-    else
-      input="$(ls -t "$KV_ROOT"/run/requests-anthropic-agent-*.ndjson 2>/dev/null | head -1 || true)"
-    fi
-  fi
-  [ -n "$input" ] && [ -f "$input" ] \
-    || fail "找不到 ndjson（可用 RECEIVER_OUT=... 或 report --input <file> 指定）"
-  [ -n "${ANALYZE_CONF:-}" ] || ANALYZE_CONF="$ACTRAIL_REPO/examples/analyze.config.example.json"
-  [ -f "$ANALYZE_CONF" ] || fail "analyze 配置不存在: $ANALYZE_CONF"
-  mkdir -p "$OUT_DIR"
-  log "分析 $input"
-  (cd "$ACTRAIL_REPO" && \
-    target/release/actrail-kv-analyze --config "$ANALYZE_CONF" \
-      --input "$input" --output "$OUT_DIR/analysis.json" && \
-    target/release/actrail-kv-report \
-      --input "$OUT_DIR/analysis.json" --output "$OUT_DIR/report.html")
-  chmod -R a+rX "$OUT_DIR"
-  python3 - "$OUT_DIR/analysis.json" <<'PYEOF'
-import json, sys
-d = json.load(open(sys.argv[1]))
-r = d["run"]
-print("input", r["input_records"], "analyzed", r["analyzed_records"],
-      "skipped", len(r.get("skipped_records", [])),
-      "templates", len(d["templates"]), "defects", len(d["defects"]),
-      "sessions", len(d.get("session_reports", [])))
-for x in d.get("defects", []):
-    mm = x.get("mismatch", {})
-    print(" defect", x.get("id", "")[:16], mm.get("pattern"),
-          "affected", x.get("affected_count"), "blocked", x.get("blocked_stable_bytes"))
-PYEOF
-  cat <<EOF
-========================================================
-报告完成:
-  analysis: $OUT_DIR/analysis.json
-  report:   $OUT_DIR/report.html
-  浏览器:   http://<IP>:7777/$(basename "$OUT_DIR")/report.html
-========================================================
-EOF
-}
+source "$SCRIPT_DIR/fullchain-deploy-linux/report.sh"
 
 cmd_stop() {
   local confs=() outs=()

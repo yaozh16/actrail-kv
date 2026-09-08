@@ -4,7 +4,7 @@
 ## 状态
 
 - 本方案已失效，由 v0.1.1 的 `session_id + session_analysis` 线性时间线设计取代。
-- 当前要求见 `dev/requirements/v0.1.1/target.md` 和 `dev/requirements/v0.1.1/hx-feature-integration.md`。
+- 当前要求见 `dev/requirements/v0.1.1/target.md` 和 `dev/requirements/v0.1.1/feature-integration.md`。
 
 ## 背景
 

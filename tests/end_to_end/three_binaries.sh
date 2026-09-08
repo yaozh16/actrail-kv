@@ -87,6 +87,36 @@ target/debug/actrail-kv-report \
   --input "$test_dir/analysis.json" \
   --output "$test_dir/report.html"
 
+# 裸文件名输出支持创建和原子替换，且不能覆盖分析输入。
+report_bin="$repo_dir/target/debug/actrail-kv-report"
+(
+  cd "$test_dir"
+  "$report_bin" --input analysis.json --output relative-report.html
+  cmp report.html relative-report.html
+  "$report_bin" --input analysis.json --output relative-report.html
+  cmp report.html relative-report.html
+  if "$report_bin" --input analysis.json --output analysis.json 2>/dev/null; then
+    echo "report overwrote its input" >&2
+    exit 1
+  fi
+  cmp analysis.json analysis-repeat.json
+)
+
+# 旧文本阈值继续读写和校验，但不改变实际诊断结果。
+jq '.text_similarity_threshold = 0.0 | .top_k = 3' \
+  examples/analyze.config.example.json > "$test_dir/legacy.config.json"
+target/debug/actrail-kv-analyze \
+  --config "$test_dir/legacy.config.json" \
+  --input "$test_dir/requests.ndjson" \
+  --output "$test_dir/analysis-legacy.json"
+jq -e '.run.options.text_similarity_threshold == 0.0' "$test_dir/analysis-legacy.json" >/dev/null
+jq '.run.options.text_similarity_threshold = 0.8' "$test_dir/analysis-legacy.json" > "$test_dir/legacy-normalized.json"
+jq '.' "$test_dir/analysis.json" > "$test_dir/baseline-normalized.json"
+cmp "$test_dir/baseline-normalized.json" "$test_dir/legacy-normalized.json"
+target/debug/actrail-kv-report \
+  --input "$test_dir/analysis-legacy.json" \
+  --output "$test_dir/legacy-report.html"
+
 [[ $(wc -l < "$test_dir/requests.ndjson") -eq 7 ]]
 [[ $(jq -s --arg id "$session_id" '[.[] | select(.session_id == $id)] | length' "$test_dir/requests.ndjson") -eq 3 ]]
 [[ $(jq '.defects | length' "$test_dir/analysis.json") -ge 1 ]]

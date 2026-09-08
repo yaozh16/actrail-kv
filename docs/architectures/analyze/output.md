@@ -23,7 +23,7 @@
 | `run.options.fixed_variant_max` | integer | 少数固定版本判定阈值。 |
 | `run.options.min_blocked_stable_bytes` | integer | 形成 defect 所需的最小 P2 bytes。 |
 | `run.options.min_exact_anchor_bytes` | integer | P2 精确锚点最小 bytes。 |
-| `run.options.text_similarity_threshold` | number | 候选文本相似度门槛。 |
+| `run.options.text_similarity_threshold` | number | 已废弃的兼容快照字段；记录配置值，不参与分析。 |
 | `run.options.template_compatibility_threshold` | number | 模板结构兼容门槛。 |
 | `run.options.max_dynamic_coverage_ratio` | number | 模板最大动态覆盖率。 |
 | `run.options.max_candidates_per_request` | integer | 单请求候选召回上限。 |

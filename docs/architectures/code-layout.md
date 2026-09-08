@@ -43,7 +43,7 @@ actrail-kv/
 │   └── lib.rs                                     # receiver library API
 │
 ├── analyzer/src/                                  # 模板抽取与结构诊断核心
-│   ├── config.rs                                  # AnalyzeConfig：18 项阈值/预算 JSON 读写与校验
+│   ├── config.rs                                  # AnalyzeConfig：阈值、预算及兼容字段 JSON 读写与校验
 │   ├── model/
 │   │   ├── comparison/
 │   │   │   ├── group_key.rs                      # 时间窗口+endpoint+model/deployment+schema+agent+namespace
@@ -86,7 +86,9 @@ actrail-kv/
 │   │   │   ├── scanner.rs                       # 有界扫描最多四个有序、非重叠 P1/X/P2 region
 │   │   │   ├── variant.rs                       # 每成员一次的 X 变体和 P2 证据构造
 │   │   │   ├── model.rs                         # DiagnosisOptions、DefectCandidate、EpisodeVariant
-│   │   │   ├── tests.rs                         # P2 门槛、聚合一次性、等价事实和身份稳定
+│   │   │   ├── tests/
+│   │   │   │   ├── mod.rs                     # P2 门槛、聚合一次性、等价事实和身份稳定
+│   │   │   │   └── review.rs                  # 恢复区边界、条件身份与 episode 预算回归
 │   │   │   └── mod.rs
 │   │   ├── session/
 │   │   │   ├── model.rs                         # Session observation 与开放投影视图
@@ -113,7 +115,12 @@ actrail-kv/
 │   └── lib.rs
 │
 ├── analyzer/tests/
-│   └── case_fixtures.rs                         # examples/cases 文件入口回归
+│   ├── acceptance.rs                            # 结构诊断、变体与多位点验收
+│   ├── case_fixtures.rs                         # examples/cases 文件入口回归
+│   ├── files.rs                                 # 输入输出文件保护与空语料拒绝
+│   ├── properties.rs                            # 业务值、稳定尾部及动态后缀性质
+│   ├── scale.rs                                 # 一万条同质请求回归
+│   └── session_timeline.rs                      # 追加后历史改写的文件入口验收
 │
 ├── reporter/src/                                # 只消费统一 analysis.json；不重新分析
 │   ├── result_loader/
@@ -134,8 +141,14 @@ actrail-kv/
 │   ├── analyze.config.example.json              # analyze 全字段 JSON 配置示例
 │   └── receiver.config.example.json             # receiver JSON 配置示例
 │
+├── docs/deployment/
+│   ├── fullchain-deploy-linux.sh                # Linux 环境与路径解析、录制链管理入口
+│   ├── fullchain-deploy-linux/
+│   │   └── report.sh                            # analyze/report 调用与 Session 统计
+│   └── fullchain-deploy-windows.ps1             # Windows 录制链管理入口
+│
 └── tests/end_to_end/
-    └── three_binaries.sh                        # 真实 receiver→analyze→report、确定性与 XSS 验收
+    └── three_binaries.sh                        # 三程序、确定性、XSS、裸输出路径与兼容配置验收
 ```
 
 ## 核心调用链

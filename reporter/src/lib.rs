@@ -22,7 +22,7 @@ pub fn write_report(input: &Path, output: &Path) -> Result<()> {
 fn write_atomic(output: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
 
-    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let parent = output_parent(output);
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     temporary.write_all(bytes)?;
     temporary.as_file_mut().sync_all()?;
@@ -37,10 +37,7 @@ fn ensure_distinct_paths(input: &Path, output: &Path) -> Result<()> {
     }
     if !output.exists() {
         let input = input.canonicalize()?;
-        let parent = output
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .canonicalize()?;
+        let parent = output_parent(output).canonicalize()?;
         let destination = match output.file_name() {
             Some(name) => parent.join(name),
             None => parent,
@@ -50,6 +47,13 @@ fn ensure_distinct_paths(input: &Path, output: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn output_parent(output: &Path) -> &Path {
+    output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
 }
 
 #[cfg(unix)]

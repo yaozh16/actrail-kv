@@ -4,7 +4,7 @@
 ## 需求与验收
 
 - [v0.1.1 开发目标](../../requirements/v0.1.1/target.md)
-- [feat/hx-development 特性集成要求](../../requirements/v0.1.1/hx-feature-integration.md)
+- [v0.1.1 特性集成要求](../../requirements/v0.1.1/feature-integration.md)
 - [客户能力说明文档要求](../../requirements/v0.1.1/customer-capabilities.md)
 
 ## 实现设计
@@ -21,4 +21,4 @@
 
 ## 失效设计索引
 
-- `feat/hx-development` 的 Hirschberg 文本 LCS 因无法保持重复字符下的 canonical tie-break，本版本保留现有有界矩阵实现；依据见[特性集成要求](../../requirements/v0.1.1/hx-feature-integration.md)。
+- Hirschberg 文本 LCS 因无法保持重复字符下的 canonical tie-break，本版本保留现有有界矩阵实现；依据见[特性集成要求](../../requirements/v0.1.1/feature-integration.md)。

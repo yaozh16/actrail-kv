@@ -8,7 +8,7 @@
 - 配置优先级：编译默认值 < JSON 配置文件 < 显式 CLI 参数。
 - JSON 配置通过 `--config <path>` 传入；未提供时使用编译默认值，行为与旧版本一致。
 - 配置包含未知字段或非法数值时拒绝启动。
-- 每次分析仍会把实际生效参数完整写入 `analysis.json` 的 `run.options`，保证可追溯。
+- 每次分析把配置值完整写入 `analysis.json` 的 `run.options`，包括为兼容保留的已废弃字段，保证可追溯。
 
 ## Receiver
 
@@ -63,7 +63,7 @@ analyze 的全部算法阈值与资源预算均可通过 `--config` 的 JSON 覆
 | `fixed_variant_max` | `3` | 变体数不超过该值且少于成员数时归为少数固定版本，否则归为内容持续变化。 |
 | `min_blocked_stable_bytes` | `64` | 小于此值不产生优化机会（字节）。 |
 | `min_exact_anchor_bytes` | `24` | 反事实恢复稳定内容所需的最小锚点（字节）。 |
-| `text_similarity_threshold` | `0.80` | 候选文本的有界 shingle 相似度门槛。 |
+| `text_similarity_threshold` | `0.80` | 已废弃的兼容字段；保留读写及 `[0,1]` 有限值校验，不参与分析。 |
 | `template_compatibility_threshold` | `0.68` | 同一模板候选的结构兼容门槛。 |
 | `max_dynamic_coverage_ratio` | `0.35` | 动态区域超过此比例时抑制不可靠模板。 |
 | `max_candidates_per_request` | `128` | 每请求候选数上限。 |
@@ -73,6 +73,8 @@ analyze 的全部算法阈值与资源预算均可通过 `--config` 的 JSON 覆
 | `max_alignment_cells` | `2000000` | 单次文本/单元对齐 cells 上限，超限跳过该对齐。 |
 | `max_total_alignment_cells` | `64000000` | 单 cohort 累计对齐 cells 上限，超限跳过该 cohort。 |
 | `max_records` | `1000000` | 单次分析记录数上限，超限拒绝继续加载。 |
+
+`text_similarity_threshold` 曾用于旧版局部差异分类。当前候选判定使用 `template_compatibility_threshold` 和 `max_dynamic_coverage_ratio`；修改已废弃字段只改变配置快照，不会改变诊断结果。完整配置仍需保留该字段。
 
 同一模板最多探测四个有序 episode：一个直接缺陷和最多三个条件性局部位点。该上限在当前版本中固定，不提供配置项。Session 时间线只比较同一 `session_id` 的相邻请求，也没有额外配置项。
 

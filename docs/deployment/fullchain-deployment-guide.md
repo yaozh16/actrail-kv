@@ -1,3 +1,4 @@
+<!-- 本文件说明 agent-cassette 接入、协议转换与三二进制全链路部署操作。 -->
 # agent 接入 agent-cassette 并部署 actrail-kv 全链路
 
 ## 1. 范围与拓扑
@@ -6,8 +7,8 @@
 
 ```text
 agent（OpenAI 兼容 或 Anthropic Messages 协议）
-  → agent-cassette（录制 + 转发 + actrail 直推）
-  → actrail-kv-receiver → ndjson
+  → agent-cassette / 上游插件（录制 + 转发；向 actrail 直推前完成 Anthropic → OAI 转换）
+  → actrail-kv-receiver（OAI 请求）→ ndjson
   → actrail-kv-analyze → analysis.json
   → actrail-kv-report → report.html
 ```
@@ -16,10 +17,12 @@ agent（OpenAI 兼容 或 Anthropic Messages 协议）
 
 | 组件 | 职责 |
 |---|---|
-| agent-cassette | 接收 OpenAI `/v1/chat/completions` 与 Anthropic `/v1/messages`；录制原始请求；转发至配置的真实 LLM 后端；录制成功后向 actrail receiver 直推 |
+| agent-cassette / 上游插件 | 接收 OpenAI `/v1/chat/completions` 与 Anthropic `/v1/messages`；录制、转发至真实 LLM 后端；向 actrail receiver 直推前，将 Anthropic 请求转换为 OAI 格式 |
 | actrail-kv-receiver | 接收直推请求并追加写入 ndjson |
 | actrail-kv-analyze | 从 ndjson 聚类模板、识别结构缺陷、输出 `analysis.json` |
 | actrail-kv-report | 将 `analysis.json` 渲染为静态 HTML 报告 |
+
+协议转换由上游完成；Receiver 落盘及 Analyzer 投影使用转换后的 OAI 请求，当前没有原生 Anthropic 分析适配器。
 
 ## 2. 部署前准备
 
@@ -318,6 +321,8 @@ cd C:\actrail\actrail-kv
 | Linux | `fullchain-deploy-linux.sh` | `bash fullchain-deploy-linux.sh <command>` |
 | Windows | `fullchain-deploy-windows.ps1` | `.\fullchain-deploy-windows.ps1 <command>` |
 
+Linux 入口会加载同目录下的 `fullchain-deploy-linux/report.sh`。复制或分发脚本时需一并保留该子目录及相对布局。
+
 命令：
 
 | 命令 | 行为 |
@@ -331,6 +336,10 @@ cd C:\actrail\actrail-kv
 脚本默认在 `actrail-kv/docs/deployment` 的上级查找同级 `agent-cassette` 仓库；
 可用环境变量覆盖 `KV_ROOT`、`CASSETTE_REPO`、`ACTRAIL_REPO`、`CASSETTE_CONF`、
 `RECEIVER_OUT`、`DOC_ROOT`。
+
+`DOC_ROOT` 默认是 `$KV_ROOT/doc`（Windows 为对应的 `doc` 子目录）。已有报告服务若使用其他目录，需显式设置 `DOC_ROOT`。
+
+Linux 构建优先使用当前 `PATH` 中的 Cargo，并保留已有 `RUSTUP_HOME`、`CARGO_HOME`。只有 PATH 中没有 Cargo 时，才查找 `CARGO_HOME/bin`；未设置 `CARGO_HOME` 时查找当前用户的 `$HOME/.cargo/bin`。可通过 `CARGO_BIN` 显式指定优先使用的可执行文件目录。脚本不再提供固定个人目录或临时 Cargo 缓存目录默认值。
 
 Linux：
 
@@ -374,7 +383,8 @@ wc -l ~/actrail/run/requests.ndjson
 - `run.analyzed_records`：被分析请求数
 - `templates`：聚类出的模板
 - `defects`：结构缺陷
-- `session_reports`：会话 prefix-switch 证据
+- `session_analysis.timelines`：Session 时间线与相邻请求的前缀变化证据；数组长度为时间线数量
+- `session_analysis.history_sites`：聚合后的历史变化位置
 
 模板与缺陷的关系：
 

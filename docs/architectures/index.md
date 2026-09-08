@@ -12,6 +12,7 @@
 ## 横切架构
 
 - [部署交互视图](deployment.md)：外部采集链路、三个二进制及报告产物流向。
+- [全链路部署指南](../deployment/fullchain-deployment-guide.md)：上游接入、协议转换与部署脚本操作。
 - [代码布局](code-layout.md)：源码模块和三二进制调用关系。
 - [运行约束](constraints.md)：原子写入、数据处理与部署边界。
 - [文档布局](doc-layout.md)：当前文档树及文档落点规则。

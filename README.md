@@ -73,7 +73,7 @@ target/release/actrail-kv-receiver \
   --output requests.ndjson
 ```
 
-上游组件把实际发往模型 API 的完整 JSON body 原样提交到 `/requests`。下面只展示最小调用方式；生产环境通常由 Actrail Plugin、网关或插桩组件完成这一步。
+上游组件将完整的 OpenAI-compatible chat 请求 JSON body 提交到 `/requests`。Anthropic 请求由上游插件先转换为 OAI 格式，Receiver 接收的是转换后的请求；OAI 请求可以直接提交。下面只展示最小调用方式；生产环境通常由 Actrail Plugin、网关或插桩组件完成这一步。
 
 ```bash
 curl --fail-with-body \
@@ -125,7 +125,7 @@ curl --fail-with-body \
 
 ## 当前可分析的请求
 
-MVP 面向 OpenAI-compatible chat payload：请求需要包含字符串 `model` 和数组 `messages`，可以包含多轮消息、content blocks、tool definitions 与工具调用历史。
+当前分析器面向 OpenAI-compatible chat payload：请求需要包含字符串 `model` 和数组 `messages`，可以包含多轮消息、content blocks、tool definitions 与工具调用历史。Anthropic 接入依赖上游转换，当前不提供原生 Anthropic 投影。
 
 分析器先按时间窗口、endpoint、模型或部署、上下文结构以及可选的 Agent、KV namespace 分组，只在同一组内寻找共同模板。无法识别的 payload、损坏的记录和超过资源预算的请求会被明确跳过并计数，不会混进高置信结论。
 
@@ -133,6 +133,7 @@ MVP 面向 OpenAI-compatible chat payload：请求需要包含字符串 `model` 
 
 - [Agent 请求中的 KV 缓存优化机会](docs/capabilities.md)：具体提示词、工具、JSON 和会话场景，以及报告提供的排查方向。
 - [部署交互视图](docs/architectures/deployment.md)：两种采集链路和三个二进制如何协作。
+- [全链路部署指南](docs/deployment/fullchain-deployment-guide.md)：agent-cassette 接入与 Linux、Windows 管理脚本。
 - [什么是请求模板](docs/concepts/template.md)：模板、稳定片段、槽位和请求实例之间的关系。
 - [什么是上下文结构缺陷](docs/concepts/context_defect.md)：`P1 / X / P2` 的判定方式和反例。
 - [什么是 Session 前缀延续](docs/concepts/session-prefix.md)：相邻请求的正常追加、历史变化与前缀截断。

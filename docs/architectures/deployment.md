@@ -8,3 +8,5 @@
 图中的 `requests.ndjson` 和 `analysis.json` 是三个二进制之间的显式文件边界。因此，接收可以持续运行，分析和报告生成则可以按需或定时离线执行。
 
 可编辑源文件：[deployment-view.puml](assets/deployment-view.puml)。
+
+实际接入和脚本操作见[全链路部署指南](../deployment/fullchain-deployment-guide.md)。Anthropic 请求由上游插件转换为 OAI 格式后送入 Receiver。

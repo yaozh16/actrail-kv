@@ -1,9 +1,9 @@
-<!-- 本文件记录 feat/hx-development 最新能力并入 v0.1.1 的范围与验收要求。 -->
-# feat/hx-development 特性集成要求
+<!-- 本文件记录特性集成到 v0.1.1 的范围与验收要求。 -->
+# v0.1.1 特性集成要求
 
 ## 状态
 
-- 已批准开发。
+- 已实现；回归覆盖见 `analyzer/tests/acceptance.rs`、`analyzer/tests/case_fixtures.rs` 及候选采样、文本对齐模块测试。
 - 集成结果保持 v0.1.1 的 `session_id / session_analysis / conditional_local_sites` 公共协议。
 - 源分支中与当前协议重叠的旧 Session 和多 region 实现不形成平行模型。
 
