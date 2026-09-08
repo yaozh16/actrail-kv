@@ -8,8 +8,10 @@ use std::{
 };
 
 use actrail_kv_artifacts::CapturedRequest;
-use fs2::FileExt;
 use thiserror::Error;
+
+#[cfg(unix)]
+use fs2::FileExt;
 
 #[derive(Debug, Error)]
 pub enum AppendError {
@@ -56,8 +58,8 @@ impl AppendFile for File {
 
 impl NdjsonAppender {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, AppendError> {
-        let output = open_private_append_file(path.as_ref())?;
-        FileExt::try_lock_exclusive(&output).map_err(AppendError::AlreadyLocked)?;
+        let output = open_private_append_file(path.as_ref()).map_err(classify_open_error)?;
+        try_lock_output_exclusive(&output).map_err(AppendError::AlreadyLocked)?;
         Ok(Self::from_output(Box::new(output)))
     }
 
@@ -114,9 +116,56 @@ fn open_private_append_file(path: &Path) -> io::Result<File> {
 
 #[cfg(not(unix))]
 fn open_private_append_file(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+
     let mut options = OpenOptions::new();
-    options.create(true).append(true);
+    // Read-only share mode is the single-writer guard: while this handle is
+    // open, the OS refuses any other writer (including a second receiver)
+    // with ERROR_SHARING_VIOLATION, while readers such as
+    // `actrail-kv-analyze` keep full read access to the live output.
+    // This is enforced by Windows for the lifetime of the handle; it is not
+    // an advisory lock that other code may ignore.
+    options
+        .create(true)
+        .append(true)
+        .share_mode(FILE_SHARE_READ);
     options.open(path)
+}
+
+/// Locks the output so that a second receiver fails with
+/// [`AppendError::AlreadyLocked`]; readers are never blocked, mirroring the
+/// advisory `flock` semantics of the Unix path.
+#[cfg(unix)]
+fn try_lock_output_exclusive(output: &File) -> io::Result<()> {
+    FileExt::try_lock_exclusive(output)
+}
+
+#[cfg(not(unix))]
+fn try_lock_output_exclusive(_output: &File) -> io::Result<()> {
+    // Single-writer exclusion on Windows is already enforced for the whole
+    // file by the read-only share mode of `open_private_append_file`; no
+    // explicit byte-range lock is needed. An fs2 lock (0..u64::MAX) would
+    // additionally fail every concurrent read with ERROR_LOCK_VIOLATION,
+    // which is what made `actrail-kv-analyze` spin forever on the live output.
+    Ok(())
+}
+
+#[cfg(unix)]
+fn classify_open_error(error: io::Error) -> AppendError {
+    AppendError::Io(error)
+}
+
+#[cfg(not(unix))]
+fn classify_open_error(error: io::Error) -> AppendError {
+    // Windows rejects the second receiver's open with a sharing violation
+    // instead of a lock acquisition failure.
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    if error.raw_os_error() == Some(ERROR_SHARING_VIOLATION) {
+        return AppendError::AlreadyLocked(error);
+    }
+    AppendError::Io(error)
 }
 
 #[cfg(test)]
@@ -195,6 +244,21 @@ mod tests {
             NdjsonAppender::open(&output),
             Err(AppendError::AlreadyLocked(_))
         ));
+    }
+
+    #[test]
+    fn readers_can_read_output_while_appender_holds_the_lock() {
+        // Analyzing the receiver's live output is a supported flow: the lock
+        // must exclude a second receiver, never a reader.
+        let directory = tempdir().expect("create temporary directory");
+        let output = directory.path().join("requests.ndjson");
+        let appender = NdjsonAppender::open(&output).expect("open appender");
+        appender.append(&captured_record()).expect("append record");
+
+        let contents = fs::read_to_string(&output).expect("read live output");
+        let parsed: CapturedRequest =
+            serde_json::from_str(contents.trim_end()).expect("line is intact JSON");
+        assert_eq!(parsed.payload["model"], json!("example"));
     }
 
     #[cfg(unix)]

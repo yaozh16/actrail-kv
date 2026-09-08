@@ -123,9 +123,9 @@ listen_addr = "127.0.0.1:18082"
 recording = true
 
 [proxy.provider]
-provider = "anthropic"             # anthropic / dashscope / openai
+provider = "dashscope"             # dashscope / openai / anthropic
 model = "GLM-5.3"
-api_base = "https://<backend>"     # OpenAI 兼容需保留 /v1
+api_base = "http://<backend>:8080/v1"   # OpenAI 兼容协议需保留 /v1
 api_key_env = "DASHSCOPE_API_KEY"
 
 [recorder.session]
@@ -244,7 +244,25 @@ New-Item -ItemType Directory -Force C:\actrail\conf | Out-Null
 Copy-Item C:\actrail\agent-cassette\config.example.toml C:\actrail\conf\agent-cassette.toml
 ```
 
-按 3.3 编辑配置，并设置：
+按 3.3 编辑配置，**必须修改以下字段**（模板中有 `CHANGE_ME` 占位符，部分字段为注释状态需取消注释）：
+
+| 字段 | 默认值 | 修改为 | 说明 |
+|---|---|---|---|
+| `[gateway.router].default_mode` | `"replay"` | `"forward"` | 路由模式改为转发 |
+| `[gateway.transport].listen_addr` | `"127.0.0.1:8080"` | `"127.0.0.1:18082"` | cassette 监听地址 |
+| `[proxy.forward].recording` | `false` | `true` | 启用录制 |
+| `[proxy.provider].api_base` | `"CHANGE_ME"` | `"http://host:8080/v1"` | 真实 LLM 后端地址 |
+| `[proxy.provider].api_key_env` | `"CHANGE_ME"` | `"DASHSCOPE_API_KEY"` | 密钥环境变量名 |
+| `[proxy.provider].model` | `"CHANGE_ME"` | `"GLM-5.3"` | 模型 id |
+| `[recorder.actrail].enabled` | `false` | `true` | 启用 actrail 直推 |
+| `[recorder.actrail].agent_key` | 注释状态 | `"agent-a"` | 取消注释并设置 agent 标识 |
+| `[recorder.actrail].endpoint_key` | `"llm-primary"` | `"dashscope-primary"` | 端点标识 |
+| `[recorder.actrail].model_deployment_key` | 注释状态 | `"GLM-5.3"` | 取消注释并设置模型部署标识 |
+| `[recorder.actrail].receiver_url` | `""` | `"http://127.0.0.1:8087"` | receiver 地址 |
+| `[recorder.actrail].session_source` | `"none"` | `"recorder"` | 会话来源改为录制 |
+| `[recorder.session].retain_request_raw` | `false` | `true` | 保留原始请求内容 |
+
+设置密钥环境变量：
 
 ```powershell
 $env:DASHSCOPE_API_KEY = "..."
@@ -252,19 +270,39 @@ $env:DASHSCOPE_API_KEY = "..."
 
 ### 4.3 启动
 
+> **注意**：
+> - **上游模型缓存**：cassette 首次启动时会将 config.toml 中 `[proxy.provider]` 的地址注册到 `data/upstreams.json`。后续重启时以此文件为准，改 config.toml 不会生效。若需更换 `api_base`，删除 `data/upstreams.json` 后重启即可重新注册。
+
 ```powershell
 New-Item -ItemType Directory -Force C:\actrail\run | Out-Null
 
 Start-Process -FilePath C:\actrail\actrail-kv\target\release\actrail-kv-receiver.exe `
   -ArgumentList @('--listen','127.0.0.1:8087','--output','C:\actrail\run\requests.ndjson') `
-  -RedirectStandardOutput C:\actrail\run\receiver.log -WindowStyle Hidden
+  -RedirectStandardOutput C:\actrail\run\receiver.log `
+  -RedirectStandardError C:\actrail\run\receiver_err.log -WindowStyle Hidden
 
 Start-Process -FilePath C:\actrail\agent-cassette\target\release\agent-cassette.exe `
   -ArgumentList @('-c','C:\actrail\conf\agent-cassette.toml','start') `
-  -RedirectStandardOutput C:\actrail\run\cassette.log -WindowStyle Hidden
+  -RedirectStandardOutput C:\actrail\run\cassette.log `
+  -RedirectStandardError C:\actrail\run\cassette_err.log -WindowStyle Hidden
 
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18082/healthz
+# 等待启动并验证
+Start-Sleep -Seconds 3
+Write-Host "=== 验证 cassette (端口 18082) ==="
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18082/healthz -TimeoutSec 5
+Write-Host "=== 验证 receiver (端口 8087) ==="
+# receiver 仅接受 POST /requests，尝试连接验证端口是否已监听
+# 注意：Wait(2000) 超时返回 $false 而不抛异常；连接被拒绝时才抛异常，两种情况都要处理
+$tcp = [System.Net.Sockets.TcpClient]::new()
+try { $ok = $tcp.ConnectAsync('127.0.0.1', 8087).Wait(2000) } catch { $ok = $false }
+if ($ok) { Write-Host "receiver 端口 8087 已监听" }
+else { Write-Host "receiver 端口 8087 未监听，请检查 C:\actrail\run\receiver_err.log" }
+$tcp.Dispose()
 ```
+
+若 `cassette` 启动失败，检查 `C:\actrail\run\cassette_err.log` 中的错误信息，常见原因：
+- 上游服务不可达 — 确认 `api_base` 地址正确且网络可达
+- 密钥未设置 — 确认 `$env:DASHSCOPE_API_KEY` 已配置
 
 ### 4.4 agent 接入配置
 
@@ -353,6 +391,7 @@ Windows：
 cd C:\actrail\actrail-kv\docs\deployment
 $env:KV_ROOT = 'C:\actrail'
 $env:CASSETTE_CONF = 'C:\actrail\conf\agent-cassette.toml'
+$env:DASHSCOPE_API_KEY = '...'   # init 前必须设置
 
 .\fullchain-deploy-windows.ps1 init
 iex (& '.\fullchain-deploy-windows.ps1' env)
@@ -392,6 +431,8 @@ wc -l ~/actrail/run/requests.ndjson
 | 分析报 0 模板 | 语料缺少同模板重复；使用同 system 的相似任务 × 多次或同会话多轮 |
 | Windows 编译失败于 C 依赖 | 安装 VS Build Tools 并勾选 MSVC 与 Windows SDK |
 | Windows 无守护模式 | Windows 平台不支持 `-d`；使用脚本 `init`/`stop` 管理 |
+| cassette 启动后仍请求旧地址（如 `127.0.0.1:9999`） | 更换 `api_base` 后，`data/upstreams.json` 缓存了旧地址。删除该文件后重启 cassette 即可重新发现模型 |
+| 首次编译极慢 | 国内网络建议配置 Rust 镜像源（如 TUNA `sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/`），写入 `~/.cargo/config.toml` |
 
 ## 8. 相关文件
 

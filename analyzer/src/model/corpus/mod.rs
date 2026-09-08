@@ -3,7 +3,7 @@
 mod loader;
 mod types;
 
-pub use loader::{CorpusLoadLimits, CorpusLoader};
+pub use loader::{CorpusLoadLimits, CorpusLoader, CorpusReadError};
 pub use types::{
     AnalysisCorpus, CaptureComparison, CorpusLoadResult, CorpusRecord, CorpusSkip,
     CorpusSkipReason, ResponseUsage,

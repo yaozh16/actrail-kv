@@ -13,11 +13,11 @@ set -euo pipefail
 
 # ============================ 可覆盖配置区 ============================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_ROOT="$(cd "$SCRIPT_DIR/../../.." 2>/dev/null && pwd || echo /home/hx/kv)"
+DEFAULT_ROOT="$(cd "$SCRIPT_DIR/../../.." 2>/dev/null && pwd || echo "$HOME/kv")"
 KV_ROOT="${KV_ROOT:-$DEFAULT_ROOT}"
 CASSETTE_REPO="${CASSETTE_REPO:-$KV_ROOT/agent-cassette}"
 ACTRAIL_REPO="${ACTRAIL_REPO:-$KV_ROOT/actrail-kv}"
-DOC_ROOT="${DOC_ROOT:-/home/hx/doc}"
+DOC_ROOT="${DOC_ROOT:-$HOME/doc}"
 
 # 已配好的 agent-cassette 配置（真实上游 + recorder.actrail 均已配好；脚本只读）
 CASSETTE_CONF="${CASSETTE_CONF:-$KV_ROOT/conf/agent-cassette.toml}"
@@ -30,9 +30,9 @@ RECEIVER_LOG="$KV_ROOT/run/receiver-$RUN_NAME.log"
 CASSETTE_LOG="$KV_ROOT/run/agent-cassette-$RUN_NAME.log"
 OUT_DIR="$DOC_ROOT/actrail-kv-run-anthropic-agent-report-$(date +%Y%m%d-%H%M%S)"
 
-RUSTUP_HOME="${RUSTUP_HOME:-/home/yzh/.rustup}"
+RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
 CARGO_HOME="${CARGO_HOME:-/tmp/cargo-home}"
-CARGO_BIN="${CARGO_BIN:-/home/yzh/.cargo/bin}"
+CARGO_BIN="${CARGO_BIN:-$HOME/.cargo/bin}"
 export RUSTUP_HOME CARGO_HOME PATH="$CARGO_BIN:$PATH"
 
 SKIP_BUILD="${SKIP_BUILD:-0}"

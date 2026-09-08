@@ -49,7 +49,8 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         max_record_bytes: options.max_payload_bytes,
         max_records: options.max_records,
     })
-    .load(reader);
+    .load(reader)
+    .context("failed to read captured requests")?;
     let input_records = loaded.corpus.records.len() + loaded.skipped.len();
     let cache_metrics = compute_cache_metrics(&loaded.corpus.records);
     let mut skips: Vec<SkipRecord> = loaded.skipped.iter().map(corpus_skip).collect();
