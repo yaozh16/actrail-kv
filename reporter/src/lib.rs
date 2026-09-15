@@ -119,4 +119,54 @@ mod tests {
         assert!(write_report(&path, &path).is_err());
         assert_eq!(fs::read(&path).expect("preserved"), b"not replaced");
     }
+
+    #[test]
+    fn report_renders_kv_cache_metrics_with_reported_and_estimated_basis() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let input = directory.path().join("analysis.json");
+        let output = directory.path().join("report.html");
+        let mut result = fixture();
+        result.cache_metrics = vec![
+            actrail_kv_artifacts::KvCacheMetric {
+                request_id: "req-1".into(),
+                session_key: Some("session-a".into()),
+                sequence: 1,
+                captured_at: None,
+                source: None,
+                prompt_tokens: Some(1000),
+                cached_tokens: Some(200),
+                miss_tokens: Some(800),
+                output_tokens: Some(12),
+                hit_rate: 0.2,
+                hit_rate_delta: None,
+                basis: actrail_kv_artifacts::CacheMetricBasis::Reported,
+                estimated_lcp_bytes: None,
+                payload_bytes: 4000,
+            },
+            actrail_kv_artifacts::KvCacheMetric {
+                request_id: "req-2".into(),
+                session_key: Some("session-a".into()),
+                sequence: 2,
+                captured_at: None,
+                source: None,
+                prompt_tokens: None,
+                cached_tokens: None,
+                miss_tokens: None,
+                output_tokens: None,
+                hit_rate: 0.8,
+                hit_rate_delta: Some(0.6),
+                basis: actrail_kv_artifacts::CacheMetricBasis::Estimated,
+                estimated_lcp_bytes: Some(3200),
+                payload_bytes: 4000,
+            },
+        ];
+        fs::write(&input, serde_json::to_vec(&result).expect("serialize")).expect("fixture");
+        write_report(&input, &output).expect("render report");
+        let html = fs::read_to_string(output).expect("report");
+        assert!(html.contains("KV 缓存命中率"));
+        assert!(html.contains("20.0%"));
+        assert!(html.contains("+60.0pp"));
+        assert!(html.contains("估算"));
+        assert!(html.contains("LCP 3200B / payload 4000B"));
+    }
 }

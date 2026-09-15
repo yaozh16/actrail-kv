@@ -5,7 +5,9 @@ use std::{collections::BTreeMap, io::BufRead};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::{CaptureComparison, CorpusLoadResult, CorpusRecord, CorpusSkip, CorpusSkipReason};
+use super::{
+    CaptureComparison, CorpusLoadResult, CorpusRecord, CorpusSkip, CorpusSkipReason, ResponseUsage,
+};
 
 #[derive(Clone, Debug)]
 pub struct CorpusLoadLimits {
@@ -120,6 +122,23 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
         Some(Value::String(_)) => return Err(CorpusSkipReason::EmptySessionKey),
         Some(_) => return Err(CorpusSkipReason::InvalidSessionKey),
     };
+    let response_usage = payload
+        .get("_actrail_response_usage")
+        .and_then(Value::as_object)
+        .map(|usage| ResponseUsage {
+            prompt_tokens: usage
+                .get("prompt_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32,
+            cached_tokens: usage
+                .get("cached_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32,
+            completion_tokens: usage
+                .get("completion_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32,
+        });
     // Capture metadata is part of request identity and comparison grouping, not model context.
     let canonical = canonical_json(&record);
     let mut digest = Sha256::new();
@@ -143,6 +162,7 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
             kv_namespace,
         },
         payload: payload.clone(),
+        response_usage,
         input_line,
     })
 }

@@ -18,6 +18,7 @@ fn record(payload: Value) -> CorpusRecord {
             kv_namespace: None,
         },
         payload,
+        response_usage: None,
         input_line: 1,
     }
 }

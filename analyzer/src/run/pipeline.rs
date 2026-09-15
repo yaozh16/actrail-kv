@@ -14,6 +14,7 @@ use actrail_kv_artifacts::{
 use anyhow::{Context, Result};
 
 use crate::{
+    cache_metrics::compute_cache_metrics,
     diagnosis::{diagnose_template, DiagnosisOptions},
     discovery::{
         candidate::{CandidateBuilder, CandidateOptions},
@@ -50,6 +51,7 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
     })
     .load(reader);
     let input_records = loaded.corpus.records.len() + loaded.skipped.len();
+    let cache_metrics = compute_cache_metrics(&loaded.corpus.records);
     let mut skips: Vec<SkipRecord> = loaded.skipped.iter().map(corpus_skip).collect();
     let projector = RequestProjector::new(
         ProjectionLimits {
@@ -153,6 +155,7 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         defects: ranked.defects,
         top_k: ranked.top_k,
         session_reports,
+        cache_metrics,
     })
 }
 

@@ -5,5 +5,6 @@ mod types;
 
 pub use loader::{CorpusLoadLimits, CorpusLoader};
 pub use types::{
-    AnalysisCorpus, CaptureComparison, CorpusLoadResult, CorpusRecord, CorpusSkip, CorpusSkipReason,
+    AnalysisCorpus, CaptureComparison, CorpusLoadResult, CorpusRecord, CorpusSkip,
+    CorpusSkipReason, ResponseUsage,
 };

@@ -343,6 +343,7 @@ pub(crate) mod tests {
             }],
             top_k: vec!["defect".into()],
             session_reports: vec![],
+            cache_metrics: vec![],
         }
     }
 
@@ -372,6 +373,7 @@ pub(crate) mod tests {
             min_template_members: 3,
             stable_span_support_ratio: 0.8,
             min_stable_support: 3,
+            fixed_variant_max: 3,
             min_blocked_stable_bytes: 64,
             min_exact_anchor_bytes: 24,
             text_similarity_threshold: 0.8,

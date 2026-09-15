@@ -86,6 +86,7 @@ mod tests {
                 kv_namespace: Some("tenant-a".into()),
             },
             payload: json!({"model": "model-a", "messages": []}),
+            response_usage: None,
             input_line: 1,
         }
     }

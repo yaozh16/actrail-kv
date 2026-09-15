@@ -19,7 +19,7 @@ pub fn render_html(result: &AnalysisResult) -> Result<String> {
     output.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
     output.push_str("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\">");
     output.push_str("<title>Actrail KV 结构诊断</title><style>");
-    output.push_str("body{font:15px/1.55 system-ui,sans-serif;margin:2rem;max-width:1100px;color:#17202a}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d5d8dc;padding:.55rem;text-align:left;vertical-align:top}th{background:#f4f6f7}.defect{border:1px solid #ccd1d1;border-radius:8px;padding:1rem;margin:1rem 0}.muted{color:#626567}code{white-space:pre-wrap;overflow-wrap:anywhere}.sequence{font-size:1.05rem}.variant{margin:.5rem 0;padding:.5rem;background:#f8f9f9}</style></head><body>");
+    output.push_str("body{font:15px/1.55 system-ui,sans-serif;margin:2rem;max-width:1100px;color:#17202a}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d5d8dc;padding:.55rem;text-align:left;vertical-align:top}th{background:#f4f6f7}.defect{border:1px solid #ccd1d1;border-radius:8px;padding:1rem;margin:1rem 0}.muted{color:#626567}code{white-space:pre-wrap;overflow-wrap:anywhere}.sequence{font-size:1.05rem}.variant{margin:.5rem 0;padding:.5rem;background:#f8f9f9}.pt-summary{display:flex;gap:1rem;flex-wrap:wrap;margin:.4rem 0 1rem}.pt-metric{background:#f4f6f7;border:1px solid #e0e3e5;border-radius:6px;padding:.4rem .8rem}.pt-metric b{display:block;font-size:1.2rem}.pt-table{border-collapse:collapse;width:100%;margin:.6rem 0 1.2rem}.pt-table th,.pt-table td{border:1px solid #d5d8dc;padding:.4rem;vertical-align:top;font-size:13px}.pt-table th{background:#f4f6f7}</style></head><body>");
     output.push_str("<h1>LLM KV 缓存结构诊断</h1>");
     write!(
         output,
@@ -54,6 +54,9 @@ pub fn render_html(result: &AnalysisResult) -> Result<String> {
         for report in &result.session_reports {
             render_session_report(&mut output, report)?;
         }
+    }
+    if !result.cache_metrics.is_empty() {
+        render_cache_metrics(&mut output, result)?;
     }
     output.push_str("</body></html>");
     Ok(output)
@@ -105,6 +108,109 @@ fn event_label(event: &SessionEventType) -> &'static str {
         SessionEventType::Reorder => "reorder",
         SessionEventType::Reset => "reset",
     }
+}
+
+fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<()> {
+    output.push_str(
+        "<h2>KV 缓存命中率</h2>\
+         <p class=\"muted\">命中率 = cached_tokens / prompt_tokens（真实 usage）；\
+         无 usage 时按与会话内上一条请求的上下文公共前缀估算，并在“口径”列标注。</p>",
+    );
+    let reported = result
+        .cache_metrics
+        .iter()
+        .filter(|metric| metric.basis == actrail_kv_artifacts::CacheMetricBasis::Reported)
+        .count();
+    let estimated = result.cache_metrics.len().saturating_sub(reported);
+    let average = if result.cache_metrics.is_empty() {
+        0.0
+    } else {
+        result
+            .cache_metrics
+            .iter()
+            .map(|metric| metric.hit_rate)
+            .sum::<f64>()
+            / result.cache_metrics.len() as f64
+    };
+    write!(
+        output,
+        "<div class=\"pt-summary\"><div class=\"pt-metric\"><b>{}</b>请求</div>\
+         <div class=\"pt-metric\"><b>{:.1}%</b>平均命中率</div>\
+         <div class=\"pt-metric\"><b>{}</b>真实 usage</div>\
+         <div class=\"pt-metric\"><b>{}</b>估算</div></div>",
+        result.cache_metrics.len(),
+        average * 100.0,
+        reported,
+        estimated
+    )?;
+    output.push_str(
+        "<table class=\"pt-table\"><thead><tr><th>会话</th><th>序号</th><th>请求</th>\
+         <th>prompt</th><th>hit(cached)</th><th>miss</th><th>output</th>\
+         <th>命中率</th><th>Δ</th><th>口径</th><th>明细</th></tr></thead><tbody>",
+    );
+    let mut current_session: Option<Option<&str>> = None;
+    for metric in &result.cache_metrics {
+        let session = metric.session_key.as_deref();
+        if current_session != Some(session) {
+            current_session = Some(session);
+            let label = match session {
+                Some(value) => {
+                    let head = &value[..value.len().min(8)];
+                    let tail_start = value.len().saturating_sub(12);
+                    format!("{}…{}", head, &value[tail_start..])
+                }
+                None => "（无 session，按输入顺序）".to_string(),
+            };
+            write!(
+                output,
+                "<tr><td colspan=\"11\" style=\"background:#f8f9f9\"><strong>会话 {}</strong></td></tr>",
+                encode_text(&label)
+            )?;
+        }
+        let tokens = |value: Option<u32>| {
+            value
+                .map(|tokens| tokens.to_string())
+                .unwrap_or_else(|| "—".to_string())
+        };
+        let delta = metric
+            .hit_rate_delta
+            .map(|delta| {
+                format!(
+                    "{}{:.1}pp",
+                    if delta >= 0.0 { "+" } else { "" },
+                    delta * 100.0
+                )
+            })
+            .unwrap_or_else(|| "—".to_string());
+        let detail = match metric.basis {
+            actrail_kv_artifacts::CacheMetricBasis::Reported => "—".to_string(),
+            actrail_kv_artifacts::CacheMetricBasis::Estimated => format!(
+                "LCP {}B / payload {}B",
+                metric.estimated_lcp_bytes.unwrap_or(0),
+                metric.payload_bytes
+            ),
+        };
+        write!(
+            output,
+            "<tr><td></td><td>{}</td><td><code>{}</code></td><td>{}</td><td>{}</td>\
+             <td>{}</td><td>{}</td><td>{:.1}%</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            metric.sequence,
+            encode_text(&metric.request_id[..metric.request_id.len().min(12)]),
+            tokens(metric.prompt_tokens),
+            tokens(metric.cached_tokens),
+            tokens(metric.miss_tokens),
+            tokens(metric.output_tokens),
+            metric.hit_rate * 100.0,
+            encode_text(&delta),
+            match metric.basis {
+                actrail_kv_artifacts::CacheMetricBasis::Reported => "真实",
+                actrail_kv_artifacts::CacheMetricBasis::Estimated => "估算",
+            },
+            encode_text(&detail)
+        )?;
+    }
+    output.push_str("</tbody></table>");
+    Ok(())
 }
 
 fn render_defect(output: &mut String, defect: &ContextDefect) -> Result<()> {

@@ -4,10 +4,10 @@ mod analysis_result;
 mod captured_request;
 
 pub use analysis_result::{
-    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, ComparisonGroup, ContextDefect,
-    DefectFact, DefectFactKind, MismatchPattern, MismatchRegion, MismatchVariant,
-    OptimizationInsight, RecoveredStable, RequestTemplate, ScoreBreakdown, SessionEventType,
-    SessionReport, SessionSwitchEvent, SkipRecord, SourceLocation, StableSpan, TemplateSlot,
-    VariantEvidence, ANALYSIS_SCHEMA_VERSION,
+    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, CacheMetricBasis, ComparisonGroup,
+    ContextDefect, DefectFact, DefectFactKind, KvCacheMetric, MismatchPattern, MismatchRegion,
+    MismatchVariant, OptimizationInsight, RecoveredStable, RequestTemplate, ScoreBreakdown,
+    SessionEventType, SessionReport, SessionSwitchEvent, SkipRecord, SourceLocation, StableSpan,
+    TemplateSlot, VariantEvidence, ANALYSIS_SCHEMA_VERSION,
 };
 pub use captured_request::{CapturedRequest, ComparisonMetadata};
