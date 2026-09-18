@@ -147,10 +147,24 @@ pub struct AnalysisOptionsSnapshot {
     pub max_alignment_cells: usize,
     pub max_total_alignment_cells: usize,
     pub max_records: usize,
+    /// 模板前缀树视图模型的最大节点数；0 = 关闭 prefix_view。
+    #[serde(default = "default_prefix_view_max_nodes")]
+    pub prefix_view_max_nodes: usize,
+    /// prefix_view 节点文本摘录的最大字符数。
+    #[serde(default = "default_prefix_view_excerpt_bytes")]
+    pub prefix_view_excerpt_bytes: usize,
 }
 
 fn default_fixed_variant_max() -> usize {
     3
+}
+
+fn default_prefix_view_max_nodes() -> usize {
+    5_000
+}
+
+fn default_prefix_view_excerpt_bytes() -> usize {
+    96
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +199,63 @@ pub struct RequestTemplate {
     pub cohesion: f64,
     pub stable_spans: Vec<StableSpan>,
     pub slots: Vec<TemplateSlot>,
+    /// 每模板一棵前缀树的可视化视图模型（供 report 的 Prefix Tree 面板使用）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix_view: Option<TemplatePrefixView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TemplatePrefixView {
+    pub node_count: usize,
+    pub truncated: bool,
+    pub nodes: Vec<PrefixNode>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "lowercase")]
+pub enum PrefixNodeKind {
+    Stable,
+    Dynamic,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrefixNode {
+    pub id: String,
+    pub kind: PrefixNodeKind,
+    pub source: SourceLocation,
+    pub utf8_bytes: usize,
+    pub support_count: usize,
+    pub support_ratio: f64,
+    pub excerpt: String,
+    /// 在该节点（片段）仍然存活的成员请求 id；用于下钻时展示存活/衰减明细。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub member_request_ids: Vec<String>,
+    /// 稳定节点的字节内容样本（供详情面板展示，不进入树节点）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_sample: Option<String>,
+    /// 对齐序列层的下一个片段（P → X → P2 链）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sequence_child: Option<String>,
+    /// 内部字节层的子节点 id。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub internal_children: Vec<String>,
+    /// dynamic 节点的取值列表；stable 节点为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variants: Option<Vec<PrefixVariant>>,
+    /// 与该 X 区重叠的缺陷 id（与缺陷口径一致）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defect_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrefixVariant {
+    pub excerpt: String,
+    pub count: usize,
+    /// 计数是否为精确统计（无法按成员精确对齐时为 false）。
+    pub count_known: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -407,6 +478,7 @@ mod tests {
                 cohesion: 0.9,
                 stable_spans: vec![],
                 slots: vec![],
+                prefix_view: None,
             }],
             defects: vec![ContextDefect {
                 id: "defect-a".into(),
@@ -486,6 +558,8 @@ mod tests {
             max_alignment_cells: 2_000_000,
             max_total_alignment_cells: 64_000_000,
             max_records: 1_000_000,
+            prefix_view_max_nodes: 5_000,
+            prefix_view_excerpt_bytes: 96,
         }
     }
 }

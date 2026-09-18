@@ -308,6 +308,57 @@ fn two_fixed_versions_are_reported_as_fixed_variants() {
 }
 
 #[test]
+fn prefix_view_exposes_p_x_chain_and_variants() {
+    let tail = stable("prefix-view-tail");
+    let mut payloads = Vec::new();
+    for version in ["1", "2", "3"] {
+        for _ in 0..2 {
+            payloads.push(chat(vec![json!({
+                "role": "system",
+                "content": format!("version:{version}\n{tail}"),
+            })]));
+        }
+    }
+    let result = analyze(payloads);
+    let template = result
+        .templates
+        .iter()
+        .find(|template| template.prefix_view.is_some())
+        .unwrap_or_else(|| panic!("no template with prefix_view: {result:#?}"));
+    let view = template.prefix_view.as_ref().expect("prefix view present");
+    assert!(
+        view.nodes
+            .iter()
+            .any(|node| matches!(node.kind, actrail_kv_artifacts::PrefixNodeKind::Dynamic)),
+        "view={view:#?}"
+    );
+    assert!(
+        view.nodes
+            .iter()
+            .any(|node| matches!(node.kind, actrail_kv_artifacts::PrefixNodeKind::Stable)),
+        "view={view:#?}"
+    );
+    let dynamic = view
+        .nodes
+        .iter()
+        .find(|node| node.variants.is_some())
+        .expect("dynamic node with variants");
+    assert_eq!(dynamic.variants.as_ref().unwrap().len(), 3);
+    assert!(
+        dynamic.sequence_child.is_some() || !dynamic.internal_children.is_empty(),
+        "dynamic node should have a sequence child or internal children"
+    );
+    assert!(
+        !result.defects.is_empty(),
+        "fixed policy versions should produce a defect: {result:#?}"
+    );
+    assert!(
+        view.nodes.iter().any(|node| !node.defect_ids.is_empty()),
+        "prefix view should attach defect ids: {view:#?}"
+    );
+}
+
+#[test]
 fn fixed_variant_threshold_is_configurable() {
     let tail = stable("tail-after-version");
     let payloads: Vec<Value> = [

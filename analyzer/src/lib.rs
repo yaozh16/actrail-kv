@@ -5,6 +5,7 @@ pub mod config;
 pub mod diagnosis;
 pub mod discovery;
 pub mod model;
+mod prefix_view;
 pub mod ranking;
 pub mod run;
 mod session;

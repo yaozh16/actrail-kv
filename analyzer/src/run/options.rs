@@ -22,6 +22,10 @@ pub struct AnalysisOptions {
     pub max_alignment_cells: usize,
     pub max_total_alignment_cells: usize,
     pub max_records: usize,
+    /// 模板前缀树视图模型的最大节点数；0 = 关闭 prefix_view 输出。
+    pub prefix_view_max_nodes: usize,
+    /// prefix_view 节点文本摘录的最大字符数。
+    pub prefix_view_excerpt_bytes: usize,
 }
 
 impl Default for AnalysisOptions {
@@ -45,6 +49,8 @@ impl Default for AnalysisOptions {
             max_alignment_cells: 2_000_000,
             max_total_alignment_cells: 64_000_000,
             max_records: 1_000_000,
+            prefix_view_max_nodes: 5_000,
+            prefix_view_excerpt_bytes: 96,
         }
     }
 }
@@ -59,6 +65,9 @@ impl AnalysisOptions {
         }
         if self.min_template_members < 2 || self.min_stable_support < 2 {
             bail!("template and stable support minima must be at least two");
+        }
+        if self.prefix_view_excerpt_bytes == 0 {
+            bail!("prefix_view_excerpt_bytes must be greater than zero");
         }
         for (name, value) in [
             ("stable_span_support_ratio", self.stable_span_support_ratio),

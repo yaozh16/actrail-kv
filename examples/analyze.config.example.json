@@ -16,5 +16,7 @@
   "max_payload_bytes": 8388608,
   "max_alignment_cells": 2000000,
   "max_total_alignment_cells": 64000000,
-  "max_records": 1000000
+  "max_records": 1000000,
+  "prefix_view_max_nodes": 5000,
+  "prefix_view_excerpt_bytes": 96
 }

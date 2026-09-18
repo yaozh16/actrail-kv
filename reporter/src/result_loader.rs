@@ -301,6 +301,7 @@ pub(crate) mod tests {
                 cohesion: 0.9,
                 stable_spans: vec![],
                 slots: vec![],
+                prefix_view: None,
             }],
             defects: vec![ContextDefect {
                 id: "defect".into(),
@@ -386,6 +387,8 @@ pub(crate) mod tests {
             max_alignment_cells: 2_000_000,
             max_total_alignment_cells: 64_000_000,
             max_records: 1_000_000,
+            prefix_view_max_nodes: 5_000,
+            prefix_view_excerpt_bytes: 96,
         }
     }
 }

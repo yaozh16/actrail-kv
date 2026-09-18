@@ -8,8 +8,9 @@ use std::{
 
 use actrail_kv_artifacts::{
     AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, ComparisonGroup,
-    RequestTemplate as ArtifactTemplate, SkipRecord, SourceLocation as ArtifactSource,
-    StableSpan as ArtifactStableSpan, TemplateSlot as ArtifactSlot, ANALYSIS_SCHEMA_VERSION,
+    ContextDefect as ArtifactContextDefect, RequestTemplate as ArtifactTemplate, SkipRecord,
+    SourceLocation as ArtifactSource, StableSpan as ArtifactStableSpan,
+    TemplateSlot as ArtifactSlot, ANALYSIS_SCHEMA_VERSION,
 };
 use anyhow::{Context, Result};
 
@@ -133,10 +134,27 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         candidates.extend(diagnose_template(template, &diagnosis_options));
     }
     let ranked = rank_defects(candidates, options.top_k);
+    let mut defects_by_template: std::collections::HashMap<String, Vec<&ArtifactContextDefect>> =
+        std::collections::HashMap::new();
+    for defect in &ranked.defects {
+        defects_by_template
+            .entry(defect.template_id.clone())
+            .or_default()
+            .push(defect);
+    }
     let templates = extraction
         .templates
         .iter()
-        .map(template_to_artifact)
+        .map(|template| {
+            template_to_artifact(
+                template,
+                defects_by_template
+                    .get(&template.id)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default(),
+                &options,
+            )
+        })
         .collect();
     skips.sort_by(|left, right| {
         left.record_index
@@ -160,7 +178,11 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
     })
 }
 
-fn template_to_artifact(template: &RequestTemplate) -> ArtifactTemplate {
+fn template_to_artifact(
+    template: &RequestTemplate,
+    template_defects: &[&ArtifactContextDefect],
+    options: &AnalysisOptions,
+) -> ArtifactTemplate {
     let mut member_request_ids: Vec<_> = template
         .members
         .iter()
@@ -203,6 +225,12 @@ fn template_to_artifact(template: &RequestTemplate) -> ArtifactTemplate {
                 confidence: template.cohesion,
             })
             .collect(),
+        prefix_view: crate::prefix_view::build_prefix_view(
+            template,
+            template_defects,
+            options.prefix_view_max_nodes,
+            options.prefix_view_excerpt_bytes,
+        ),
     }
 }
 
@@ -254,6 +282,8 @@ fn options_snapshot(options: &AnalysisOptions) -> AnalysisOptionsSnapshot {
         max_alignment_cells: options.max_alignment_cells,
         max_total_alignment_cells: options.max_total_alignment_cells,
         max_records: options.max_records,
+        prefix_view_max_nodes: options.prefix_view_max_nodes,
+        prefix_view_excerpt_bytes: options.prefix_view_excerpt_bytes,
     }
 }
 

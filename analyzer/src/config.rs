@@ -28,6 +28,10 @@ pub struct AnalyzeConfig {
     pub max_alignment_cells: usize,
     pub max_total_alignment_cells: usize,
     pub max_records: usize,
+    #[serde(default = "default_prefix_view_max_nodes")]
+    pub prefix_view_max_nodes: usize,
+    #[serde(default = "default_prefix_view_excerpt_bytes")]
+    pub prefix_view_excerpt_bytes: usize,
 }
 
 impl Default for AnalyzeConfig {
@@ -58,6 +62,8 @@ impl AnalyzeConfig {
             max_alignment_cells: options.max_alignment_cells,
             max_total_alignment_cells: options.max_total_alignment_cells,
             max_records: options.max_records,
+            prefix_view_max_nodes: options.prefix_view_max_nodes,
+            prefix_view_excerpt_bytes: options.prefix_view_excerpt_bytes,
         }
     }
 
@@ -82,6 +88,8 @@ impl AnalyzeConfig {
             max_alignment_cells: self.max_alignment_cells,
             max_total_alignment_cells: self.max_total_alignment_cells,
             max_records: self.max_records,
+            prefix_view_max_nodes: self.prefix_view_max_nodes,
+            prefix_view_excerpt_bytes: self.prefix_view_excerpt_bytes,
         };
         options.validate()?;
         Ok(options)
@@ -103,6 +111,14 @@ impl AnalyzeConfig {
 
 fn default_fixed_variant_max() -> usize {
     3
+}
+
+fn default_prefix_view_max_nodes() -> usize {
+    5_000
+}
+
+fn default_prefix_view_excerpt_bytes() -> usize {
+    96
 }
 
 #[cfg(test)]
