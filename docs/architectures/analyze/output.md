@@ -141,6 +141,21 @@
 | `session_reports[].events[].next_total_bytes` / `.recomputed_bytes` | integer | 下一条总字节与切换后需重算字节。 |
 | `session_reports[].events[].stable_after_switch_bytes` | integer | 分歧点后连续对齐稳定段字节；可为 0。 |
 | `session_reports[].events[].next_block_runs` | string | 下一条内容性单位稳定块 run-length 摘要（如 `aabbccddx4/…`）。 |
+| `cache_metrics[]?` | object array | 每请求 KV 命中率指标；旧版文件缺省为空。 |
+| `cache_metrics[].request_id` | string | 请求 ID。 |
+| `cache_metrics[].session_key?` | string | 会话标识；未采集会话时为缺省。 |
+| `cache_metrics[].sequence` | integer | 会话内序号（无 session 时按输入顺序）。 |
+| `cache_metrics[].captured_at?` | string | 采集时间（RFC 3339，原样透传）。 |
+| `cache_metrics[].source?` | string | 采集来源（原样透传）。 |
+| `cache_metrics[].prompt_tokens?` | integer | 上游返回的输入 token 数；估算口径缺省。 |
+| `cache_metrics[].cached_tokens?` | integer | 上游返回的命中缓存 token 数（OpenAI `cached_tokens` / Anthropic `cache_read_input_tokens`）；估算口径缺省。 |
+| `cache_metrics[].miss_tokens?` | integer | `prompt_tokens - cached_tokens`；估算口径缺省。 |
+| `cache_metrics[].output_tokens?` | integer | 上游返回的输出 token 数；估算口径缺省。 |
+| `cache_metrics[].hit_rate` | number，`0..1` | `reported` 时为 `cached_tokens / prompt_tokens`；`estimated` 时为 `estimated_lcp_bytes / payload_bytes`（字节比，不是 token 比）。 |
+| `cache_metrics[].hit_rate_delta?` | number | 相对同一会话上一条请求的命中率变化；首条缺省。 |
+| `cache_metrics[].basis` | enum | `reported`（来自上游 usage）或 `estimated`（按与上一条请求 payload 的公共前缀估算）。 |
+| `cache_metrics[].estimated_lcp_bytes?` | integer | 估算口径下与上一条请求 payload 的公共前缀字节数；`reported` 时缺省。 |
+| `cache_metrics[].payload_bytes` | integer | 该请求 payload 的 UTF-8 字节数（估算时已剔除保留字段）。 |
 
 所有 byte range 必须同时提供 start/end、满足 `start <= end`，并落在合法 UTF-8 字符边界。一个 defect 的所有 variant 成员总数等于 `comparable_count`，`recovered_stable.support_count` 也等于该值。
 
@@ -235,3 +250,8 @@
 - `top_k=n` 是完整排序的前 n 个 ID，不复制 score 或展示文案。
 - 输入顺序、成员顺序和展示文案变化不改变问题身份或排序。
 - UTF-8 bytes 是结构代理，不代表真实 token、KV miss、延迟或金额收益。
+- `cache_metrics[]` 按会话分组、组内按 `captured_at` 与输入行序稳定排序；缺少 session 的记录全部归入同一个缺省分组。
+- `basis=reported` 表示计数来自上游响应的 usage；`basis=estimated` 表示上游没有返回 usage，
+  此时 token 字段全部缺省，`hit_rate` 是"与上一条请求 payload 的公共前缀字节 / 本请求 payload 字节"，
+  属于字节比代理值。**下游不得把 `estimated` 的 `hit_rate` 当作真实 KV 命中率使用**，
+  两者的语义与可信度不同，报告中必须分别标注。
