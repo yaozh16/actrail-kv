@@ -66,6 +66,8 @@ fn sync_parent(_parent: &Path) -> Result<()> {
 mod tests {
     use std::fs;
 
+    use actrail_kv_artifacts::{SessionEventType, SessionReport, SessionSwitchEvent};
+
     use super::*;
     use crate::result_loader::tests::fixture;
 
@@ -85,6 +87,33 @@ mod tests {
         result.defects[0].mismatch.variants[0].member_request_ids[0] = "<u>request-a</u>".into();
         result.templates[0].member_request_ids[0] = "<u>request-a</u>".into();
         result.templates[0].medoid_request_id = "<u>request-a</u>".into();
+        result.session_reports = vec![SessionReport {
+            session_key: "<u>session-a</u>".into(),
+            endpoint_key: "<u>endpoint</u>".into(),
+            model: "<u>model</u>".into(),
+            request_count: 2,
+            append_count: 0,
+            fork_count: 0,
+            reorder_count: 0,
+            reset_count: 1,
+            total_recomputed_bytes: 10,
+            total_stable_after_switch_bytes: 5,
+            total_prefix_cut_bytes: 3,
+            avg_prefix_cut_bytes: 3,
+            events: vec![SessionSwitchEvent {
+                event_type: SessionEventType::Reset,
+                prev_request_id: "<u>prev-a</u>".into(),
+                next_request_id: "<u>next-a</u>".into(),
+                lcp_units: 1,
+                lcp_bytes: 2,
+                previous_pair_lcp_bytes: 0,
+                prefix_cut_bytes: 3,
+                next_total_bytes: 5,
+                recomputed_bytes: 3,
+                stable_after_switch_bytes: 1,
+                next_block_runs: "<script>stable()</script>".into(),
+            }],
+        }];
         result.defects[0].mismatch.variants[0]
             .representative
             .sources[0]
@@ -102,6 +131,9 @@ mod tests {
             "<svg onload=alert(1)>",
             "<u>request-a</u>",
             "<a href=evil>path</a>",
+            "<u>session-a</u>",
+            "<u>prev-a</u>",
+            "<u>next-a</u>",
         ] {
             assert!(!html.contains(unsafe_fragment));
         }

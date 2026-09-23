@@ -51,10 +51,7 @@ pub fn render_html(result: &AnalysisResult) -> Result<String> {
         render_defect(&mut output, defect)?;
     }
     if !result.session_reports.is_empty() {
-        output.push_str("<h2>会话 Prefix-Switch 证据</h2>");
-        for report in &result.session_reports {
-            render_session_report(&mut output, report)?;
-        }
+        render_session_evidence(&mut output, &result.session_reports)?;
     }
     if !result.cache_metrics.is_empty() {
         render_cache_metrics(&mut output, result)?;
@@ -70,51 +67,352 @@ pub fn render_html(result: &AnalysisResult) -> Result<String> {
     Ok(output)
 }
 
-fn render_session_report(
+const SESSION_EVIDENCE_CSS: &str = "\
+.sx-tag{display:inline-block;margin-right:.25rem;padding:.05rem .35rem;border-radius:3px;font-size:11px;line-height:1.45;background:#eef2f5;color:#3d566e}\
+.sx-append{background:#e8f3fb;color:#1f5c8b}\
+.sx-fork{background:#fdf0dd;color:#a35b00}\
+.sx-reorder{background:#fdeee0;color:#a04000}\
+.sx-reset{background:#fdecea;color:#922b21}\
+.sx-bar{display:inline-block;width:52px;height:6px;margin-right:.35rem;border-radius:3px;overflow:hidden;background:#e5e8ea;vertical-align:middle}\
+.sx-bar i{display:block;height:100%;background:#2c6fb0}\
+.sx-warn .sx-bar i{background:#b9770e}\
+.sx-spark{display:inline-flex;align-items:flex-end;gap:1px;height:18px;vertical-align:middle}\
+.sx-spark i{display:block;width:5px;min-height:2px;border-radius:1px;background:#2c6fb0}\
+.sx-spark i.sx-mid{background:#b9770e}\
+.sx-spark i.sx-low{background:#c0392b}\
+.sx-range{margin-left:.35rem;color:#626567;font-size:11.5px}\
+.sx-detail{margin:1rem 0}\
+.sx-detail summary{cursor:pointer;color:#1a5276;font-size:13px}\
+";
+
+/// 会话前缀切换证据：先给整体结论，再只列需要关注的会话，其余折叠。
+fn render_session_evidence(
     output: &mut String,
-    report: &actrail_kv_artifacts::SessionReport,
+    reports: &[actrail_kv_artifacts::SessionReport],
 ) -> Result<()> {
+    output.push_str("<h2>会话前缀切换证据</h2><style>");
+    output.push_str(SESSION_EVIDENCE_CSS);
+    output.push_str("</style>");
+    output.push_str(
+        "<p class=\"muted\">同一会话里相邻两个请求的公共前缀，就是上一轮上下文里能被直接复用的部分；\
+         前缀收缩、重排或重置会让其后的内容整体重算。复用率 = 公共前缀字节 / 该请求上下文总字节。</p>",
+    );
+
+    let mut requests = 0usize;
+    let mut lcp_bytes = 0usize;
+    let mut next_bytes = 0usize;
+    let mut recoverable = 0usize;
+    let mut cut_sessions = 0usize;
+    for report in reports {
+        requests += report.request_count;
+        recoverable += report.total_stable_after_switch_bytes;
+        if report.total_prefix_cut_bytes > 0 {
+            cut_sessions += 1;
+        }
+        for event in &report.events {
+            lcp_bytes += event.lcp_bytes;
+            next_bytes += event.next_total_bytes;
+        }
+    }
+    let reuse_ratio = if next_bytes == 0 {
+        0.0
+    } else {
+        lcp_bytes as f64 / next_bytes as f64
+    };
+    let common_prefix = common_key_prefix(reports.iter().map(|report| report.session_key.as_str()));
+    let endpoints: std::collections::BTreeSet<&str> = reports
+        .iter()
+        .map(|report| report.endpoint_key.as_str())
+        .collect();
+    let models: std::collections::BTreeSet<&str> =
+        reports.iter().map(|report| report.model.as_str()).collect();
+    let mut meta = format!(
+        "端点 <code>{}</code> · 模型 <code>{}</code>",
+        encode_text(&endpoints.into_iter().collect::<Vec<_>>().join(" / ")),
+        encode_text(&models.into_iter().collect::<Vec<_>>().join(" / "))
+    );
+    if !common_prefix.is_empty() {
+        write!(
+            meta,
+            " · 会话列省略共有前缀 <code>{}</code>（完整会话名见 analysis.json）",
+            encode_text(&common_prefix)
+        )?;
+    }
+    write!(output, "<p class=\"muted\">{meta}</p>")?;
     write!(
         output,
-        "<section class=\"defect\"><h3>session={} endpoint={} model={}</h3><p>请求数 {}；append {}，fork {}，reorder {}，reset {}；切换后需重算 {} bytes，可恢复稳定 {} bytes；前缀收缩共 {} bytes（平均 {}）。</p><table><thead><tr><th>类型</th><th>前一请求</th><th>后一请求</th><th>公共前缀</th><th>前缀收缩</th><th>重算 bytes</th><th>可恢复稳定 bytes</th><th>块 run</th></tr></thead><tbody>",
-        encode_text(&report.session_key),
-        encode_text(&report.endpoint_key),
-        encode_text(&report.model),
-        report.request_count,
-        report.append_count,
-        report.fork_count,
-        report.reorder_count,
-        report.reset_count,
-        report.total_recomputed_bytes,
-        report.total_stable_after_switch_bytes,
-        report.total_prefix_cut_bytes,
-        report.avg_prefix_cut_bytes
+        "<div class=\"pt-summary\"><div class=\"pt-metric\"><b>{}</b>会话</div>\
+         <div class=\"pt-metric\"><b>{}</b>请求</div>\
+         <div class=\"pt-metric\"><b>{:.1}%</b>复用前缀占比</div>\
+         <div class=\"pt-metric\"><b>{}</b>存在前缀收缩</div>\
+         <div class=\"pt-metric\"><b>{}</b> B</div></div>",
+        reports.len(),
+        requests,
+        reuse_ratio * 100.0,
+        cut_sessions,
+        recoverable
     )?;
-    for event in &report.events {
+    output.push_str(
+        "<p class=\"muted\">末项为可恢复稳定字节：前缀收缩后仍然稳定、本可复用却被丢弃的内容。</p>",
+    );
+
+    let mut attention: Vec<&actrail_kv_artifacts::SessionReport> = reports
+        .iter()
+        .filter(|report| session_needs_attention(report))
+        .collect();
+    let mut normal: Vec<&actrail_kv_artifacts::SessionReport> = reports
+        .iter()
+        .filter(|report| !session_needs_attention(report))
+        .collect();
+    attention.sort_by(|left, right| {
+        session_reuse_ratio(left)
+            .partial_cmp(&session_reuse_ratio(right))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    normal.sort_by(|left, right| left.session_key.cmp(&right.session_key));
+
+    if attention.is_empty() {
+        output
+            .push_str("<p class=\"muted\">所有会话都是追加式增长，没有前缀收缩、重排或重置。</p>");
+    } else {
+        write!(output, "<h3>需要关注（{}）</h3>", attention.len())?;
+        render_session_table(output, &attention, true, &common_prefix)?;
+    }
+    if !normal.is_empty() {
+        // 多轮会话的逐轮明细值得摊开；两轮会话只有一个事件，行内数字已经够看。
+        let include_detail = normal.iter().any(|report| report.events.len() > 1);
+        // 会话少时直接列出，避免"全是正常"时整段只剩一句话；会话多时才折叠。
+        const OPEN_LIMIT: usize = 8;
+        if normal.len() <= OPEN_LIMIT {
+            write!(output, "<h3>会话明细（{}）</h3>", normal.len())?;
+            render_session_table(output, &normal, include_detail, &common_prefix)?;
+        } else {
+            write!(
+                output,
+                "<details class=\"sx-detail\"><summary>查看其余 {} 个会话（均为追加式增长）</summary>",
+                normal.len()
+            )?;
+            render_session_table(output, &normal, include_detail, &common_prefix)?;
+            output.push_str("</details>");
+        }
+    }
+    Ok(())
+}
+
+/// 所有会话名共有的前缀（通常是批次/运行名），展示时省略。
+fn common_key_prefix<'a>(keys: impl Iterator<Item = &'a str>) -> String {
+    let mut common: Option<Vec<char>> = None;
+    for key in keys {
+        let chars: Vec<char> = key.chars().collect();
+        common = Some(match common {
+            None => chars,
+            Some(current) => {
+                let mut index = 0;
+                while index < current.len() && index < chars.len() && current[index] == chars[index]
+                {
+                    index += 1;
+                }
+                current[..index].to_vec()
+            }
+        });
+    }
+    common.unwrap_or_default().into_iter().collect()
+}
+
+/// 会话标签：去掉公共前缀后只留可区分的尾部；全部被剥掉时退回截断的原名。
+fn session_label(key: &str, common_prefix: &str) -> String {
+    let stripped = key
+        .strip_prefix(common_prefix)
+        .unwrap_or(key)
+        .trim_start_matches(['-', '_', '/']);
+    // 尾部太短（例如只剩 "-s1" 里的 "1"）不足以单独辨识，改回展示原名尾部。
+    let label = if stripped.chars().count() >= 8 {
+        stripped.to_string()
+    } else {
+        let tail: Vec<char> = key.chars().collect();
+        let start = tail.len().saturating_sub(20);
+        format!("…{}", tail[start..].iter().collect::<String>())
+    };
+    let mut shown: String = label.chars().take(32).collect();
+    if label.chars().count() > 32 {
+        shown.push('…');
+    }
+    shown
+}
+
+/// 会话是否值得单独提示：出现非追加事件，或存在前缀收缩。
+fn session_needs_attention(report: &actrail_kv_artifacts::SessionReport) -> bool {
+    report.fork_count > 0
+        || report.reorder_count > 0
+        || report.reset_count > 0
+        || report.total_prefix_cut_bytes > 0
+}
+
+fn session_reuse_ratio(report: &actrail_kv_artifacts::SessionReport) -> f64 {
+    let lcp: usize = report.events.iter().map(|event| event.lcp_bytes).sum();
+    let total: usize = report
+        .events
+        .iter()
+        .map(|event| event.next_total_bytes)
+        .sum();
+    if total == 0 {
+        0.0
+    } else {
+        lcp as f64 / total as f64
+    }
+}
+
+fn render_session_table(
+    output: &mut String,
+    reports: &[&actrail_kv_artifacts::SessionReport],
+    include_detail: bool,
+    common_prefix: &str,
+) -> Result<()> {
+    output.push_str(
+        "<table class=\"pt-table\"><thead><tr><th>会话</th><th>请求</th><th>事件</th>\
+         <th>复用前缀</th><th>复用率</th><th>逐轮</th><th>前缀收缩</th><th>可恢复稳定</th>",
+    );
+    if include_detail {
+        output.push_str("<th>明细</th>");
+    }
+    output.push_str("</tr></thead><tbody>");
+    for report in reports {
+        let lcp: usize = report.events.iter().map(|event| event.lcp_bytes).sum();
+        let total: usize = report
+            .events
+            .iter()
+            .map(|event| event.next_total_bytes)
+            .sum();
+        let ratio = session_reuse_ratio(report);
+        let warn = report.total_prefix_cut_bytes > 0
+            || report.fork_count > 0
+            || report.reorder_count > 0
+            || report.reset_count > 0;
         write!(
             output,
-            "<tr><td>{}</td><td><code>{}</code></td><td><code>{}</code></td><td>{} units / {} bytes</td><td>{}</td><td>{}</td><td>{}</td><td><code>{}</code></td></tr>",
+            "<tr class=\"{row_class}\"><td><code>{session}</code></td><td>{requests}</td><td>{tags}</td>\
+             <td>{lcp} B / {total} B</td>\
+             <td><span class=\"sx-bar\"><i style=\"width:{percent:.0}%\"></i></span>{percent:.0}%</td>\
+             <td>{spark}</td>\
+             <td>{cut} B</td><td>{recoverable} B</td>{detail}</tr>",
+            row_class = if warn { "sx-warn" } else { "" },
+            session = encode_text(&session_label(&report.session_key, common_prefix)),
+            requests = report.request_count,
+            tags = session_event_tags(report),
+            percent = ratio * 100.0,
+            spark = session_reuse_spark(report),
+            cut = report.total_prefix_cut_bytes,
+            recoverable = report.total_stable_after_switch_bytes,
+            detail = if include_detail {
+                format!("<td>{}</td>", session_event_detail(report))
+            } else {
+                String::new()
+            },
+        )?;
+    }
+    output.push_str("</tbody></table>");
+    Ok(())
+}
+
+/// 逐轮复用率迷你柱：多轮会话的走势（每注入一段新内容就掉一次、随后回升）只有摊开才看得出。
+fn session_reuse_spark(report: &actrail_kv_artifacts::SessionReport) -> String {
+    if report.events.is_empty() {
+        return "—".to_string();
+    }
+    let mut bars = String::from("<span class=\"sx-spark\">");
+    let mut lowest = f64::MAX;
+    let mut highest = f64::MIN;
+    for event in &report.events {
+        let ratio = if event.next_total_bytes == 0 {
+            0.0
+        } else {
+            event.lcp_bytes as f64 / event.next_total_bytes as f64
+        };
+        lowest = lowest.min(ratio);
+        highest = highest.max(ratio);
+        let class = if ratio < 0.5 {
+            "sx-low"
+        } else if ratio < 0.75 {
+            "sx-mid"
+        } else {
+            "sx-high"
+        };
+        write!(
+            bars,
+            "<i class=\"{class}\" style=\"height:{height:.0}%\"></i>",
+            height = (ratio * 100.0).clamp(8.0, 100.0)
+        )
+        .expect("writing into String cannot fail");
+    }
+    bars.push_str("</span>");
+    write!(
+        bars,
+        "<span class=\"sx-range\">{:.0}%~{:.0}%</span>",
+        lowest * 100.0,
+        highest * 100.0
+    )
+    .expect("writing into String cannot fail");
+    bars
+}
+
+fn session_event_tags(report: &actrail_kv_artifacts::SessionReport) -> String {
+    let mut tags = String::new();
+    for (count, class, label) in [
+        (report.append_count, "sx-append", "追加"),
+        (report.fork_count, "sx-fork", "分叉"),
+        (report.reorder_count, "sx-reorder", "重排"),
+        (report.reset_count, "sx-reset", "重置"),
+    ] {
+        if count > 0 {
+            write!(
+                tags,
+                "<span class=\"sx-tag {class}\">{label}×{count}</span>"
+            )
+            .expect("writing into String cannot fail");
+        }
+    }
+    if tags.is_empty() {
+        "—".to_string()
+    } else {
+        tags
+    }
+}
+
+/// 逐事件明细默认折叠：只在这里展示请求 id、重算量与块结构。
+fn session_event_detail(report: &actrail_kv_artifacts::SessionReport) -> String {
+    let mut detail = String::from(
+        "<details><summary>事件</summary><table class=\"pt-table\"><thead><tr>\
+         <th>#</th><th>类型</th><th>前一请求</th><th>后一请求</th><th>公共前缀</th>\
+         <th>收缩</th><th>重算</th><th>可恢复稳定</th><th>块结构</th></tr></thead><tbody>",
+    );
+    for (index, event) in report.events.iter().enumerate() {
+        write!(
+            detail,
+            "<tr><td>{}</td><td>{}</td><td><code>{}</code></td><td><code>{}</code></td>\
+             <td>{} units / {} B</td><td>{} B</td><td>{} B</td><td>{} B</td><td><code>{}</code></td></tr>",
+            index + 1,
             event_label(&event.event_type),
-            encode_text(&event.prev_request_id),
-            encode_text(&event.next_request_id),
+            encode_text(&short_id(&event.prev_request_id)),
+            encode_text(&short_id(&event.next_request_id)),
             event.lcp_units,
             event.lcp_bytes,
             event.prefix_cut_bytes,
             event.recomputed_bytes,
             event.stable_after_switch_bytes,
             encode_text(&event.next_block_runs)
-        )?;
+        )
+        .expect("writing into String cannot fail");
     }
-    output.push_str("</tbody></table></section>");
-    Ok(())
+    detail.push_str("</tbody></table></details>");
+    detail
 }
 
 fn event_label(event: &SessionEventType) -> &'static str {
     match event {
-        SessionEventType::Append => "append",
-        SessionEventType::Fork => "fork",
-        SessionEventType::Reorder => "reorder",
-        SessionEventType::Reset => "reset",
+        SessionEventType::Append => "追加",
+        SessionEventType::Fork => "分叉",
+        SessionEventType::Reorder => "重排",
+        SessionEventType::Reset => "重置",
     }
 }
 
@@ -887,9 +1185,96 @@ fn short_id(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use actrail_kv_artifacts::{PrefixNode, PrefixNodeKind, TemplatePrefixView};
+    use actrail_kv_artifacts::{
+        PrefixNode, PrefixNodeKind, SessionEventType, SessionReport, SessionSwitchEvent,
+        TemplatePrefixView,
+    };
 
     use super::*;
+
+    fn session_report(
+        key: &str,
+        event_type: SessionEventType,
+        prefix_cut_bytes: usize,
+    ) -> SessionReport {
+        let append = matches!(event_type, SessionEventType::Append);
+        let reset = matches!(event_type, SessionEventType::Reset);
+        SessionReport {
+            session_key: key.to_string(),
+            endpoint_key: "endpoint-a".to_string(),
+            model: "model-a".to_string(),
+            request_count: 2,
+            append_count: usize::from(append),
+            fork_count: 0,
+            reorder_count: 0,
+            reset_count: usize::from(reset),
+            total_recomputed_bytes: 100,
+            total_stable_after_switch_bytes: 4,
+            total_prefix_cut_bytes: prefix_cut_bytes,
+            avg_prefix_cut_bytes: prefix_cut_bytes,
+            events: vec![SessionSwitchEvent {
+                event_type,
+                prev_request_id: "prev-request-id".to_string(),
+                next_request_id: "next-request-id".to_string(),
+                lcp_units: 3,
+                lcp_bytes: 900,
+                previous_pair_lcp_bytes: 0,
+                prefix_cut_bytes,
+                next_total_bytes: 1000,
+                recomputed_bytes: 100,
+                stable_after_switch_bytes: 4,
+                next_block_runs: "abcdx1".to_string(),
+            }],
+        }
+    }
+
+    #[test]
+    fn session_evidence_groups_attention_sessions_and_strips_common_prefix() {
+        let mut fixture = crate::result_loader::tests::fixture();
+        fixture.session_reports = vec![
+            session_report("batch-1-normal-01", SessionEventType::Append, 0),
+            session_report("batch-1-reset-01", SessionEventType::Reset, 0),
+        ];
+        let html = render_html(&fixture).expect("render html");
+        assert!(html.contains("会话前缀切换证据"));
+        assert!(html.contains("复用前缀占比"));
+        assert!(html.contains("90.0%"));
+        // 只把非追加事件列进关注区；会话少时其余会话直接铺开
+        assert!(html.contains("需要关注（1）"));
+        assert!(html.contains("会话明细（1）"));
+        assert!(!html.contains("查看其余"));
+        // 会话列去掉公共前缀，只留可区分部分
+        assert!(html.contains(">reset-01<"));
+        assert!(!html.contains("batch-1-reset-01"));
+        assert!(html.contains("batch-1-"));
+        // 事件类型用中文标签
+        assert!(html.contains("追加×1"));
+        assert!(html.contains("重置×1"));
+        // 明细折叠在行内，不再一个会话一个区块
+        assert!(html.contains("<summary>事件</summary>"));
+        assert_eq!(html.matches("会话前缀切换证据").count(), 1);
+        // 逐轮迷你柱与区间
+        assert!(html.contains("sx-spark"));
+        assert!(html.contains("sx-range"));
+    }
+
+    #[test]
+    fn session_evidence_collapses_many_healthy_sessions() {
+        let mut fixture = crate::result_loader::tests::fixture();
+        fixture.session_reports = (1..=9)
+            .map(|index| {
+                session_report(
+                    &format!("batch-1-normal-{index:02}"),
+                    SessionEventType::Append,
+                    0,
+                )
+            })
+            .collect();
+        let html = render_html(&fixture).expect("render html");
+        assert!(!html.contains("需要关注"));
+        assert!(html.contains("所有会话都是追加式增长"));
+        assert!(html.contains("查看其余 9 个会话"));
+    }
 
     #[test]
     fn prefix_tree_panel_is_rendered_when_view_present() {
