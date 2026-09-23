@@ -141,6 +141,25 @@
 | `session_reports[].events[].next_total_bytes` / `.recomputed_bytes` | integer | 下一条总字节与切换后需重算字节。 |
 | `session_reports[].events[].stable_after_switch_bytes` | integer | 分歧点后连续对齐稳定段字节；可为 0。 |
 | `session_reports[].events[].next_block_runs` | string | 下一条内容性单位稳定块 run-length 摘要（如 `aabbccddx4/…`）。 |
+| `prefix_reuse?` | object | 会话内相邻请求对的结构复用率汇总；无会话对时缺省。 |
+| `prefix_reuse.sessions` / `.request_pairs` | integer | 参与统计的会话数与相邻请求对数。 |
+| `prefix_reuse.lcp_bytes` / `.context_bytes` | integer | Σ 公共前缀字节 / Σ 上下文总字节。 |
+| `prefix_reuse.ratio` | number，`0..1` | `lcp_bytes / context_bytes`；结构代理，不是真实 KV 命中率。 |
+| `prefix_reuse.potential_lcp_bytes` | integer | Σ 逐请求前缀上限（见 `requests[]`）。 |
+| `prefix_reuse.potential_ratio` | number，`0..1` | `potential_lcp_bytes / context_bytes`，结构复用率的理论上界。 |
+| `prefix_reuse.gain_bytes` | integer | `potential_lcp_bytes - lcp_bytes`。 |
+| `prefix_reuse.recoverable_stable_bytes` | integer | Σ 切换后可恢复稳定字节。 |
+| `prefix_reuse.sessions_with_prefix_cut` | integer | 存在前缀收缩的会话数。 |
+| `prefix_reuse.by_session[]` | object array | 逐会话明细，顺序与 `session_reports[]` 一致。 |
+| `prefix_reuse.by_session[].session_key` | string | 会话标识。 |
+| `prefix_reuse.by_session[].request_pairs` / `.lcp_bytes` / `.context_bytes` / `.ratio` | integer / number | 该会话的相邻对数量与复用率。 |
+| `prefix_reuse.by_session[].potential_lcp_bytes` / `.gain_bytes` | integer | 该会话的前缀上限与可恢复字节。 |
+| `prefix_reuse.requests[]?` | object array | 有增益的请求明细，按 `gain_bytes` 降序，最多保留 500 条。 |
+| `prefix_reuse.requests[].request_id` / `.session_key` | string | 请求与会话标识。 |
+| `prefix_reuse.requests[].reusable_prefix_bytes` | integer | 当前与该会话前序请求的公共前缀字节。 |
+| `prefix_reuse.requests[].potential_prefix_bytes` | integer | 消除已知结构问题后可达的前缀字节；结构上界。 |
+| `prefix_reuse.requests[].gain_bytes` | integer | `potential_prefix_bytes - reusable_prefix_bytes`。 |
+| `prefix_reuse.requests[].blocking_defect_ids[]?` | string array | 限制该请求前缀的缺陷 ID。 |
 | `cache_metrics[]?` | object array | 每请求 KV 命中率指标；旧版文件缺省为空。 |
 | `cache_metrics[].request_id` | string | 请求 ID。 |
 | `cache_metrics[].session_key?` | string | 会话标识；未采集会话时为缺省。 |
@@ -158,6 +177,18 @@
 | `cache_metrics[].payload_bytes` | integer | 该请求 payload 的 UTF-8 字节数（估算时已剔除保留字段）。 |
 | `cache_metrics[].ttft_ms?` | integer | 首 token 时延（毫秒），来自 payload 保留字段；未上报时缺省（`0` 表示真实测得 0）。 |
 | `cache_metrics[].total_ms?` | integer | 总耗时（毫秒，wall time：请求发出到流结束）；未上报时缺省。 |
+| `templates[].prefix_view?` | object | 供报告渲染的前缀视图模型；节点数超过上限时截断。 |
+| `templates[].prefix_view.node_count` / `.truncated` | integer / boolean | 节点数与是否截断。 |
+| `templates[].prefix_view.nodes[]` | object array | 稳定/变体片段及其内部字节层节点。 |
+| `templates[].prefix_view.nodes[].id` / `.kind` | string / enum | 节点 ID 与 `stable` / `dynamic`。 |
+| `templates[].prefix_view.nodes[].source` | object | 与 `stable_spans[].source` 同构。 |
+| `templates[].prefix_view.nodes[].utf8_bytes` / `.support_count` / `.support_ratio` | integer / number | 片段字节与支持度。 |
+| `templates[].prefix_view.nodes[].excerpt` | string | 有界文本摘录。 |
+| `templates[].prefix_view.nodes[].member_request_ids[]?` | string array | 该片段仍然存活的成员请求。 |
+| `templates[].prefix_view.nodes[].content_sample?` | string | 稳定片段的字节内容样本。 |
+| `templates[].prefix_view.nodes[].sequence_child?` / `.internal_children[]?` | string / string array | 对齐序列层与内部字节层子节点。 |
+| `templates[].prefix_view.nodes[].variants[]?` | object array | 变体摘录与出现次数（`excerpt` / `count` / `count_known`）。 |
+| `templates[].prefix_view.nodes[].defect_ids[]?` | string array | 该片段关联的缺陷 ID。 |
 
 所有 byte range 必须同时提供 start/end、满足 `start <= end`，并落在合法 UTF-8 字符边界。一个 defect 的所有 variant 成员总数等于 `comparable_count`，`recovered_stable.support_count` 也等于该值。
 
@@ -252,6 +283,10 @@
 - `top_k=n` 是完整排序的前 n 个 ID，不复制 score 或展示文案。
 - 输入顺序、成员顺序和展示文案变化不改变问题身份或排序。
 - UTF-8 bytes 是结构代理，不代表真实 token、KV miss、延迟或金额收益。
+- `prefix_reuse` 只统计会话内相邻请求对：会话首个请求没有前序，不参与统计。
+- `prefix_reuse` 的逐请求上限 = 当前公共前缀 + 该请求所涉缺陷中最大的 `blocked_stable_bytes`，
+  以该请求上下文总长为上界。它把缺陷对齐口径下的被阻断字节叠加到会话复用口径上，是**结构上界**，
+  不是可达承诺，也不能换算成 token 或金额收益。
 - `cache_metrics[]` 按会话分组、组内按 `captured_at` 与输入行序稳定排序；缺少 session 的记录全部归入同一个缺省分组。
 - `basis=reported` 表示计数来自上游响应的 usage；`basis=estimated` 表示上游没有返回 usage，
   此时 token 字段全部缺省，`hit_rate` 是"与上一条请求 payload 的公共前缀字节 / 本请求 payload 字节"，

@@ -2,4 +2,6 @@
 
 mod lineage;
 
-pub(crate) use lineage::{analyze_reports, SessionRow};
+pub(crate) use lineage::{
+    analyze_reports, request_potential_by_request, summarize_prefix_reuse, SessionRow,
+};

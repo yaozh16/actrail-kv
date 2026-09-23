@@ -26,7 +26,7 @@ use crate::{
         projection::{ProjectionLimits, ProjectionSkip, RequestProjector},
     },
     ranking::rank_defects,
-    session::{analyze_reports, SessionRow},
+    session::{analyze_reports, request_potential_by_request, summarize_prefix_reuse, SessionRow},
 };
 
 use super::AnalysisOptions;
@@ -134,6 +134,10 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         candidates.extend(diagnose_template(template, &diagnosis_options));
     }
     let ranked = rank_defects(candidates, options.top_k);
+    let prefix_reuse = summarize_prefix_reuse(
+        &session_reports,
+        &request_potential_by_request(&ranked.defects),
+    );
     let mut defects_by_template: std::collections::HashMap<String, Vec<&ArtifactContextDefect>> =
         std::collections::HashMap::new();
     for defect in &ranked.defects {
@@ -175,6 +179,7 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         top_k: ranked.top_k,
         session_reports,
         cache_metrics,
+        prefix_reuse,
     })
 }
 

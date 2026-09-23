@@ -345,6 +345,7 @@ pub(crate) mod tests {
             top_k: vec!["defect".into()],
             session_reports: vec![],
             cache_metrics: vec![],
+            prefix_reuse: None,
         }
     }
 

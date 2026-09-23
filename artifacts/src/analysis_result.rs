@@ -18,6 +18,96 @@ pub struct AnalysisResult {
     /// 每请求 KV 命中率指标（真实 usage 优先，缺失时按上下文估算）。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cache_metrics: Vec<KvCacheMetric>,
+    /// 会话内相邻请求对的结构复用率汇总；没有会话对时缺省。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix_reuse: Option<PrefixReuseSummary>,
+}
+
+/// 结构复用率汇总：Σ 公共前缀字节 / Σ 上下文总字节。
+///
+/// 只统计会话内相邻请求对，会话的首个请求没有可比较的前序，不参与统计。
+/// 该指标是结构代理，不是真实 KV 命中率，也不能换算成 token 或金额收益。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrefixReuseSummary {
+    /// 参与统计的会话数。
+    pub sessions: usize,
+    /// 参与统计的相邻请求对数。
+    pub request_pairs: usize,
+    /// Σ 相邻请求对的公共前缀字节。
+    pub lcp_bytes: usize,
+    /// Σ 相邻请求对的上下文总字节。
+    pub context_bytes: usize,
+    /// `lcp_bytes / context_bytes`。
+    pub ratio: f64,
+    /// Σ 逐请求前缀上限（见 `requests[]`）；等于"修完已知结构问题后的上界"。
+    pub potential_lcp_bytes: usize,
+    /// `potential_lcp_bytes / context_bytes`，结构复用率的理论上界。
+    pub potential_ratio: f64,
+    /// `potential_lcp_bytes - lcp_bytes`，即消除已知结构问题后可恢复的字节。
+    pub gain_bytes: usize,
+    /// Σ 切换后可恢复稳定字节。
+    pub recoverable_stable_bytes: usize,
+    /// 存在前缀收缩的会话数。
+    pub sessions_with_prefix_cut: usize,
+    /// 逐会话明细，顺序与 `session_reports[]` 一致。
+    pub by_session: Vec<PrefixReuseSession>,
+    /// 有增益的请求明细，按 `gain_bytes` 降序；超出上限时只保留前若干条。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requests: Vec<PrefixReuseRequest>,
+    /// 上下文字节的三段构成，用来解释"为什么补完已知问题也到不了 100%"。
+    pub composition: PrefixReuseComposition,
+}
+
+/// 上下文字节构成：`reusable + recoverable + new_content == context_bytes`。
+///
+/// 口径说明：
+/// - `reusable_bytes`：会话内相邻请求对当前真实可复用的前缀字节（已测得）；
+/// - `recoverable_bytes`：消除已知结构问题后可追加复用的字节（来自缺陷证据，是估算）；
+/// - `new_content_bytes`：剩余部分，即每轮新增的内容（工具结果、新一轮对话等）。
+///   它按 `上限 = 已复用 + 可恢复` 取剩余量，而上限本身是估算，因此该值只作量级参考，
+///   不能当作精确的"新增字节数"。
+///
+/// 会话首个请求没有前序，不参与相邻对统计，因此完全不进入本构成。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrefixReuseComposition {
+    pub context_bytes: usize,
+    pub reusable_bytes: usize,
+    pub recoverable_bytes: usize,
+    pub new_content_bytes: usize,
+}
+
+/// 单个会话的结构复用率。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrefixReuseSession {
+    pub session_key: String,
+    pub request_pairs: usize,
+    pub lcp_bytes: usize,
+    pub context_bytes: usize,
+    pub ratio: f64,
+    /// 该会话的逐请求前缀上限之和。
+    pub potential_lcp_bytes: usize,
+    /// 该会话可恢复的字节。
+    pub gain_bytes: usize,
+}
+
+/// 单个请求的前缀上限：受哪些结构问题限制、修掉后能到多少。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrefixReuseRequest {
+    pub request_id: String,
+    pub session_key: String,
+    /// 当前与实际前序请求的公共前缀字节。
+    pub reusable_prefix_bytes: usize,
+    /// 已知结构问题都消除后该请求可达的前缀字节，结构上界。
+    pub potential_prefix_bytes: usize,
+    /// `potential_prefix_bytes - reusable_prefix_bytes`。
+    pub gain_bytes: usize,
+    /// 限制该请求前缀的缺陷 ID。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocking_defect_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -516,6 +606,7 @@ mod tests {
             top_k: vec!["defect-a".into()],
             session_reports: vec![],
             cache_metrics: vec![],
+            prefix_reuse: None,
         }
     }
 

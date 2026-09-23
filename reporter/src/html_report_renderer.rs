@@ -3,8 +3,8 @@
 use std::{collections::BTreeMap, fmt::Write};
 
 use actrail_kv_artifacts::{
-    AnalysisResult, ContextDefect, DefectFactKind, MismatchPattern, PrefixNodeKind,
-    SessionEventType,
+    AnalysisResult, CacheMetricBasis, ContextDefect, DefectFactKind, KvCacheMetric,
+    MismatchPattern, PrefixNodeKind, SessionEventType,
 };
 use anyhow::{anyhow, Result};
 use html_escape::encode_text;
@@ -31,22 +31,11 @@ pub fn render_html(result: &AnalysisResult) -> Result<String> {
         result.defects.len()
     )?;
     output.push_str("<p class=\"muted\">本报告基于可观察 HTTP payload 的结构代理，不代表真实 Token、KV 命中率或成本收益。</p>");
-    output.push_str("<h2>Top K</h2><table><thead><tr><th>排名</th><th>缺陷</th><th>得分</th><th>受影响请求</th><th>被阻断稳定字节</th></tr></thead><tbody>");
-    for (index, id) in result.top_k.iter().enumerate() {
-        let defect = defects
-            .get(id.as_str())
-            .ok_or_else(|| anyhow!("top_k references unknown defect {id}"))?;
-        write!(
-            output,
-            "<tr><td>{}</td><td><code>{}</code></td><td>{:.2}</td><td>{}</td><td>{}</td></tr>",
-            index + 1,
-            encode_text(id),
-            defect.score.score,
-            defect.affected_count,
-            defect.blocked_stable_bytes
-        )?;
+    if let Some(prefix_reuse) = &result.prefix_reuse {
+        render_prefix_reuse(&mut output, prefix_reuse, &result.cache_metrics)?;
     }
-    output.push_str("</tbody></table><h2>缺陷详情</h2>");
+    render_top_k(&mut output, result, &defects)?;
+    output.push_str("<h2>缺陷详情</h2>");
     for defect in &result.defects {
         render_defect(&mut output, defect)?;
     }
@@ -84,6 +73,311 @@ const SESSION_EVIDENCE_CSS: &str = "\
 .sx-detail{margin:1rem 0}\
 .sx-detail summary{cursor:pointer;color:#1a5276;font-size:13px}\
 ";
+
+/// 结构复用率的业务目标（与开发文档的决策一致：写死 90%，不做配置项）。
+const PREFIX_REUSE_TARGET: f64 = 0.9;
+
+/// Top K 表格：把已排好序的缺陷翻译成"改哪里、能恢复多少、怎么改"。
+///
+/// 排序沿用 `top_k[]` 的既有契约（score → affected → blocked → id），不新增排序口径；
+/// 建议动作直接复用缺陷自带的 `insights[]`，不在这里新造文案语义。
+fn render_top_k(
+    output: &mut String,
+    result: &AnalysisResult,
+    defects: &BTreeMap<&str, &ContextDefect>,
+) -> Result<()> {
+    output.push_str("<section id=\"top-k\"><h2>Top K</h2>");
+    output.push_str(
+        "<p class=\"muted\">按 <code>top_k[]</code> 的得分序排列（score → 受影响请求数 → \
+         被阻断稳定字节 → 缺陷 ID）；每行给出位置、被阻断稳定字节与建议动作，可跳到下面的证据。\
+         被阻断稳定字节是结构代理，不代表真实 Token、KV miss 或金额收益。</p>",
+    );
+    if result.top_k.is_empty() {
+        output.push_str("<p class=\"muted\">本次未发现上下文结构缺陷。</p></section>");
+        return Ok(());
+    }
+    output.push_str(
+        "<table class=\"pt-table\"><thead><tr><th>排名</th><th>位置</th><th>被阻断稳定字节</th>\
+         <th>受影响请求</th><th>得分</th><th>建议动作</th><th>缺陷</th></tr></thead><tbody>",
+    );
+    for (index, id) in result.top_k.iter().enumerate() {
+        let defect = defects
+            .get(id.as_str())
+            .ok_or_else(|| anyhow!("top_k references unknown defect {id}"))?;
+        let advice = defect
+            .insights
+            .first()
+            .map(|insight| insight.summary.clone())
+            .unwrap_or_else(|| "—".to_string());
+        write!(
+            output,
+            "<tr><td>{rank}</td><td><code>{location}</code></td><td>{blocked}</td>\
+             <td>{affected}</td><td>{score:.2}</td><td>{advice}</td>\
+             <td><a href=\"#defect-{anchor}\"><code>{id}</code></a></td></tr>",
+            rank = index + 1,
+            location = encode_text(&defect_location(defect)),
+            blocked = defect.blocked_stable_bytes,
+            affected = defect.affected_count,
+            score = defect.score.score,
+            advice = encode_text(&advice),
+            anchor = encode_text(id),
+            id = encode_text(id),
+        )?;
+    }
+    output.push_str("</tbody></table></section>");
+    Ok(())
+}
+
+/// 机会清单里的位置：取第一个变体代表证据的来源，附角色与投影单元序号。
+fn defect_location(defect: &ContextDefect) -> String {
+    let source = defect
+        .mismatch
+        .variants
+        .iter()
+        .find_map(|variant| variant.representative.sources.first());
+    let Some(source) = source else {
+        return "—".to_string();
+    };
+    let mut location = source.json_path.clone();
+    if let Some(role) = source.role.as_deref() {
+        write!(location, " ({role})").expect("writing into String cannot fail");
+    }
+    if let Some(unit) = source.unit_index {
+        write!(location, " · 单元 #{unit}").expect("writing into String cannot fail");
+    }
+    location
+}
+
+const PREFIX_REUSE_CSS: &str = "\
+.pr-scale{position:relative;height:24px;margin:.5rem 0 .6rem;border:1px solid #d5d8dc;border-radius:4px;background:#f4f6f7;overflow:hidden}\
+.pr-scale i{position:absolute;top:0;bottom:0;display:block}\
+.pr-now{left:0;background:#2c6fb0}\
+.pr-gain{background:#e6a23c}\
+.pr-new{background:#dfe4e8}\
+.pr-target{position:absolute;top:0;bottom:0;width:2px;background:#c0392b}\
+.pr-legend{display:flex;flex-wrap:wrap;gap:1.2rem;font-size:13px}\
+.pr-note{margin:.35rem 0 .8rem;color:#626567;font-size:12.5px}\
+";
+
+/// 首屏结论：当前结构复用率、补完已知结构问题后的上界、以及 90% 目标。
+fn render_prefix_reuse(
+    output: &mut String,
+    summary: &actrail_kv_artifacts::PrefixReuseSummary,
+    cache_metrics: &[KvCacheMetric],
+) -> Result<()> {
+    let current = summary.ratio.clamp(0.0, 1.0);
+    let potential = summary.potential_ratio.clamp(current, 1.0);
+    let target = PREFIX_REUSE_TARGET.clamp(0.0, 1.0);
+    output.push_str("<section id=\"prefix-reuse\"><h2>结构复用率</h2><style>");
+    output.push_str(PREFIX_REUSE_CSS);
+    output.push_str("</style>");
+    output.push_str(
+        "<p class=\"muted\">口径：会话内相邻请求对的公共前缀字节 / 上下文总字节。\
+         这是结构代理，不是真实 KV 命中率，也不代表 Token 或金额收益。</p>",
+    );
+    write!(
+        output,
+        "<div class=\"pr-scale\"><i class=\"pr-now\" style=\"width:{now:.2}%\"></i>\
+         <i class=\"pr-gain\" style=\"left:{now:.2}%;width:{gain:.2}%\"></i>\
+         <i class=\"pr-new\" style=\"left:{potential:.2}%;width:{new_content:.2}%\"></i>\
+         <span class=\"pr-target\" style=\"left:{target:.2}%\"></span></div>",
+        now = current * 100.0,
+        gain = (potential - current) * 100.0,
+        potential = potential * 100.0,
+        new_content = (1.0 - potential) * 100.0,
+        target = target * 100.0,
+    )?;
+    write!(
+        output,
+        "<div class=\"pr-legend\"><span><b>当前</b> {:.1}%</span>\
+         <span><b>补完已知结构问题</b> {:.1}%（可恢复 {:.1} KB）</span>\
+         <span><b>目标</b> {:.0}%</span></div>",
+        current * 100.0,
+        potential * 100.0,
+        summary.gain_bytes as f64 / 1024.0,
+        target * 100.0,
+    )?;
+    let composition = &summary.composition;
+    write!(
+        output,
+        "<p class=\"pr-note\">字节构成：已复用 {} · 已知可恢复 {} · 每轮新增 {}（会话首个请求没有前序，不进入统计）。</p>",
+        human_bytes(composition.reusable_bytes),
+        human_bytes(composition.recoverable_bytes),
+        human_bytes(composition.new_content_bytes),
+    )?;
+    if current >= target {
+        write!(
+            output,
+            "<p class=\"pr-note\">已高于目标 {:.1} 个百分点；覆盖 {} 个会话的 {} 个相邻请求对。</p>",
+            (current - target) * 100.0,
+            summary.sessions,
+            summary.request_pairs
+        )?;
+    } else if potential >= target {
+        write!(
+            output,
+            "<p class=\"pr-note\">距目标 {:.1} 个百分点；补完已知结构问题后可越过目标。\
+             覆盖 {} 个会话的 {} 个相邻请求对。</p>",
+            (target - current) * 100.0,
+            summary.sessions,
+            summary.request_pairs
+        )?;
+    } else {
+        write!(
+            output,
+            "<p class=\"pr-note\">距目标 {:.1} 个百分点；补完已知结构问题后到 {:.1}%，仍差 {:.1} 个百分点。\
+             剩余 {:.1}% 的上下文是每轮新增内容，按前缀缓存口径不可复用——\
+             要再往上走需要减少每轮新增量，而不是继续调整内容顺序。\
+             覆盖 {} 个会话的 {} 个相邻请求对。</p>",
+            (target - current) * 100.0,
+            potential * 100.0,
+            (target - potential) * 100.0,
+            (1.0 - potential) * 100.0,
+            summary.sessions,
+            summary.request_pairs
+        )?;
+    }
+    render_proxy_cross_check(output, summary, cache_metrics)?;
+    output.push_str("</section>");
+    Ok(())
+}
+
+/// 逐会话把结构复用率与真实命中率放在一起，用来交叉验证结构代理的方向是否可信。
+#[derive(Default)]
+struct SessionHitAggregate {
+    prompt_tokens: u64,
+    cached_tokens: u64,
+    reported: usize,
+    estimated: usize,
+}
+
+/// 交叉验证表最多展示的会话数：超出时只列差异最大的若干个。
+const MAX_CROSS_CHECK_ROWS: usize = 8;
+
+fn render_proxy_cross_check(
+    output: &mut String,
+    summary: &actrail_kv_artifacts::PrefixReuseSummary,
+    cache_metrics: &[KvCacheMetric],
+) -> Result<()> {
+    if cache_metrics.is_empty() || summary.by_session.is_empty() {
+        return Ok(());
+    }
+    let mut aggregates: BTreeMap<&str, SessionHitAggregate> = BTreeMap::new();
+    for metric in cache_metrics {
+        let Some(session_key) = metric.session_key.as_deref() else {
+            continue;
+        };
+        let aggregate = aggregates.entry(session_key).or_default();
+        match metric.basis {
+            CacheMetricBasis::Reported => {
+                aggregate.reported += 1;
+                aggregate.prompt_tokens += u64::from(metric.prompt_tokens.unwrap_or(0));
+                aggregate.cached_tokens += u64::from(metric.cached_tokens.unwrap_or(0));
+            }
+            CacheMetricBasis::Estimated => aggregate.estimated += 1,
+        }
+    }
+    // (会话, 结构复用率, 真实命中率, 真实样本数, 估算样本数)
+    let mut rows: Vec<(&str, f64, Option<f64>, usize, usize)> = Vec::new();
+    for session in &summary.by_session {
+        let Some(aggregate) = aggregates.get(session.session_key.as_str()) else {
+            continue;
+        };
+        let real_hit_rate = (aggregate.reported > 0 && aggregate.prompt_tokens > 0)
+            .then(|| aggregate.cached_tokens as f64 / aggregate.prompt_tokens as f64);
+        rows.push((
+            session.session_key.as_str(),
+            session.ratio,
+            real_hit_rate,
+            aggregate.reported,
+            aggregate.estimated,
+        ));
+    }
+    if rows.is_empty() {
+        return Ok(());
+    }
+    output.push_str("<h3>结构代理 vs 真实命中</h3>");
+    output.push_str(
+        "<p class=\"muted\">结构复用率按字节口径（公共前缀 / 上下文），真实命中率按 token 口径\
+         （cached / prompt）；两者口径不同，只用来判断方向是否一致，不表示两者应当相等。\
+         估算口径的请求不参与对比。</p>",
+    );
+    let estimated_only = rows.len() - rows.iter().filter(|row| row.2.is_some()).count();
+    if estimated_only == rows.len() {
+        write!(
+            output,
+            "<p class=\"muted\">本次没有采集到上游 usage（{} 个会话全部为估算口径），\
+             无法与真实命中率交叉验证。</p>",
+            rows.len()
+        )?;
+        return Ok(());
+    }
+    // 只有真实命中率可以参与对比；其余会话数量单列提示。
+    rows.retain(|row| row.2.is_some());
+    // 差异越大越值得先看。
+    rows.sort_by(|left, right| {
+        let left_delta = (left.1 - left.2.unwrap_or(0.0)).abs();
+        let right_delta = (right.1 - right.2.unwrap_or(0.0)).abs();
+        right_delta
+            .partial_cmp(&left_delta)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.0.cmp(right.0))
+    });
+    let total = rows.len();
+    let truncated = total > MAX_CROSS_CHECK_ROWS;
+    rows.truncate(MAX_CROSS_CHECK_ROWS);
+    if estimated_only > 0 {
+        write!(
+            output,
+            "<p class=\"muted\">另有 {} 个会话没有真实 usage，未参与对比。</p>",
+            estimated_only
+        )?;
+    }
+    if truncated {
+        write!(
+            output,
+            "<p class=\"muted\">仅列出差异最大的 {} 个会话（共 {} 个可比会话）。</p>",
+            MAX_CROSS_CHECK_ROWS, total
+        )?;
+    }
+    output.push_str(
+        "<table class=\"pt-table\"><thead><tr><th>会话</th><th>结构复用率（字节）</th>\
+         <th>真实命中率（token）</th><th>差值</th><th>口径覆盖</th></tr></thead><tbody>",
+    );
+    for (session_key, structural, real_hit_rate, reported, estimated) in &rows {
+        let real_cell = match real_hit_rate {
+            Some(rate) => format!("{:.1}%", rate * 100.0),
+            None => "—（全部为估算口径）".to_string(),
+        };
+        let delta_cell = match real_hit_rate {
+            Some(rate) => format!("{:+.1}pp", (structural - rate) * 100.0),
+            None => "—".to_string(),
+        };
+        write!(
+            output,
+            "<tr><td><code>{session}</code></td><td>{structural:.1}%</td><td>{real_cell}</td>\
+             <td>{delta_cell}</td><td>真实 {reported} / 估算 {estimated}</td></tr>",
+            session = encode_text(session_key),
+            structural = structural * 100.0,
+        )?;
+    }
+    output.push_str("</tbody></table>");
+    Ok(())
+}
+
+/// 报告里的字节量按 KB / MB 展示，避免长数字串。
+fn human_bytes(bytes: usize) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    let value = bytes as f64;
+    if value >= MB {
+        format!("{:.1} MB", value / MB)
+    } else if value >= KB {
+        format!("{:.0} KB", value / KB)
+    } else {
+        format!("{bytes} B")
+    }
+}
 
 /// 会话前缀切换证据：先给整体结论，再只列需要关注的会话，其余折叠。
 fn render_session_evidence(
@@ -531,7 +825,9 @@ fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<
 fn render_defect(output: &mut String, defect: &ContextDefect) -> Result<()> {
     write!(
         output,
-        "<section class=\"defect\" id=\"defect-{}\"><h3>{}</h3><p><strong>比较组：</strong><code>window={} endpoint={} model={} schema={}</code></p>",
+        "<section class=\"defect\" id=\"defect-{}\"><h3>{}</h3>\
+         <p class=\"muted\"><a href=\"#top-k\">↑ 返回 Top K</a></p>\
+         <p><strong>比较组：</strong><code>window={} endpoint={} model={} schema={}</code></p>",
         encode_text(&defect.id),
         encode_text(&defect.id),
         encode_text(&defect.comparison_group.time_window_key),
@@ -1186,11 +1482,142 @@ fn short_id(id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use actrail_kv_artifacts::{
-        PrefixNode, PrefixNodeKind, SessionEventType, SessionReport, SessionSwitchEvent,
-        TemplatePrefixView,
+        PrefixNode, PrefixNodeKind, PrefixReuseSummary, SessionEventType, SessionReport,
+        SessionSwitchEvent, TemplatePrefixView,
     };
 
     use super::*;
+
+    fn prefix_reuse(ratio: f64, potential_ratio: f64) -> PrefixReuseSummary {
+        PrefixReuseSummary {
+            sessions: 2,
+            request_pairs: 8,
+            lcp_bytes: 840,
+            context_bytes: 1000,
+            ratio,
+            potential_lcp_bytes: (potential_ratio * 1000.0) as usize,
+            potential_ratio,
+            gain_bytes: 90,
+            recoverable_stable_bytes: 0,
+            sessions_with_prefix_cut: 0,
+            by_session: vec![actrail_kv_artifacts::PrefixReuseSession {
+                session_key: "session-a".to_string(),
+                request_pairs: 4,
+                lcp_bytes: (ratio * 500.0) as usize,
+                context_bytes: 500,
+                ratio,
+                potential_lcp_bytes: (potential_ratio * 500.0) as usize,
+                gain_bytes: ((potential_ratio - ratio) * 500.0) as usize,
+            }],
+            requests: vec![],
+            composition: actrail_kv_artifacts::PrefixReuseComposition {
+                context_bytes: 1000,
+                reusable_bytes: (ratio * 1000.0) as usize,
+                recoverable_bytes: ((potential_ratio - ratio) * 1000.0) as usize,
+                new_content_bytes: ((1.0 - potential_ratio) * 1000.0) as usize,
+            },
+        }
+    }
+
+    fn cache_metric(session: &str, basis: CacheMetricBasis) -> KvCacheMetric {
+        KvCacheMetric {
+            request_id: format!("{session}:0"),
+            session_key: Some(session.to_string()),
+            sequence: 1,
+            captured_at: None,
+            source: None,
+            prompt_tokens: Some(1000),
+            cached_tokens: Some(700),
+            miss_tokens: Some(300),
+            output_tokens: Some(10),
+            hit_rate: 0.7,
+            hit_rate_delta: None,
+            basis,
+            estimated_lcp_bytes: None,
+            payload_bytes: 1200,
+            ttft_ms: None,
+            total_ms: None,
+        }
+    }
+
+    #[test]
+    fn cross_check_pairs_structural_reuse_with_reported_hit_rate() {
+        let mut fixture = crate::result_loader::tests::fixture();
+        fixture.prefix_reuse = Some(prefix_reuse(0.84, 0.93));
+        fixture.cache_metrics = vec![cache_metric("session-a", CacheMetricBasis::Reported)];
+        let html = render_html(&fixture).expect("render html");
+        assert!(html.contains("结构代理 vs 真实命中"));
+        assert!(html.contains("70.0%"), "真实命中率应来自 token 口径");
+        assert!(html.contains("+14.0pp"), "差值应为结构与真实之差");
+
+        // 只有估算口径时不能伪装成真实命中率。
+        let mut estimated = crate::result_loader::tests::fixture();
+        estimated.prefix_reuse = Some(prefix_reuse(0.84, 0.93));
+        estimated.cache_metrics = vec![cache_metric("session-a", CacheMetricBasis::Estimated)];
+        let html = render_html(&estimated).expect("render html");
+        let block = &html[html
+            .find("结构代理 vs 真实命中")
+            .expect("cross check section")..];
+        assert!(block.contains("无法与真实命中率交叉验证"));
+        // 交叉验证区块本身不能出现"真实命中率"列，估算值只能留在 KV 命中率区块里。
+        assert!(!block.contains("<th>真实命中率（token）</th>"));
+    }
+
+    #[test]
+    fn top_k_table_links_each_defect_to_its_evidence() {
+        let fixture = crate::result_loader::tests::fixture();
+        let html = render_html(&fixture).expect("render html");
+        assert!(html.contains("<h2>Top K</h2>"));
+        // 位置、阻断量、受影响请求数、建议动作与证据锚点都要出现在清单里。
+        assert!(html.contains("$.messages[0].content"));
+        assert!(html.contains("被阻断稳定字节"));
+        assert!(html.contains("&lt;b&gt;统一生成方式&lt;/b&gt;"));
+        assert!(html.contains("href=\"#defect-defect\""));
+        assert!(html.contains("id=\"defect-defect\""));
+        // 排序沿用 top_k[]，不是重新排序。
+        assert!(html.contains("按 <code>top_k[]</code> 的得分序排列"));
+
+        // 没有缺陷时给出空态，而不是渲染空表。
+        let mut empty = crate::result_loader::tests::fixture();
+        empty.defects.clear();
+        empty.top_k.clear();
+        let html = render_html(&empty).expect("render html");
+        assert!(html.contains("本次未发现上下文结构缺陷"));
+    }
+
+    #[test]
+    fn prefix_reuse_scale_reports_current_upper_bound_and_target() {
+        let mut fixture = crate::result_loader::tests::fixture();
+        fixture.prefix_reuse = Some(prefix_reuse(0.84, 0.93));
+        let html = render_html(&fixture).expect("render html");
+        assert!(html.contains("结构复用率"));
+        assert!(html.contains("84.0%"));
+        assert!(html.contains("93.0%"));
+        assert!(html.contains("<b>目标</b> 90%"));
+        assert!(html.contains("补完已知结构问题后可越过目标"));
+        assert!(html.contains("pr-scale"));
+        // 三段构成：已复用 / 已知可恢复 / 每轮新增
+        assert!(html.contains("字节构成"));
+        assert!(html.contains("pr-new"));
+
+        // 补完已知结构问题仍不达标时，要给出剩余差距。
+        let mut short = crate::result_loader::tests::fixture();
+        short.prefix_reuse = Some(prefix_reuse(0.50, 0.70));
+        let html = render_html(&short).expect("render html");
+        assert!(html.contains("仍差 20.0 个百分点"));
+
+        // 已经达标时不再提示补完。
+        let mut done = crate::result_loader::tests::fixture();
+        done.prefix_reuse = Some(prefix_reuse(0.95, 0.97));
+        let html = render_html(&done).expect("render html");
+        assert!(html.contains("已高于目标 5.0 个百分点"));
+
+        // 没有汇总时整块不渲染。
+        let mut absent = crate::result_loader::tests::fixture();
+        absent.prefix_reuse = None;
+        let html = render_html(&absent).expect("render html");
+        assert!(!html.contains("结构复用率"));
+    }
 
     fn session_report(
         key: &str,

@@ -96,6 +96,86 @@ fn session_prefix_switch_reports_classify_append_fork_reorder_and_reset() {
     );
 }
 
+#[test]
+fn prefix_reuse_summarizes_session_pairs_with_structural_upper_bound() {
+    fn conversation(contents: &[&str]) -> Value {
+        chat(
+            contents
+                .iter()
+                .map(|content| json!({"role":"user","content":content}))
+                .collect(),
+        )
+    }
+    let payloads = vec![
+        conversation(&["A1", "A2", "A3"]),
+        conversation(&["A1", "A2", "A3", "B1"]),
+        conversation(&["A1", "A2", "A3", "B1", "C1"]),
+    ];
+    let result = analyze_with_session(payloads, Some("session-reuse"));
+    let summary = result.prefix_reuse.as_ref().expect("prefix_reuse summary");
+
+    // 三个请求构成两个相邻请求对；会话首个请求没有前序，不参与统计。
+    assert_eq!(summary.sessions, 1);
+    assert_eq!(summary.request_pairs, 2);
+    assert_eq!(summary.by_session.len(), 1);
+    assert_eq!(
+        summary.by_session[0].lcp_bytes,
+        result.session_reports[0]
+            .events
+            .iter()
+            .map(|event| event.lcp_bytes)
+            .sum::<usize>()
+    );
+    assert_eq!(
+        summary.lcp_bytes,
+        summary
+            .by_session
+            .iter()
+            .map(|session| session.lcp_bytes)
+            .sum::<usize>()
+    );
+    assert_eq!(
+        summary.context_bytes,
+        summary
+            .by_session
+            .iter()
+            .map(|session| session.context_bytes)
+            .sum::<usize>()
+    );
+    // 复用率与上界都必须在 [0,1] 内，且上界不低于当前值。
+    assert!((0.0..=1.0).contains(&summary.ratio));
+    assert!((0.0..=1.0).contains(&summary.potential_ratio));
+    assert!(summary.potential_lcp_bytes >= summary.lcp_bytes);
+    assert!(summary.potential_ratio >= summary.ratio);
+    assert_eq!(
+        summary.gain_bytes,
+        summary.potential_lcp_bytes - summary.lcp_bytes
+    );
+    // 逐请求上限不得低于其当前复用前缀，也不得超过该请求上下文长度。
+    for request in &summary.requests {
+        assert!(request.potential_prefix_bytes >= request.reusable_prefix_bytes);
+        assert!(request.gain_bytes > 0);
+    }
+    // 构成必须自洽：已复用 + 已知可恢复 + 每轮新增 == 上下文总字节。
+    let composition = &summary.composition;
+    assert_eq!(composition.context_bytes, summary.context_bytes);
+    assert_eq!(composition.reusable_bytes, summary.lcp_bytes);
+    assert_eq!(composition.recoverable_bytes, summary.gain_bytes);
+    assert_eq!(
+        composition.reusable_bytes + composition.recoverable_bytes + composition.new_content_bytes,
+        composition.context_bytes
+    );
+}
+
+#[test]
+fn prefix_reuse_is_absent_without_session_pairs() {
+    let result = analyze(vec![chat(vec![json!({"role":"user","content":"single"})])]);
+    assert!(
+        result.prefix_reuse.is_none(),
+        "单请求没有可比较的相邻对，不应产出 prefix_reuse"
+    );
+}
+
 fn has_fact(result: &AnalysisResult, kind: DefectFactKind) -> bool {
     result
         .defects
