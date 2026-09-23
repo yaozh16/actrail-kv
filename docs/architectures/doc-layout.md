@@ -16,7 +16,8 @@ docs/
 ├── configuration.md                            # 实际 CLI 参数、固定阈值、资源预算与部署参数
 ├── concepts/                                   # 面向新手的稳定业务概念
 │   ├── template.md                              # 请求模板、稳定片段、槽位及其分析产物映射
-│   └── context_defect.md                        # 上下文结构缺陷、正例及非缺陷边界
+│   ├── context_defect.md                        # 上下文结构缺陷、正例及非缺陷边界
+│   └── prefix_reuse.md                          # 结构复用率、可恢复上界及其口径边界
 └── architectures/
     ├── code-layout.md                          # 源码模块、三个二进制与调用关系
     ├── deployment.md                           # 外部采集入口、三个二进制与报告产物流向

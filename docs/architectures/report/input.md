@@ -13,5 +13,6 @@ reporter 只读取 analyzer 生成的 `analysis.json`，不重新分析请求。
 | `defects[].recovered_stable` | sources 非空，support count 等于 `comparable_count`。 |
 | `defects[].score` | 必须与 defect 指标及评分公式完全一致。 |
 | `top_k[]` | 不重复的 defect ID，必须是 `defects[]` 稳定排序的前缀。 |
+| `prefix_reuse` / `cache_metrics[]` / `templates[].prefix_view` | 可选字段，不参与强校验；缺省时对应报告区块整块不渲染。 |
 
 不满足任一项时 report 命令失败，不生成伪完整 HTML。

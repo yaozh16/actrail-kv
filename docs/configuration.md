@@ -73,6 +73,8 @@ analyze 的全部算法阈值与资源预算均可通过 `--config` 的 JSON 覆
 | `max_alignment_cells` | `2000000` | 单次文本/单元对齐 cells 上限，超限跳过该对齐。 |
 | `max_total_alignment_cells` | `64000000` | 单 cohort 累计对齐 cells 上限，超限跳过该 cohort。 |
 | `max_records` | `1000000` | 单次分析记录数上限，超限拒绝继续加载。 |
+| `prefix_view_max_nodes` | `5000` | 每模板前缀视图的节点上限；超出时视图截断，`0` 关闭 `templates[].prefix_view` 输出。 |
+| `prefix_view_excerpt_bytes` | `96` | 前缀视图节点的文本摘录上限。 |
 
 超限、坏行与未知 payload dialect 均在 `analysis.json` 中以 skipped 原因呈现；系统不会截断请求后输出高置信结论。
 
@@ -92,6 +94,8 @@ actrail-kv-report \
 | `--output` | 无，必填 | 静态 HTML 的新路径；不得覆盖 input。 |
 
 report 无可调算法参数，不提供配置文件。报告不访问网络、不重新运行算法。所有来自请求的证据都会 HTML 转义。
+
+报告首屏的 90% 结构复用率目标是报告层的产品参数，写死在 `actrail-kv-report` 中，不作为配置项提供；调整目标只需改报告代码，不需要重新分析。
 
 ## 当前适配范围
 
