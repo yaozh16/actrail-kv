@@ -156,6 +156,8 @@
 | `cache_metrics[].basis` | enum | `reported`（来自上游 usage）或 `estimated`（按与上一条请求 payload 的公共前缀估算）。 |
 | `cache_metrics[].estimated_lcp_bytes?` | integer | 估算口径下与上一条请求 payload 的公共前缀字节数；`reported` 时缺省。 |
 | `cache_metrics[].payload_bytes` | integer | 该请求 payload 的 UTF-8 字节数（估算时已剔除保留字段）。 |
+| `cache_metrics[].ttft_ms?` | integer | 首 token 时延（毫秒），来自 payload 保留字段；未上报时缺省（`0` 表示真实测得 0）。 |
+| `cache_metrics[].total_ms?` | integer | 总耗时（毫秒，wall time：请求发出到流结束）；未上报时缺省。 |
 
 所有 byte range 必须同时提供 start/end、满足 `start <= end`，并落在合法 UTF-8 字符边界。一个 defect 的所有 variant 成员总数等于 `comparable_count`，`recovered_stable.support_count` 也等于该值。
 
@@ -255,3 +257,7 @@
   此时 token 字段全部缺省，`hit_rate` 是"与上一条请求 payload 的公共前缀字节 / 本请求 payload 字节"，
   属于字节比代理值。**下游不得把 `estimated` 的 `hit_rate` 当作真实 KV 命中率使用**，
   两者的语义与可信度不同，报告中必须分别标注。
+- 保留字段缺少总输入数（`prompt_tokens` / `input_tokens` 都缺）时按没有 usage 处理，
+  该请求走 `estimated` 口径；不会用缺失值凑出 0% 的"真实"命中率。
+- `cache_metrics[]` 等字段受严格 schema 校验（未知字段直接报错）：analyzer 与 report 需同版本配套，
+  用旧版 report 二进制读取新版 `analysis.json` 会失败，而不是静默忽略新字段。

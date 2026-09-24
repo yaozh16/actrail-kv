@@ -28,6 +28,10 @@ pub struct ResponseUsage {
     pub prompt_tokens: u32,
     pub cached_tokens: u32,
     pub completion_tokens: u32,
+    /// 首 token 时延（毫秒）；未上报时为 `None`（`None` 与真实的 0 必须可区分）。
+    pub ttft_ms: Option<u64>,
+    /// 总耗时（wall time：请求发出到流结束，毫秒）；未上报时为 `None`。
+    pub total_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]

@@ -142,6 +142,8 @@ mod tests {
                 basis: actrail_kv_artifacts::CacheMetricBasis::Reported,
                 estimated_lcp_bytes: None,
                 payload_bytes: 4000,
+                ttft_ms: Some(320),
+                total_ms: Some(1850),
             },
             actrail_kv_artifacts::KvCacheMetric {
                 request_id: "req-2".into(),
@@ -158,6 +160,8 @@ mod tests {
                 basis: actrail_kv_artifacts::CacheMetricBasis::Estimated,
                 estimated_lcp_bytes: Some(3200),
                 payload_bytes: 4000,
+                ttft_ms: None,
+                total_ms: None,
             },
         ];
         fs::write(&input, serde_json::to_vec(&result).expect("serialize")).expect("fixture");
@@ -168,5 +172,10 @@ mod tests {
         assert!(html.contains("+60.0pp"));
         assert!(html.contains("估算"));
         assert!(html.contains("LCP 3200B / payload 4000B"));
+        // 时延列：上报的按毫秒展示，未上报的显示 —（不是 0）。
+        assert!(html.contains("<th>TTFT</th>"));
+        assert!(html.contains("<th>总耗时</th>"));
+        assert!(html.contains("320 ms"));
+        assert!(html.contains("1850 ms"));
     }
 }

@@ -59,6 +59,12 @@ pub struct KvCacheMetric {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub estimated_lcp_bytes: Option<usize>,
     pub payload_bytes: usize,
+    /// 首 token 时延（毫秒）；未上报时缺省。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttft_ms: Option<u64>,
+    /// 总耗时（wall time，毫秒）；未上报时缺省。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

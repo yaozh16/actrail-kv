@@ -77,6 +77,12 @@ pub(crate) fn compute_cache_metrics(records: &[CorpusRecord]) -> Vec<KvCacheMetr
                 };
             let hit_rate_delta = previous_rate.map(|previous| hit_rate - previous);
             let estimated_basis = matches!(basis, CacheMetricBasis::Estimated);
+            // 时延是上游观测值：没有 usage 就没有时延，缺失保持 None，不填 0。
+            let (ttft_ms, total_ms) = record
+                .response_usage
+                .as_ref()
+                .map(|usage| (usage.ttft_ms, usage.total_ms))
+                .unwrap_or((None, None));
             metrics.push(KvCacheMetric {
                 request_id: record.id.clone(),
                 session_key: session_key.clone(),
@@ -92,6 +98,8 @@ pub(crate) fn compute_cache_metrics(records: &[CorpusRecord]) -> Vec<KvCacheMetr
                 basis,
                 estimated_lcp_bytes: if estimated_basis { estimated_lcp } else { None },
                 payload_bytes,
+                ttft_ms,
+                total_ms,
             });
             previous_payload = Some(current_payload);
             previous_rate = Some(hit_rate);
@@ -135,6 +143,8 @@ mod tests {
                 prompt_tokens: prompt,
                 cached_tokens: cached,
                 completion_tokens: completion,
+                ttft_ms: None,
+                total_ms: None,
             }),
             input_line: id.parse().unwrap_or(0),
         }
@@ -165,6 +175,33 @@ mod tests {
         assert_eq!(metrics[1].miss_tokens, Some(300));
         let delta = metrics[1].hit_rate_delta.expect("delta");
         assert!((delta - 0.55).abs() < 1e-9, "delta={delta}");
+    }
+
+    #[test]
+    fn latency_is_passed_through_and_never_filled_with_zero() {
+        let mut measured = record(
+            "1",
+            Some("s"),
+            json!([{"role":"user","content":"a"}]),
+            Some((100, 50, 5)),
+        );
+        let usage = measured.response_usage.as_mut().expect("usage");
+        usage.ttft_ms = Some(120);
+        usage.total_ms = Some(900);
+        let estimated = record(
+            "2",
+            Some("s"),
+            json!([{"role":"user","content":"a"},{"role":"user","content":"b"}]),
+            None,
+        );
+
+        let metrics = compute_cache_metrics(&[measured, estimated]);
+        assert_eq!(metrics[0].ttft_ms, Some(120));
+        assert_eq!(metrics[0].total_ms, Some(900));
+        assert_eq!(metrics[0].basis, CacheMetricBasis::Reported);
+        assert_eq!(metrics[1].ttft_ms, None);
+        assert_eq!(metrics[1].total_ms, None);
+        assert_eq!(metrics[1].basis, CacheMetricBasis::Estimated);
     }
 
     #[test]

@@ -125,20 +125,7 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
     let response_usage = payload
         .get("_actrail_response_usage")
         .and_then(Value::as_object)
-        .map(|usage| ResponseUsage {
-            prompt_tokens: usage
-                .get("prompt_tokens")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
-            cached_tokens: usage
-                .get("cached_tokens")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
-            completion_tokens: usage
-                .get("completion_tokens")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
-        });
+        .and_then(parse_response_usage);
     // Capture metadata is part of request identity and comparison grouping, not model context.
     let canonical = canonical_json(&record);
     let mut digest = Sha256::new();
@@ -165,6 +152,42 @@ fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSk
         response_usage,
         input_line,
     })
+}
+
+/// 解析 payload 保留字段 `_actrail_response_usage`。
+///
+/// 约定（见 `docs/architectures/receiver/input.md`）：
+/// - `prompt_tokens` 与 `input_tokens` 是同一字段的两种写法，都表示**总输入**（含命中部分）；
+/// - `completion_tokens` 与 `output_tokens` 同理；
+/// - `ttft_ms` / `total_ms` 缺失时为 `None`，不按 0 处理；
+/// - **缺少总输入数时返回 `None`**：没有分母就算不出命中率，按"没有 usage"处理，
+///   让该请求走估算口径，避免产出看起来真实的 0%。
+fn parse_response_usage(usage: &serde_json::Map<String, Value>) -> Option<ResponseUsage> {
+    let total_input = usage
+        .get("prompt_tokens")
+        .or_else(|| usage.get("input_tokens"))
+        .and_then(Value::as_u64)?;
+    let completion_tokens = usage
+        .get("completion_tokens")
+        .or_else(|| usage.get("output_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let cached_tokens = usage
+        .get("cached_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    Some(ResponseUsage {
+        prompt_tokens: token_count(total_input),
+        cached_tokens: token_count(cached_tokens),
+        completion_tokens: token_count(completion_tokens),
+        ttft_ms: usage.get("ttft_ms").and_then(Value::as_u64),
+        total_ms: usage.get("total_ms").and_then(Value::as_u64),
+    })
+}
+
+/// token 计数按 u32 收敛；超过上限的记录按上限处理，不做回绕。
+fn token_count(value: u64) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
 }
 
 fn optional_comparison_key(
@@ -237,6 +260,56 @@ mod tests {
         assert_eq!(result.corpus.records.len(), 1);
         assert_eq!(result.skipped.len(), 5);
         assert_eq!(result.corpus.records[0].captured_at.as_deref(), Some("now"));
+    }
+
+    #[test]
+    fn parses_response_usage_with_aliases_and_latency() {
+        let input = concat!(
+            "{\"captured_at\":\"now\",\"comparison\":{\"endpoint_key\":\"chat\"},",
+            "\"payload\":{\"model\":\"m\",\"_actrail_response_usage\":{",
+            "\"input_tokens\":1200,\"cached_tokens\":900,\"output_tokens\":50,",
+            "\"ttft_ms\":320,\"total_ms\":1850}}}\n"
+        );
+        let result = CorpusLoader::default().load(Cursor::new(input));
+        let usage = result.corpus.records[0]
+            .response_usage
+            .as_ref()
+            .expect("usage parsed from aliases");
+        assert_eq!(usage.prompt_tokens, 1200);
+        assert_eq!(usage.cached_tokens, 900);
+        assert_eq!(usage.completion_tokens, 50);
+        assert_eq!(usage.ttft_ms, Some(320));
+        assert_eq!(usage.total_ms, Some(1850));
+    }
+
+    #[test]
+    fn usage_without_total_input_is_treated_as_absent() {
+        let input = concat!(
+            "{\"captured_at\":\"now\",\"comparison\":{\"endpoint_key\":\"chat\"},",
+            "\"payload\":{\"model\":\"m\",\"_actrail_response_usage\":{",
+            "\"cached_tokens\":900,\"ttft_ms\":320}}}\n"
+        );
+        let result = CorpusLoader::default().load(Cursor::new(input));
+        assert!(
+            result.corpus.records[0].response_usage.is_none(),
+            "缺少总输入数时按没有 usage 处理，避免产出看起来真实的 0%"
+        );
+    }
+
+    #[test]
+    fn omitted_latency_stays_absent_instead_of_zero() {
+        let input = concat!(
+            "{\"captured_at\":\"now\",\"comparison\":{\"endpoint_key\":\"chat\"},",
+            "\"payload\":{\"model\":\"m\",\"_actrail_response_usage\":{\"prompt_tokens\":100}}}\n"
+        );
+        let result = CorpusLoader::default().load(Cursor::new(input));
+        let usage = result.corpus.records[0]
+            .response_usage
+            .as_ref()
+            .expect("usage");
+        assert_eq!(usage.prompt_tokens, 100);
+        assert_eq!(usage.ttft_ms, None);
+        assert_eq!(usage.total_ms, None);
     }
 
     #[test]

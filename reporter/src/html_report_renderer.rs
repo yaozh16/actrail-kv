@@ -146,7 +146,7 @@ fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<
     output.push_str(
         "<table class=\"pt-table\"><thead><tr><th>会话</th><th>序号</th><th>请求</th>\
          <th>prompt</th><th>hit(cached)</th><th>miss</th><th>output</th>\
-         <th>命中率</th><th>Δ</th><th>口径</th><th>明细</th></tr></thead><tbody>",
+         <th>TTFT</th><th>总耗时</th><th>命中率</th><th>Δ</th><th>口径</th><th>明细</th></tr></thead><tbody>",
     );
     let mut current_session: Option<Option<&str>> = None;
     for metric in &result.cache_metrics {
@@ -163,13 +163,19 @@ fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<
             };
             write!(
                 output,
-                "<tr><td colspan=\"11\" style=\"background:#f8f9f9\"><strong>会话 {}</strong></td></tr>",
+                "<tr><td colspan=\"13\" style=\"background:#f8f9f9\"><strong>会话 {}</strong></td></tr>",
                 encode_text(&label)
             )?;
         }
         let tokens = |value: Option<u32>| {
             value
                 .map(|tokens| tokens.to_string())
+                .unwrap_or_else(|| "—".to_string())
+        };
+        // 时延是上游观测值，未上报时显示 —，不显示 0。
+        let latency = |value: Option<u64>| {
+            value
+                .map(|ms| format!("{ms} ms"))
                 .unwrap_or_else(|| "—".to_string())
         };
         let delta = metric
@@ -193,13 +199,16 @@ fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<
         write!(
             output,
             "<tr><td></td><td>{}</td><td><code>{}</code></td><td>{}</td><td>{}</td>\
-             <td>{}</td><td>{}</td><td>{:.1}%</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+             <td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{:.1}%</td><td>{}</td>\
+             <td>{}</td><td>{}</td></tr>",
             metric.sequence,
             encode_text(&metric.request_id[..metric.request_id.len().min(12)]),
             tokens(metric.prompt_tokens),
             tokens(metric.cached_tokens),
             tokens(metric.miss_tokens),
             tokens(metric.output_tokens),
+            latency(metric.ttft_ms),
+            latency(metric.total_ms),
             metric.hit_rate * 100.0,
             encode_text(&delta),
             match metric.basis {
