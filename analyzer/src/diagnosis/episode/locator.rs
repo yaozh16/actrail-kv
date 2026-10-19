@@ -140,7 +140,7 @@ fn build_candidate(
 
     let fact_analysis = facts::analyze(&located, options.fixed_variant_max);
     let logical_shape = logical_shape(template, x_start, recovery.start);
-    let id = identity::defect_id(&template.domain, &logical_shape, &recovery);
+    let id = identity::defect_id(&template.domain, &logical_shape, recovery);
     let mut facts = fact_analysis.facts;
     facts.push(DefectFact {
         kind: DefectFactKind::Scope,
@@ -151,7 +151,7 @@ fn build_candidate(
         .into_iter()
         .map(|(fingerprint, members)| episode_variant(fingerprint, members))
         .collect();
-    let recovered_stable = recovered_evidence(template, &recovery, &representative.member_id);
+    let recovered_stable = recovered_evidence(template, recovery, &representative.member_id);
     let confidence = (template.cohesion
         * template.projection_reliability
         * (located.len() as f64 / template.symbolic_members.len() as f64)

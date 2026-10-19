@@ -32,7 +32,12 @@ actrail-kv/
 │
 ├── artifacts/src/                                 # 三个二进制共享的磁盘协议
 │   ├── captured_request.rs                        # CapturedRequest、显式 ComparisonMetadata
-│   ├── analysis_result.rs                         # template、统一 ContextDefect、Top K ID
+│   ├── analysis_result.rs                         # AnalysisResult、template、统一 ContextDefect、Top K ID
+│   ├── analysis_result/
+│   │   ├── session.rs                             # 会话刷新、逐请求前缀复用度与事件协议
+│   │   ├── prefix_reuse.rs                        # 结构复用率与可恢复上界协议
+│   │   ├── cache_metric.rs                        # 逐请求缓存命中率协议
+│   │   └── run_summary.rs                         # 运行摘要、参数快照与 skip 协议
 │   └── lib.rs                                     # 公共 DTO re-export
 │
 ├── receiver/src/                                  # 最小接收端；不依赖 analyzer
@@ -101,7 +106,8 @@ actrail-kv/
 │   │   └── tests.rs                             # 去重、tie-break 和 Top K 前缀测试
 │   ├── session/
 │   │   ├── mod.rs                               # 会话 prefix-switch 与结构复用率模块入口
-│   │   └── lineage.rs                           # 相邻对 append/fork/reorder/reset、浪费字节、复用率与字节构成
+│   │   ├── lineage.rs                           # 会话时间线、上下文刷新与相邻对分类
+│   │   └── reuse.rs                             # 结构复用率汇总与可恢复上界
 │   ├── run/
 │   │   ├── options.rs                           # 算法阈值、时间窗口和资源预算
 │   │   ├── pipeline.rs                          # 文件/reader 编排、artifact 映射与原子输出
@@ -110,13 +116,15 @@ actrail-kv/
 │
 ├── reporter/src/                                # 只消费统一 analysis.json；不重新分析
 │   ├── result_loader.rs                         # schema、引用、成员、P2、score、Top K 强校验
-│   ├── html_report_renderer.rs                  # comparison group、P1/X/P2、facts、insights；全转义
+│   ├── html_report_renderer.rs                  # 报告编排、缺陷、复用率、命中率与前缀树；全转义
+│   ├── html_report_renderer/
+│   │   └── session.rs                           # 会话上下文刷新 warning 与逐轮事件
 │   └── lib.rs
 │
 ├── examples/
 │   ├── quickstart/
 │   │   └── requests.ndjson                      # 根 README 可直接分析的最小缺陷语料
-│   ├── cases/                                  # 真实语料回归 fixture（workspace/policy/json/insert/natural/session）
+│   ├── cases/                                  # 真实语料回归 fixture（workspace/policy/json/insert/natural/session/context-refresh）
 │   ├── analyze.config.example.json              # analyze 全字段 JSON 配置示例
 │   └── receiver.config.example.json             # receiver JSON 配置示例
 │

@@ -1,106 +1,135 @@
 //! 按 session 相邻对计算公共前缀、切换类型与可恢复稳定字节。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
-use actrail_kv_artifacts::{
-    ContextDefect, PrefixReuseComposition, PrefixReuseRequest, PrefixReuseSession,
-    PrefixReuseSummary, SessionEventType, SessionReport, SessionSwitchEvent,
-};
+use actrail_kv_artifacts::{SessionEventType, SessionReport, SessionSwitchEvent};
 use sha2::{Digest, Sha256};
 
-use crate::model::projection::{CacheSequence, CacheUnit, CacheUnitKind, ContextCollectionKind};
+use crate::model::projection::{
+    CacheSequence, CacheUnit, CacheUnitKind, ComparisonDomain, ContextCollectionKind,
+};
 
 /// 会话内一行：session 标识与对应投影序列。
 #[derive(Clone, Debug)]
 pub(crate) struct SessionRow<'a> {
     pub session_key: &'a str,
+    pub captured_at: Option<&'a str>,
+    pub input_line: usize,
     pub sequence: &'a CacheSequence,
 }
 
-/// 按会话与比较域分组，输出按“切换后可恢复稳定字节”降序的报告。
+/// 按 session 分组，组内按采集时间稳定排序并输出刷新风险报告。
 pub(crate) fn analyze_reports(rows: Vec<SessionRow<'_>>) -> Vec<SessionReport> {
-    let mut buckets: Vec<(String, String, String, Vec<&CacheSequence>)> = Vec::new();
-    let mut by_key: HashMap<(String, String, String), usize> = HashMap::new();
+    let mut by_session: BTreeMap<String, Vec<SessionRow<'_>>> = BTreeMap::new();
     for row in rows {
-        let domain = &row.sequence.domain;
-        let key = (
-            row.session_key.to_owned(),
-            domain.endpoint_key.clone(),
-            domain.model.clone(),
-        );
-        let index = match by_key.get(&key) {
-            Some(index) => *index,
-            None => {
-                let index = buckets.len();
-                by_key.insert(key.clone(), index);
-                buckets.push((key.0, key.1, key.2, Vec::new()));
-                index
-            }
-        };
-        buckets[index].3.push(row.sequence);
+        by_session
+            .entry(row.session_key.to_owned())
+            .or_default()
+            .push(row);
     }
 
-    let mut reports: Vec<_> = buckets
+    let mut reports: Vec<_> = by_session
         .into_iter()
-        .filter(|(_, _, _, sequences)| sequences.len() >= 2)
-        .map(|(session_key, endpoint_key, model, sequences)| {
-            build_report(session_key, endpoint_key, model, sequences)
+        .filter(|(_, rows)| rows.len() >= 2)
+        .map(|(session_key, mut rows)| {
+            rows.sort_by(|left, right| {
+                timestamp_key(left.captured_at)
+                    .cmp(&timestamp_key(right.captured_at))
+                    .then_with(|| left.input_line.cmp(&right.input_line))
+            });
+            build_report(session_key, rows)
         })
         .collect();
     reports.sort_by(|left, right| {
         right
-            .total_stable_after_switch_bytes
-            .cmp(&left.total_stable_after_switch_bytes)
+            .context_refresh_count
+            .cmp(&left.context_refresh_count)
+            .then_with(|| {
+                right
+                    .total_abandoned_prefix_bytes
+                    .cmp(&left.total_abandoned_prefix_bytes)
+            })
             .then_with(|| left.session_key.cmp(&right.session_key))
     });
     reports
 }
 
-fn build_report(
-    session_key: String,
-    endpoint_key: String,
-    model: String,
-    sequences: Vec<&CacheSequence>,
-) -> SessionReport {
+fn timestamp_key(value: Option<&str>) -> i128 {
+    value
+        .and_then(|value| {
+            time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).ok()
+        })
+        .map(|value| value.unix_timestamp_nanos())
+        .unwrap_or(i128::MIN)
+}
+
+fn build_report(session_key: String, rows: Vec<SessionRow<'_>>) -> SessionReport {
+    let endpoint_key = rows[0].sequence.domain.endpoint_key.clone();
+    let model = rows[0].sequence.domain.model.clone();
     let mut events = Vec::new();
     let mut append_count = 0usize;
     let mut fork_count = 0usize;
     let mut reorder_count = 0usize;
     let mut reset_count = 0usize;
+    let mut context_refresh_count = 0usize;
+    let mut domain_change_count = 0usize;
     let mut total_recomputed_bytes = 0usize;
     let mut total_stable_after_switch_bytes = 0usize;
     let mut total_prefix_cut_bytes = 0usize;
+    let mut total_abandoned_prefix_bytes = 0usize;
     let mut previous_lcp_bytes: Option<usize> = None;
-    for pair in sequences.windows(2) {
-        let (event_type, lcp_units, lcp_bytes) = classify(pair[0], pair[1]);
+    for (index, pair) in rows.windows(2).enumerate() {
+        let previous = pair[0].sequence;
+        let next = pair[1].sequence;
+        let (event_type, lcp_units, lcp_bytes) = classify(previous, next);
         let previous_pair_lcp_bytes = previous_lcp_bytes.unwrap_or(0);
         let prefix_cut_bytes = previous_pair_lcp_bytes.saturating_sub(lcp_bytes);
         previous_lcp_bytes = Some(lcp_bytes);
-        let next_total_bytes = observable_bytes(&pair[1].units);
+        let previous_total_bytes = observable_content_bytes(&previous.units);
+        let next_total_bytes = observable_bytes(&next.units);
+        let retained_prefix_bytes = content_prefix_bytes(&previous.units, &next.units);
+        let abandoned_prefix_bytes = previous_total_bytes.saturating_sub(retained_prefix_bytes);
+        let prefix_reuse_ratio = (previous_total_bytes > 0)
+            .then(|| retained_prefix_bytes as f64 / previous_total_bytes as f64);
+        let prefix_reuse_outlier =
+            previous_total_bytes > 0 && retained_prefix_bytes < previous_total_bytes;
+        let domain_changed = comparison_domain_changed(&previous.domain, &next.domain);
         let recomputed_bytes = next_total_bytes.saturating_sub(lcp_bytes);
-        let stable_after_switch_bytes = recovered_contiguous_bytes(pair[0], pair[1], lcp_units);
+        let stable_after_switch_bytes = recovered_contiguous_bytes(previous, next, lcp_units);
         match event_type {
             SessionEventType::Append => append_count += 1,
             SessionEventType::Fork => fork_count += 1,
             SessionEventType::Reorder => reorder_count += 1,
             SessionEventType::Reset => reset_count += 1,
         }
+        context_refresh_count += usize::from(prefix_reuse_outlier);
+        domain_change_count += usize::from(domain_changed);
         total_recomputed_bytes = total_recomputed_bytes.saturating_add(recomputed_bytes);
         total_stable_after_switch_bytes =
             total_stable_after_switch_bytes.saturating_add(stable_after_switch_bytes);
         total_prefix_cut_bytes = total_prefix_cut_bytes.saturating_add(prefix_cut_bytes);
+        total_abandoned_prefix_bytes =
+            total_abandoned_prefix_bytes.saturating_add(abandoned_prefix_bytes);
         events.push(SessionSwitchEvent {
             event_type,
-            prev_request_id: pair[0].request_id.clone(),
-            next_request_id: pair[1].request_id.clone(),
+            previous_sequence: index + 1,
+            next_sequence: index + 2,
+            prev_request_id: previous.request_id.clone(),
+            next_request_id: next.request_id.clone(),
             lcp_units,
             lcp_bytes,
             previous_pair_lcp_bytes,
             prefix_cut_bytes,
+            previous_total_bytes,
+            retained_prefix_bytes,
+            prefix_reuse_ratio,
+            abandoned_prefix_bytes,
+            prefix_reuse_outlier,
+            domain_changed,
             next_total_bytes,
             recomputed_bytes,
             stable_after_switch_bytes,
-            next_block_runs: run_length_summary(&pair[1].units),
+            next_block_runs: run_length_summary(&next.units),
         });
     }
     let event_count = events.len();
@@ -108,21 +137,29 @@ fn build_report(
         session_key,
         endpoint_key,
         model,
-        request_count: sequences.len(),
+        request_count: rows.len(),
         append_count,
         fork_count,
         reorder_count,
         reset_count,
+        context_refresh_count,
         total_recomputed_bytes,
         total_stable_after_switch_bytes,
         total_prefix_cut_bytes,
-        avg_prefix_cut_bytes: if event_count == 0 {
-            0
-        } else {
-            total_prefix_cut_bytes / event_count
-        },
+        avg_prefix_cut_bytes: total_prefix_cut_bytes.checked_div(event_count).unwrap_or(0),
+        total_abandoned_prefix_bytes,
+        domain_change_count,
         events,
     }
+}
+
+fn comparison_domain_changed(previous: &ComparisonDomain, next: &ComparisonDomain) -> bool {
+    previous.endpoint_key != next.endpoint_key
+        || previous.model != next.model
+        || previous.model_deployment_key != next.model_deployment_key
+        || previous.context_schema_key != next.context_schema_key
+        || previous.agent_key != next.agent_key
+        || previous.kv_namespace != next.kv_namespace
 }
 
 fn run_length_summary(units: &[CacheUnit]) -> String {
@@ -304,164 +341,21 @@ fn observable_bytes(units: &[CacheUnit]) -> usize {
     units.iter().map(|unit| unit.content.len()).sum()
 }
 
-/// `requests[]` 的体积上限：超出时只保留增益最大的前若干条。
-const MAX_PREFIX_REUSE_REQUESTS: usize = 500;
-
-/// 单个请求的前缀上限与限制它的缺陷。
-#[derive(Clone, Debug)]
-pub(crate) struct RequestPotential {
-    /// 限制该请求前缀的缺陷中，被阻断稳定字节的最大值。
-    pub blocked_stable_bytes: usize,
-    pub defect_ids: Vec<String>,
+fn observable_content_bytes(units: &[CacheUnit]) -> usize {
+    units
+        .iter()
+        .filter(|unit| is_content_bearing(unit))
+        .map(|unit| unit.content.len())
+        .sum()
 }
 
-/// 从缺陷证据反推每个受影响请求被阻断的稳定字节。
-///
-/// 口径：取缺陷的 `blocked_stable_bytes`（X 之后本可复用却被阻断的稳定字节）。
-/// 同一请求被多个缺陷限制时取最大值、**不做相加**——同一根因常在不同比较组里被重复识别，
-/// 相加会重复计数；取最大值是保守估计。该量是结构代理，不代表真实 token 命中或金额收益。
-pub(crate) fn request_potential_by_request(
-    defects: &[ContextDefect],
-) -> HashMap<String, RequestPotential> {
-    let mut potentials: HashMap<String, RequestPotential> = HashMap::new();
-    for defect in defects {
-        for variant in &defect.mismatch.variants {
-            for request_id in &variant.member_request_ids {
-                let entry =
-                    potentials
-                        .entry(request_id.clone())
-                        .or_insert_with(|| RequestPotential {
-                            blocked_stable_bytes: 0,
-                            defect_ids: Vec::new(),
-                        });
-                entry.blocked_stable_bytes =
-                    entry.blocked_stable_bytes.max(defect.blocked_stable_bytes);
-                entry.defect_ids.push(defect.id.clone());
-            }
-        }
-    }
-    for entry in potentials.values_mut() {
-        entry.defect_ids.sort();
-        entry.defect_ids.dedup();
-    }
-    potentials
-}
-
-/// 汇总结构复用率：Σ 会话内相邻请求对的公共前缀 / Σ 上下文总字节，
-/// 并给出"消除已知结构问题后"的上界。
-///
-/// 口径说明（与 `docs/architectures/analyze/output.md` 保持一致）：
-/// - 只覆盖会话内相邻请求对，会话首个请求没有前序、不参与统计；
-/// - 无样本时返回 `None`，报告中不渲染该区块；
-/// - 是结构代理，不代表真实 token 命中、延迟或金额收益。
-///
-/// 逐请求上限来自缺陷证据（见 [`request_potential_by_request`]）：
-/// `上限 = 当前公共前缀 + 所涉缺陷被阻断稳定字节的最大值`，并以该请求上下文总长为上界。
-/// 含义是"若这些结构问题都被消除，该请求可达的前缀"，属结构上界。
-pub(crate) fn summarize_prefix_reuse(
-    reports: &[SessionReport],
-    potentials: &HashMap<String, RequestPotential>,
-) -> Option<PrefixReuseSummary> {
-    if reports.is_empty() {
-        return None;
-    }
-    let mut by_session = Vec::with_capacity(reports.len());
-    let mut requests: Vec<PrefixReuseRequest> = Vec::new();
-    let mut request_pairs = 0usize;
-    let mut lcp_bytes = 0usize;
-    let mut potential_lcp_bytes = 0usize;
-    let mut context_bytes = 0usize;
-    let mut recoverable_stable_bytes = 0usize;
-    let mut sessions_with_prefix_cut = 0usize;
-    for report in reports {
-        let mut session_pairs = 0usize;
-        let mut session_lcp = 0usize;
-        let mut session_potential = 0usize;
-        let mut session_context = 0usize;
-        for event in &report.events {
-            let reusable = event.lcp_bytes;
-            let potential = potentials
-                .get(&event.next_request_id)
-                .map(|entry| {
-                    reusable
-                        .saturating_add(entry.blocked_stable_bytes)
-                        .min(event.next_total_bytes)
-                        .max(reusable)
-                })
-                .unwrap_or(reusable);
-            session_pairs += 1;
-            session_lcp += reusable;
-            session_potential += potential;
-            session_context += event.next_total_bytes;
-            if potential > reusable {
-                requests.push(PrefixReuseRequest {
-                    request_id: event.next_request_id.clone(),
-                    session_key: report.session_key.clone(),
-                    reusable_prefix_bytes: reusable,
-                    potential_prefix_bytes: potential,
-                    gain_bytes: potential - reusable,
-                    blocking_defect_ids: potentials
-                        .get(&event.next_request_id)
-                        .map(|entry| entry.defect_ids.clone())
-                        .unwrap_or_default(),
-                });
-            }
-        }
-        if report.total_prefix_cut_bytes > 0 {
-            sessions_with_prefix_cut += 1;
-        }
-        recoverable_stable_bytes += report.total_stable_after_switch_bytes;
-        request_pairs += session_pairs;
-        lcp_bytes += session_lcp;
-        potential_lcp_bytes += session_potential;
-        context_bytes += session_context;
-        by_session.push(PrefixReuseSession {
-            session_key: report.session_key.clone(),
-            request_pairs: session_pairs,
-            lcp_bytes: session_lcp,
-            context_bytes: session_context,
-            ratio: reuse_ratio(session_lcp, session_context),
-            potential_lcp_bytes: session_potential,
-            gain_bytes: session_potential.saturating_sub(session_lcp),
-        });
-    }
-    if request_pairs == 0 {
-        return None;
-    }
-    requests.sort_by(|left, right| {
-        right
-            .gain_bytes
-            .cmp(&left.gain_bytes)
-            .then_with(|| left.request_id.cmp(&right.request_id))
-    });
-    requests.truncate(MAX_PREFIX_REUSE_REQUESTS);
-    let gain_bytes = potential_lcp_bytes.saturating_sub(lcp_bytes);
-    Some(PrefixReuseSummary {
-        sessions: reports.len(),
-        request_pairs,
-        lcp_bytes,
-        context_bytes,
-        ratio: reuse_ratio(lcp_bytes, context_bytes),
-        potential_lcp_bytes,
-        potential_ratio: reuse_ratio(potential_lcp_bytes, context_bytes),
-        gain_bytes,
-        recoverable_stable_bytes,
-        sessions_with_prefix_cut,
-        by_session,
-        requests,
-        composition: PrefixReuseComposition {
-            context_bytes,
-            reusable_bytes: lcp_bytes,
-            recoverable_bytes: gain_bytes,
-            new_content_bytes: context_bytes.saturating_sub(potential_lcp_bytes),
-        },
-    })
-}
-
-fn reuse_ratio(lcp_bytes: usize, context_bytes: usize) -> f64 {
-    if context_bytes == 0 {
-        0.0
-    } else {
-        lcp_bytes as f64 / context_bytes as f64
-    }
+/// 内容性单元的连续公共前缀字节；结构起止标记的移动不算上下文刷新。
+fn content_prefix_bytes(previous: &[CacheUnit], next: &[CacheUnit]) -> usize {
+    let common = content_prefix_units(previous, next);
+    previous
+        .iter()
+        .filter(|unit| is_content_bearing(unit))
+        .take(common)
+        .map(|unit| unit.content.len())
+        .sum()
 }

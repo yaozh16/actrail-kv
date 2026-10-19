@@ -130,14 +130,24 @@
 | `session_reports[].endpoint_key` / `.model` | string | 该会话所在比较域的 endpoint 与 model。 |
 | `session_reports[].request_count` | integer | 会话内带投影记录数。 |
 | `session_reports[].append_count` / `.fork_count` / `.reorder_count` / `.reset_count` | integer | 相邻对四类事件计数。 |
+| `session_reports[].context_refresh_count` | integer | 前缀复用离群事件数，即上一条内容性上下文未被完整保留的相邻对数。 |
 | `session_reports[].total_recomputed_bytes` | integer | 各事件 `next_total - lcp` 之和。 |
 | `session_reports[].total_stable_after_switch_bytes` | integer | 切换后连续可恢复稳定字节之和（CC 证据）。 |
 | `session_reports[].total_prefix_cut_bytes` / `.avg_prefix_cut_bytes` | integer | 前缀收缩总量与按事件平均（首事件视为 0）。 |
+| `session_reports[].total_abandoned_prefix_bytes` | integer | 所有刷新事件废弃的上一条内容性上下文字节之和。 |
+| `session_reports[].domain_change_count` | integer | endpoint、model、deployment、schema、agent 或 namespace 发生变化的相邻对数。 |
 | `session_reports[].events[]` | object array | 相邻对事件明细。 |
 | `session_reports[].events[].event_type` | enum | `append` / `fork` / `reorder` / `reset`；仅证据分类，不做业务判断。 |
+| `session_reports[].events[].previous_sequence` / `.next_sequence` | integer | 相邻请求在 session 内的一基序号；旧版缺省为 0。 |
 | `session_reports[].events[].prev_request_id` / `.next_request_id` | string | 参与比较的相邻请求 ID。 |
 | `session_reports[].events[].lcp_units` / `.lcp_bytes` | integer | 公共前缀长度。 |
 | `session_reports[].events[].previous_pair_lcp_bytes` / `.prefix_cut_bytes` | integer | 前一对公共前缀与本次收缩量（收缩为 0 时不放大）。 |
+| `session_reports[].events[].previous_total_bytes` | integer | 上一条请求内容性上下文单元字节。 |
+| `session_reports[].events[].retained_prefix_bytes` | integer | 内容性单元连续公共前缀字节。 |
+| `session_reports[].events[].prefix_reuse_ratio?` | number，`0..1` | 内容性单元连续公共前缀字节 / `previous_total_bytes`；前序为空时缺省。 |
+| `session_reports[].events[].abandoned_prefix_bytes` | integer | `previous_total_bytes - retained_prefix_bytes`。 |
+| `session_reports[].events[].prefix_reuse_outlier` | boolean | 当前相邻请求对是否构成一次上下文刷新。 |
+| `session_reports[].events[].domain_changed` | boolean | 该相邻对的比较域是否变化。 |
 | `session_reports[].events[].next_total_bytes` / `.recomputed_bytes` | integer | 下一条总字节与切换后需重算字节。 |
 | `session_reports[].events[].stable_after_switch_bytes` | integer | 分歧点后连续对齐稳定段字节；可为 0。 |
 | `session_reports[].events[].next_block_runs` | string | 下一条内容性单位稳定块 run-length 摘要（如 `aabbccddx4/…`）。 |
@@ -288,6 +298,12 @@
   以该请求上下文总长为上界。它把缺陷对齐口径下的被阻断字节叠加到会话复用口径上，是**结构上界**，
   不是可达承诺，也不能换算成 token 或金额收益。
 - `cache_metrics[]` 按会话分组、组内按 `captured_at` 与输入行序稳定排序；缺少 session 的记录全部归入同一个缺省分组。
+- `session_reports[]` 只按 `session_key` 分组，组内按 `captured_at` 和输入行序排序；
+  endpoint/model 变化不会拆分 session，而由事件的 `domain_changed` 标记。
+- `session_reports[]` 按 `context_refresh_count`、`total_abandoned_prefix_bytes` 降序，
+  最后按 `session_key` 升序稳定排序。
+- 内容性单元连续公共前缀只统计 VisibleText、ToolDefinition、ToolCall 和 ToolResult；
+  `messages:start` / `messages:end` 等结构标记的移动不构成上下文刷新。
 - `basis=reported` 表示计数来自上游响应的 usage；`basis=estimated` 表示上游没有返回 usage，
   此时 token 字段全部缺省，`hit_rate` 是"与上一条请求 payload 的公共前缀字节 / 本请求 payload 字节"，
   属于字节比代理值。**下游不得把 `estimated` 的 `hit_rate` 当作真实 KV 命中率使用**，

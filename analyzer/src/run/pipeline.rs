@@ -63,9 +63,13 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
         options.comparison_window_seconds,
     );
     let mut sequences = Vec::new();
+    let mut sequence_records = Vec::new();
     for record in &loaded.corpus.records {
         match projector.project(record) {
-            Ok(sequence) => sequences.push(sequence),
+            Ok(sequence) => {
+                sequence_records.push(record);
+                sequences.push(sequence);
+            }
             Err(skip) => skips.push(projection_skip(record.input_line, &skip)),
         }
     }
@@ -76,14 +80,14 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
             skips.len()
         );
     }
-    let session_rows: Vec<SessionRow<'_>> = loaded
-        .corpus
-        .records
+    let session_rows: Vec<SessionRow<'_>> = sequence_records
         .iter()
         .zip(&sequences)
         .filter_map(|(record, sequence)| {
             record.session_key.as_deref().map(|session_key| SessionRow {
                 session_key,
+                captured_at: record.captured_at.as_deref(),
+                input_line: record.input_line,
                 sequence,
             })
         })

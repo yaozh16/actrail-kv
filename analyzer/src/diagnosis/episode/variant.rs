@@ -78,7 +78,7 @@ pub(super) fn build_variant(
             )),
         }
     }
-    ordered.sort_by(|left, right| (left.0, left.1).cmp(&(right.0, right.1)));
+    ordered.sort_by_key(|entry| (entry.0, entry.1));
     let parts: Vec<_> = ordered.into_iter().map(|(_, _, part)| part).collect();
     let fingerprint = identity::digest(parts.iter().flat_map(|part| {
         [

@@ -81,6 +81,64 @@ fn validate(result: &AnalysisResult) -> Result<()> {
             bail!("top_k must be a prefix of the deterministically sorted defects");
         }
     }
+    validate_sessions(&result.session_reports)?;
+    Ok(())
+}
+
+fn validate_sessions(reports: &[actrail_kv_artifacts::SessionReport]) -> Result<()> {
+    for report in reports {
+        if report.request_count != report.events.len().saturating_add(1) {
+            bail!("session request_count does not match event count");
+        }
+        let modern = report
+            .events
+            .iter()
+            .any(|event| event.prefix_reuse_ratio.is_some());
+        if modern {
+            let refresh_count = report
+                .events
+                .iter()
+                .filter(|event| event.prefix_reuse_outlier)
+                .count();
+            if report.context_refresh_count != refresh_count {
+                bail!("session refresh count does not match refresh events");
+            }
+            let abandoned: usize = report
+                .events
+                .iter()
+                .map(|event| event.abandoned_prefix_bytes)
+                .sum();
+            if report.total_abandoned_prefix_bytes != abandoned {
+                bail!("session abandoned prefix total is inconsistent");
+            }
+        }
+        for event in &report.events {
+            if event.abandoned_prefix_bytes > event.previous_total_bytes {
+                bail!("session abandoned prefix exceeds previous context");
+            }
+            let Some(ratio) = event.prefix_reuse_ratio else {
+                continue;
+            };
+            if event.previous_total_bytes == 0 || !is_probability(ratio) {
+                bail!("session prefix reuse ratio must be a finite probability");
+            }
+            if event.retained_prefix_bytes > event.previous_total_bytes
+                || event.retained_prefix_bytes + event.abandoned_prefix_bytes
+                    != event.previous_total_bytes
+            {
+                bail!("session retained and abandoned prefix bytes are inconsistent");
+            }
+            let retained = event.retained_prefix_bytes;
+            let expected = retained as f64 / event.previous_total_bytes as f64;
+            let tolerance = f64::EPSILON * expected.abs().max(1.0) * 8.0;
+            if (ratio - expected).abs() > tolerance {
+                bail!("session prefix reuse ratio is inconsistent with byte evidence");
+            }
+            if event.prefix_reuse_outlier != (event.abandoned_prefix_bytes > 0) {
+                bail!("session refresh flag is inconsistent with abandoned prefix");
+            }
+        }
+    }
     Ok(())
 }
 
