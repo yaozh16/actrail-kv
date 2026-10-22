@@ -9,7 +9,7 @@ agent（OpenAI 兼容 或 Anthropic Messages 协议）
   → agent-cassette（录制 + 转发 + actrail 直推）
   → actrail-kv-receiver → ndjson
   → actrail-kv-analyze → analysis.json
-  → actrail-kv-report → report.html
+  → actrail-kv-report → report.html + report.md
 ```
 
 组件职责：
@@ -19,7 +19,7 @@ agent（OpenAI 兼容 或 Anthropic Messages 协议）
 | agent-cassette | 接收 OpenAI `/v1/chat/completions` 与 Anthropic `/v1/messages`；录制原始请求；转发至配置的真实 LLM 后端；录制成功后向 actrail receiver 直推 |
 | actrail-kv-receiver | 接收直推请求并追加写入 ndjson |
 | actrail-kv-analyze | 从 ndjson 聚类模板、识别结构缺陷、输出 `analysis.json` |
-| actrail-kv-report | 将 `analysis.json` 渲染为静态 HTML 报告 |
+| actrail-kv-report | 将 `analysis.json` 渲染为同内容的 HTML 与 GFM Markdown 报告 |
 
 ## 2. 部署前准备
 
@@ -213,7 +213,9 @@ target/release/actrail-kv-report \
   --output "$REPORT_DIR/report.html"
 ```
 
-`report.html` 为自包含静态文件，可直接用浏览器打开，或置于静态目录（如 nginx）供访问。
+默认生成自包含的 `report.html` 与 `report.md`。HTML 可直接用浏览器打开或置于静态目录；
+Markdown 可直接在代码仓库、缺陷平台或 Markdown 阅读器中查看。可用
+`--format html|md` 只生成一种格式。
 
 ## 4. Windows 部署
 

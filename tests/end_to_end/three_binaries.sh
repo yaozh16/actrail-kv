@@ -69,6 +69,22 @@ cmp "$test_dir/analysis.json" "$test_dir/analysis-repeat.json"
 target/debug/actrail-kv-report \
   --input "$test_dir/analysis.json" \
   --output "$test_dir/report.html"
+[[ -f "$test_dir/report.html" ]]
+[[ -f "$test_dir/report.md" ]]
+
+target/debug/actrail-kv-report \
+  --input "$test_dir/analysis.json" \
+  --output "$test_dir/report-only.md" \
+  --format md
+[[ -f "$test_dir/report-only.md" ]]
+[[ ! -e "$test_dir/report-only.html" ]]
+
+target/debug/actrail-kv-report \
+  --input "$test_dir/analysis.json" \
+  --output "$test_dir/report-html-only.html" \
+  --format html
+[[ -f "$test_dir/report-html-only.html" ]]
+[[ ! -e "$test_dir/report-html-only.md" ]]
 
 [[ $(wc -l < "$test_dir/requests.ndjson") -eq 4 ]]
 [[ $(jq '.defects | length' "$test_dir/analysis.json") -ge 1 ]]
@@ -84,5 +100,12 @@ grep -q '<strong>P2</strong>' "$test_dir/report.html"
 grep -q '&lt;script&gt;alert(1)&lt;/script&gt;' "$test_dir/report.html"
 if grep -q '<script>' "$test_dir/report.html"; then
   echo "unsafe script content found in report" >&2
+  exit 1
+fi
+grep -q '^# LLM KV 缓存结构诊断$' "$test_dir/report.md"
+grep -q '^## Top K$' "$test_dir/report.md"
+grep -q '^## 缺陷详情$' "$test_dir/report.md"
+if grep -qE '<(style|details|svg)([ >])' "$test_dir/report.md"; then
+  echo "raw HTML container found in markdown report" >&2
   exit 1
 fi

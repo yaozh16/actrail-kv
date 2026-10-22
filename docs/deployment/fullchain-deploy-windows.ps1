@@ -350,6 +350,7 @@ function Invoke-CmdReport {
 report done:
   analysis: $(Join-Path $outDir 'analysis.json')
   report:   $(Join-Path $outDir 'report.html')
+  markdown: $(Join-Path $outDir 'report.md')
 ========================================================
 "@
 }

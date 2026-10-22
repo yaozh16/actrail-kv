@@ -16,4 +16,4 @@ reporter 只读取 analyzer 生成的 `analysis.json`，不重新分析请求。
 | `session_reports[]` | `request_count` 与事件数一致；新版复用度、刷新标记和废弃字节必须自洽。 |
 | `prefix_reuse` / `cache_metrics[]` / `templates[].prefix_view` | 可选字段，不参与强校验；缺省时对应报告区块整块不渲染。 |
 
-不满足任一项时 report 命令失败，不生成伪完整 HTML。
+不满足任一项时 report 命令失败，不生成伪完整报告。

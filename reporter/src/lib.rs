@@ -1,6 +1,8 @@
-//! 本文件公开 analysis.json 加载与安全静态 HTML 报告生成入口。
+//! 本文件公开 analysis.json 加载与 HTML/GFM Markdown 报告生成入口。
 
 mod html_report_renderer;
+mod markdown_report_renderer;
+mod report_output;
 mod result_loader;
 
 use std::path::Path;
@@ -8,58 +10,18 @@ use std::path::Path;
 use anyhow::Result;
 
 pub use html_report_renderer::render_html;
+pub use markdown_report_renderer::render_markdown;
+pub use report_output::ReportFormat;
 pub use result_loader::load_result;
 
 /// 从 analysis.json 生成一个原子写入的静态 HTML 报告。
 pub fn write_report(input: &Path, output: &Path) -> Result<()> {
-    ensure_distinct_paths(input, output)?;
-    let result = load_result(input)?;
-    let html = render_html(&result)?;
-    write_atomic(output, html.as_bytes())
+    report_output::write_html_only(input, output)
 }
 
-fn write_atomic(output: &Path, bytes: &[u8]) -> Result<()> {
-    use std::io::Write;
-
-    let parent = output.parent().unwrap_or_else(|| Path::new("."));
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary.write_all(bytes)?;
-    temporary.as_file_mut().sync_all()?;
-    temporary.persist(output)?;
-    sync_parent(parent)?;
-    Ok(())
-}
-
-fn ensure_distinct_paths(input: &Path, output: &Path) -> Result<()> {
-    if output.exists() && same_file::is_same_file(input, output).unwrap_or(false) {
-        anyhow::bail!("input and output must refer to different files");
-    }
-    if !output.exists() {
-        let input = input.canonicalize()?;
-        let parent = output
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .canonicalize()?;
-        let destination = match output.file_name() {
-            Some(name) => parent.join(name),
-            None => parent,
-        };
-        if input == destination {
-            anyhow::bail!("input and output must refer to different files");
-        }
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<()> {
-    std::fs::File::open(parent)?.sync_all()?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<()> {
-    Ok(())
+/// 按可选格式生成报告；未指定格式时同时生成 HTML 与 Markdown。
+pub fn write_reports(input: &Path, output: &Path, format: Option<ReportFormat>) -> Result<()> {
+    report_output::write_reports(input, output, format)
 }
 
 #[cfg(test)]

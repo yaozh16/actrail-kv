@@ -1,7 +1,16 @@
-<!-- 本文件定义 actrail-kv-report 产物 report.html 的展示契约。 -->
+<!-- 本文件定义 actrail-kv-report 的 HTML 与 GFM Markdown 双产物契约。 -->
 # Report 输出
 
-`report.html` 是单文件、无脚本的静态 HTML，用于内网人工审阅。
+`actrail-kv-report` 从同一份 `analysis.json` 生成 HTML 和/或纯 GFM Markdown：
+
+| `--format` | 产物 |
+|---|---|
+| 不传 | 同名 `report.html` + `report.md` |
+| `html` | 仅写入 `--output` 指定的 HTML 路径 |
+| `md` | 仅写入 `--output` 指定的 Markdown 路径 |
+
+默认双份模式会把 `.html`、`.md` 或无后缀输出路径归一化为同一基础路径。HTML 是单文件、
+无脚本静态页面；Markdown 不嵌入 HTML、CSS、SVG 或 JavaScript。
 
 | 区域 | 数据来源 | 展示内容 |
 |---|---|---|
@@ -23,4 +32,8 @@
 - 会话刷新是 warning，不是 `defects[]` 中的错误；compact、subagent 与任务切换都可能产生刷新，由用户判断是否接受。
 - `prefix_reuse.ratio` 表示“当前请求有多少前缀可复用”，会话事件中的 `prefix_reuse_ratio` 表示“上一条上下文被保留了多少”，两者口径不同。
 - 所有可选输入字段缺省时，对应区块整块不渲染，旧版 `analysis.json` 仍可生成报告。
-所有来自 `analysis.json` 的文本均经过 HTML escape。该产物不包含 JavaScript、远程资源或请求自动改写行为。
+- HTML 与 Markdown 必须保持信息内容等价；Markdown 不复刻 CSS、颜色、进度条或交互式折叠。
+- HTML 中的所有文本经过 HTML escape；Markdown 中的普通文本经过 GFM escape，代码片段使用动态长度围栏。
+- Markdown 中原 HTML 的复用率色条、逐轮走势、成员衰减 SVG 和折叠事件分别转换为指标表、逐轮列表、
+  成员衰减表和事件表，不丢失原始数值。
+- 两种产物都不包含远程资源或请求自动改写行为。

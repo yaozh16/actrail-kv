@@ -409,6 +409,7 @@ PYEOF
 报告完成:
   analysis: $OUT_DIR/analysis.json
   report:   $OUT_DIR/report.html
+  markdown: $OUT_DIR/report.md
   浏览器:   http://<IP>:7777/$(basename "$OUT_DIR")/report.html
 ========================================================
 EOF

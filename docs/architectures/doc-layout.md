@@ -34,7 +34,7 @@ docs/
     │   └── output.md                           # analysis.json 协议、字段、示例与排序
     └── report/                                 # actrail-kv-report 专属设计
         ├── input.md                            # analysis.json 校验契约
-        └── output.md                           # report.html 展示契约
+        └── output.md                           # HTML / Markdown 双报告展示契约
 dev/
 ├── requirements/<version>/                     # 版本需求和验收案例
 └── designs/<version>/                          # 版本设计索引，不重复当前架构正文

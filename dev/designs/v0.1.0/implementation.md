@@ -6,11 +6,13 @@
 - [MVP 需求及验收案例](../../requirements/v0.1.0/llm-kv-structure-diagnostics-mvp.md)
 - [Analyzer 统一缺陷模型重写要求](../../requirements/v0.1.0/analyzer-rewrite.md)
 - [会话上下文刷新检测需求](../../requirements/v0.1.0/session-context-refresh-detection.md)
+- [HTML 与 Markdown 双报告需求](../../requirements/v0.1.0/report-markdown-output.md)
 
 ## 实现设计
 
 - [Analyzer 统一缺陷模型重写设计](analyzer-rewrite.md)
 - [会话上下文刷新检测设计](session-context-refresh-detection.md)
+- [HTML 与 Markdown 双报告设计](report-markdown-output.md)
 
 ## 架构与实现契约
 

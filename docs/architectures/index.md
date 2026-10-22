@@ -7,7 +7,7 @@
 |---|---|---|---|
 | `actrail-kv-receiver` | 完整 LLM HTTP JSON request | `requests.ndjson` | [输入](receiver/input.md) / [输出](receiver/output.md) |
 | `actrail-kv-analyze` | `requests.ndjson` | `analysis.json` | [输入](analyze/input.md) / [流水线](analyze/pipeline.md) / [输出](analyze/output.md) |
-| `actrail-kv-report` | `analysis.json` | `report.html` | [输入](report/input.md) / [输出](report/output.md) |
+| `actrail-kv-report` | `analysis.json` | `report.html` / `report.md` | [输入](report/input.md) / [输出](report/output.md) |
 
 ## 横切架构
 

@@ -1,0 +1,232 @@
+//! 本文件把统一分析结果渲染为纯 GFM Markdown 报告。
+
+use std::fmt::Write;
+
+use actrail_kv_artifacts::AnalysisResult;
+use anyhow::Result;
+
+mod cache;
+mod defects;
+mod format;
+mod prefix_reuse;
+mod prefix_tree;
+mod session;
+
+pub fn render_markdown(result: &AnalysisResult) -> Result<String> {
+    let mut output = String::with_capacity(24_384);
+    output.push_str("# LLM KV 缓存结构诊断\n\n");
+    writeln!(
+        output,
+        "输入 {} 条，分析 {} 条，跳过 {} 条；发现 {} 个上下文结构缺陷。\n",
+        result.run.input_records,
+        result.run.analyzed_records,
+        result.run.skipped_records.len(),
+        result.defects.len()
+    )?;
+    output.push_str(
+        "> 本报告基于可观察 HTTP payload 的结构代理，不代表真实 Token、KV 命中率或成本收益。\n\n",
+    );
+    if let Some(summary) = &result.prefix_reuse {
+        prefix_reuse::render(&mut output, summary, &result.cache_metrics)?;
+    }
+    defects::render_top_k(&mut output, result)?;
+    defects::render_details(&mut output, result)?;
+    if !result.session_reports.is_empty() {
+        session::render(&mut output, &result.session_reports)?;
+    }
+    if !result.cache_metrics.is_empty() {
+        cache::render(&mut output, result)?;
+    }
+    if result
+        .templates
+        .iter()
+        .any(|template| template.prefix_view.is_some())
+    {
+        prefix_tree::render(&mut output, result)?;
+    }
+    Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use actrail_kv_artifacts::{
+        CacheMetricBasis, KvCacheMetric, PrefixNode, PrefixNodeKind, PrefixReuseComposition,
+        PrefixReuseSession, PrefixReuseSummary, SessionEventType, SessionReport,
+        SessionSwitchEvent, SourceLocation, TemplatePrefixView,
+    };
+
+    use super::render_markdown;
+
+    #[test]
+    fn renders_all_report_sections_as_pure_gfm() {
+        let mut result = crate::result_loader::tests::fixture();
+        result.prefix_reuse = Some(PrefixReuseSummary {
+            sessions: 1,
+            request_pairs: 2,
+            lcp_bytes: 80,
+            context_bytes: 100,
+            ratio: 0.8,
+            potential_lcp_bytes: 90,
+            potential_ratio: 0.9,
+            gain_bytes: 10,
+            recoverable_stable_bytes: 0,
+            sessions_with_prefix_cut: 0,
+            by_session: vec![PrefixReuseSession {
+                session_key: "session-a".into(),
+                request_pairs: 2,
+                lcp_bytes: 80,
+                context_bytes: 100,
+                ratio: 0.8,
+                potential_lcp_bytes: 90,
+                gain_bytes: 10,
+            }],
+            requests: vec![],
+            composition: PrefixReuseComposition {
+                context_bytes: 100,
+                reusable_bytes: 80,
+                recoverable_bytes: 10,
+                new_content_bytes: 10,
+            },
+        });
+        result.cache_metrics = vec![KvCacheMetric {
+            request_id: "request-a".into(),
+            session_key: Some("session-a".into()),
+            sequence: 1,
+            captured_at: None,
+            source: None,
+            prompt_tokens: Some(100),
+            cached_tokens: Some(50),
+            miss_tokens: Some(50),
+            output_tokens: Some(10),
+            hit_rate: 0.5,
+            hit_rate_delta: None,
+            basis: CacheMetricBasis::Reported,
+            estimated_lcp_bytes: None,
+            payload_bytes: 100,
+            ttft_ms: Some(10),
+            total_ms: Some(20),
+        }];
+        result.session_reports = vec![SessionReport {
+            session_key: "session-a".into(),
+            endpoint_key: "endpoint".into(),
+            model: "model".into(),
+            request_count: 2,
+            append_count: 0,
+            fork_count: 0,
+            reorder_count: 0,
+            reset_count: 1,
+            context_refresh_count: 1,
+            total_recomputed_bytes: 10,
+            total_stable_after_switch_bytes: 5,
+            total_prefix_cut_bytes: 3,
+            avg_prefix_cut_bytes: 3,
+            total_abandoned_prefix_bytes: 3,
+            domain_change_count: 0,
+            events: vec![SessionSwitchEvent {
+                event_type: SessionEventType::Reset,
+                previous_sequence: 1,
+                next_sequence: 2,
+                prev_request_id: "a".into(),
+                next_request_id: "b".into(),
+                lcp_units: 1,
+                lcp_bytes: 2,
+                previous_pair_lcp_bytes: 0,
+                prefix_cut_bytes: 3,
+                previous_total_bytes: 5,
+                retained_prefix_bytes: 2,
+                prefix_reuse_ratio: Some(0.4),
+                abandoned_prefix_bytes: 3,
+                prefix_reuse_outlier: true,
+                domain_changed: false,
+                next_total_bytes: 5,
+                recomputed_bytes: 3,
+                stable_after_switch_bytes: 1,
+                next_block_runs: "abcdx1".into(),
+            }],
+        }];
+        result.templates[0].prefix_view = Some(TemplatePrefixView {
+            node_count: 2,
+            truncated: false,
+            nodes: vec![
+                PrefixNode {
+                    id: "seq-0".into(),
+                    kind: PrefixNodeKind::Stable,
+                    source: SourceLocation {
+                        json_path: "$.messages[0].content".into(),
+                        logical_scope: vec!["messages".into()],
+                        unit_index: Some(0),
+                        byte_start: Some(0),
+                        byte_end: Some(8),
+                        role: Some("system".into()),
+                    },
+                    utf8_bytes: 8,
+                    support_count: 4,
+                    support_ratio: 1.0,
+                    excerpt: "PREFIX".into(),
+                    member_request_ids: vec!["a".into(), "b".into(), "c".into(), "d".into()],
+                    content_sample: Some("PREFIX-sample".into()),
+                    sequence_child: Some("seq-1".into()),
+                    internal_children: vec![],
+                    variants: None,
+                    defect_ids: vec![],
+                },
+                PrefixNode {
+                    id: "seq-1".into(),
+                    kind: PrefixNodeKind::Stable,
+                    source: SourceLocation {
+                        json_path: "$.messages[0].content".into(),
+                        logical_scope: vec!["messages".into()],
+                        unit_index: Some(0),
+                        byte_start: Some(8),
+                        byte_end: Some(12),
+                        role: Some("system".into()),
+                    },
+                    utf8_bytes: 4,
+                    support_count: 3,
+                    support_ratio: 0.75,
+                    excerpt: "TAIL".into(),
+                    member_request_ids: vec!["a".into(), "b".into(), "c".into()],
+                    content_sample: None,
+                    sequence_child: None,
+                    internal_children: vec![],
+                    variants: None,
+                    defect_ids: vec![],
+                },
+            ],
+        });
+        let markdown = render_markdown(&result).expect("markdown");
+        for heading in [
+            "# LLM KV 缓存结构诊断",
+            "## 结构复用率",
+            "## Top K",
+            "## 缺陷详情",
+            "## 会话上下文刷新与前缀复用",
+            "## KV 缓存命中率",
+            "## 模板前缀树",
+        ] {
+            assert!(markdown.contains(heading), "missing {heading}: {markdown}");
+        }
+        for field in [
+            "当前",
+            "补完已知结构问题后的上界",
+            "字节构成",
+            "被阻断稳定字节",
+            "P1",
+            "X 变体",
+            "P2 稳定证据",
+            "首次刷新",
+            "TTFT",
+            "成员衰减",
+            "结构骨架",
+        ] {
+            assert!(markdown.contains(field), "missing {field}: {markdown}");
+        }
+        for raw_html in ["<style", "<svg", "<details"] {
+            assert!(!markdown.contains(raw_html), "raw HTML leaked: {raw_html}");
+        }
+        assert!(markdown.contains("&lt;b&gt;统一生成方式&lt;/b&gt;"));
+        assert!(markdown.contains("`<script>alert(1)</script>`"));
+        assert!(markdown.contains("### 缺陷 defect\n"));
+        assert!(markdown.contains("[`defect`](#缺陷-defect)"));
+    }
+}

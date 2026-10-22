@@ -10,13 +10,14 @@
   → actrail-kv-analyze
   → analysis.json
   → actrail-kv-report
-  → report.html
+  → report.html + report.md
 ```
 
 ```bash
 actrail-kv-receiver --listen 127.0.0.1:8080 --output ./data/requests.ndjson
 actrail-kv-analyze --input ./data/requests.ndjson --output ./data/analysis.json --top-k 100
 actrail-kv-report --input ./data/analysis.json --output ./data/report.html
+# 默认生成 report.html 与 report.md；可用 --format html|md 只生成一种
 ```
 
 运行参数见[配置参考](../configuration.md)，三个二进制的输入输出协议见[架构入口](index.md)。
@@ -119,6 +120,15 @@ actrail-kv/
 │   ├── html_report_renderer.rs                  # 报告编排、缺陷、复用率、命中率与前缀树；全转义
 │   ├── html_report_renderer/
 │   │   └── session.rs                           # 会话上下文刷新 warning 与逐轮事件
+│   ├── markdown_report_renderer/                # 纯 GFM 报告，与 HTML 信息内容等价
+│   │   ├── mod.rs                               # Markdown 总章节编排
+│   │   ├── format.rs                            # GFM 转义、表格与代码片段辅助
+│   │   ├── prefix_reuse.rs                      # 结构复用率与真实命中对照
+│   │   ├── defects.rs                           # Top K 与缺陷详情
+│   │   ├── session.rs                           # 会话上下文刷新
+│   │   ├── cache.rs                             # KV 缓存指标
+│   │   └── prefix_tree.rs                       # 模板前缀树
+│   ├── report_output.rs                         # 格式选择、路径派生与双产物原子发布
 │   └── lib.rs
 │
 ├── examples/

@@ -35,7 +35,7 @@ AcTrail项目在[AcTrail](gitcode.com/openeuler/AcTrail)
 |---|---|---|
 | `actrail-kv-receiver` | 接收上游导出的完整 LLM HTTP JSON 请求 | `requests.ndjson` |
 | `actrail-kv-analyze` | 抽取模板，定位并聚合上下文结构缺陷 | `analysis.json` |
-| `actrail-kv-report` | 把分析结果转换成可以直接阅读的静态页面 | `report.html` |
+| `actrail-kv-report` | 把分析结果转换成可以直接阅读的 HTML 与 GFM Markdown | `report.html`、`report.md` |
 
 Receiver 可以持续运行；Analyze 和 Report 可以按需执行，也可以放进定时任务。已有符合输入协议的语料时，可以从 Analyze 直接开始。
 
@@ -59,9 +59,12 @@ target/release/actrail-kv-report \
   --output "$demo_output/report.html"
 
 echo "$demo_output/report.html"
+echo "$demo_output/report.md"
 ```
 
-在浏览器中打开输出路径，就能看到模板、`P1 / X / P2` 证据、受影响请求数、排序分数和对应的优化启示。
+默认同时生成 HTML 和 Markdown。可以用 `--format html` 或 `--format md` 只生成一种格式。
+在浏览器中打开 HTML，或直接用 Markdown 阅读器打开 `.md`，都能看到模板、`P1 / X / P2` 证据、
+受影响请求数、排序分数和对应的优化启示。
 
 ## 接入自己的请求
 
@@ -132,4 +135,6 @@ MVP 面向 OpenAI-compatible chat payload：请求需要包含字符串 `model` 
 - [配置参考](docs/configuration.md)：CLI 参数、资源预算与部署设置。
 - [架构索引](docs/architectures/index.md)：Receiver、Analyze、Report 的全部输入输出契约。
 
-完整请求和报告都可能包含客户代码、对话、工具参数及其他敏感信息。请把 Receiver 限制在受控网络内，并让 `requests.ndjson`、`analysis.json` 和 `report.html` 遵循同一套内网数据分级、保留和销毁规则。
+完整请求和报告都可能包含客户代码、对话、工具参数及其他敏感信息。请把 Receiver 限制在受控网络内，
+并让 `requests.ndjson`、`analysis.json`、`report.html` 和 `report.md` 遵循同一套内网数据分级、
+保留和销毁规则。
