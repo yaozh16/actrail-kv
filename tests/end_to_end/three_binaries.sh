@@ -74,6 +74,20 @@ target/debug/actrail-kv-report \
 
 target/debug/actrail-kv-report \
   --input "$test_dir/analysis.json" \
+  --output "$test_dir/report-en.html" \
+  --locale en-US
+[[ -f "$test_dir/report-en.html" ]]
+[[ -f "$test_dir/report-en.md" ]]
+if target/debug/actrail-kv-report \
+  --input "$test_dir/analysis.json" \
+  --output "$test_dir/report-unsupported.html" \
+  --locale fr-FR >/dev/null 2>&1; then
+  echo "unsupported locale unexpectedly succeeded" >&2
+  exit 1
+fi
+
+target/debug/actrail-kv-report \
+  --input "$test_dir/analysis.json" \
   --output "$test_dir/report-only.md" \
   --format md
 [[ -f "$test_dir/report-only.md" ]]
@@ -94,9 +108,9 @@ jq -e --arg id "$top_defect_id" 'any(.defects[]; .id == $id)' "$test_dir/analysi
 jq -e 'all(.defects[]; (.mismatch.variants | length) >= 2 and .recovered_stable.support_count == .comparable_count)' "$test_dir/analysis.json" >/dev/null
 jq -e 'all(.templates[]; .comparison_group.endpoint_key == "e2e-primary" and .comparison_group.agent_key == "e2e-agent")' "$test_dir/analysis.json" >/dev/null
 grep -q 'LLM KV 缓存结构诊断' "$test_dir/report.html"
-grep -q '<strong>P1</strong>' "$test_dir/report.html"
-grep -q '<strong>X</strong>' "$test_dir/report.html"
-grep -q '<strong>P2</strong>' "$test_dir/report.html"
+grep -q 'P1 公共前缀' "$test_dir/report.html"
+grep -q 'X 同一位置内容不同' "$test_dir/report.html"
+grep -q 'P2 恢复稳定' "$test_dir/report.html"
 grep -q '&lt;script&gt;alert(1)&lt;/script&gt;' "$test_dir/report.html"
 if grep -q '<script>' "$test_dir/report.html"; then
   echo "unsafe script content found in report" >&2
@@ -105,6 +119,9 @@ fi
 grep -q '^# LLM KV 缓存结构诊断$' "$test_dir/report.md"
 grep -q '^## Top K$' "$test_dir/report.md"
 grep -q '^## 缺陷详情$' "$test_dir/report.md"
+grep -q '<html lang="en-US">' "$test_dir/report-en.html"
+grep -q '^# LLM KV Cache Structure Diagnostics$' "$test_dir/report-en.md"
+grep -q '^## Defect Details$' "$test_dir/report-en.md"
 if grep -qE '<(style|details|svg)([ >])' "$test_dir/report.md"; then
   echo "raw HTML container found in markdown report" >&2
   exit 1

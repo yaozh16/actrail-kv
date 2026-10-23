@@ -5,6 +5,8 @@ use std::fmt::Write;
 use actrail_kv_artifacts::AnalysisResult;
 use anyhow::Result;
 
+use crate::locale::{namespace, Locale, LocaleSnapshot};
+
 mod cache;
 mod defects;
 mod format;
@@ -13,36 +15,47 @@ mod prefix_tree;
 mod session;
 
 pub fn render_markdown(result: &AnalysisResult) -> Result<String> {
+    render_markdown_with_locale(result, LocaleSnapshot::new(Locale::ZhCn))
+}
+
+pub fn render_markdown_with_locale(
+    result: &AnalysisResult,
+    locale: LocaleSnapshot,
+) -> Result<String> {
+    let common = locale.create(namespace::REPORT_COMMON)?;
     let mut output = String::with_capacity(24_384);
-    output.push_str("# LLM KV 缓存结构诊断\n\n");
+    writeln!(output, "# {}\n", common.get("document_title")?)?;
     writeln!(
         output,
-        "输入 {} 条，分析 {} 条，跳过 {} 条；发现 {} 个上下文结构缺陷。\n",
-        result.run.input_records,
-        result.run.analyzed_records,
-        result.run.skipped_records.len(),
-        result.defects.len()
+        "{}\n",
+        common.format(
+            "summary",
+            &[
+                ("input", result.run.input_records.to_string()),
+                ("analyzed", result.run.analyzed_records.to_string()),
+                ("skipped", result.run.skipped_records.len().to_string()),
+                ("defects", result.defects.len().to_string()),
+            ],
+        )?
     )?;
-    output.push_str(
-        "> 本报告基于可观察 HTTP payload 的结构代理，不代表真实 Token、KV 命中率或成本收益。\n\n",
-    );
+    writeln!(output, "> {}\n", common.get("limitations")?)?;
     if let Some(summary) = &result.prefix_reuse {
-        prefix_reuse::render(&mut output, summary, &result.cache_metrics)?;
+        prefix_reuse::render(&mut output, summary, &result.cache_metrics, locale)?;
     }
-    defects::render_top_k(&mut output, result)?;
-    defects::render_details(&mut output, result)?;
+    defects::render_top_k(&mut output, result, locale)?;
+    defects::render_details(&mut output, result, locale)?;
     if !result.session_reports.is_empty() {
-        session::render(&mut output, &result.session_reports)?;
+        session::render(&mut output, &result.session_reports, locale)?;
     }
     if !result.cache_metrics.is_empty() {
-        cache::render(&mut output, result)?;
+        cache::render(&mut output, result, locale)?;
     }
     if result
         .templates
         .iter()
         .any(|template| template.prefix_view.is_some())
     {
-        prefix_tree::render(&mut output, result)?;
+        prefix_tree::render(&mut output, result, locale)?;
     }
     Ok(output)
 }
@@ -55,7 +68,34 @@ mod tests {
         SessionSwitchEvent, SourceLocation, TemplatePrefixView,
     };
 
+    use crate::{
+        locale::{Locale, LocaleSnapshot},
+        render_html_with_locale, render_markdown_with_locale,
+    };
+
     use super::render_markdown;
+
+    fn assert_gfm_tables_are_contiguous(markdown: &str) {
+        let lines: Vec<_> = markdown.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            let is_separator = line.starts_with('|')
+                && line.ends_with('|')
+                && line.split('|').filter(|cell| !cell.is_empty()).all(|cell| {
+                    let cell = cell.trim();
+                    let cell = cell.trim_matches(':');
+                    cell.len() >= 3 && cell.chars().all(|character| character == '-')
+                });
+            if is_separator {
+                let next = lines
+                    .get(index + 1)
+                    .unwrap_or_else(|| panic!("table separator has no following row: {line}"));
+                assert!(
+                    next.starts_with('|') && !next.is_empty(),
+                    "blank or non-table line follows GFM separator {line}: {next:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn renders_all_report_sections_as_pure_gfm() {
@@ -194,6 +234,14 @@ mod tests {
                 },
             ],
         });
+        result.session_reports[0].session_key = "<b>{ratio}</b>".into();
+        let view = result.templates[0]
+            .prefix_view
+            .as_mut()
+            .expect("prefix view");
+        view.nodes[1].kind = PrefixNodeKind::Dynamic;
+        view.nodes[1].excerpt = "<script>{ratio}</script>".into();
+
         let markdown = render_markdown(&result).expect("markdown");
         for heading in [
             "# LLM KV 缓存结构诊断",
@@ -226,7 +274,30 @@ mod tests {
         }
         assert!(markdown.contains("&lt;b&gt;统一生成方式&lt;/b&gt;"));
         assert!(markdown.contains("`<script>alert(1)</script>`"));
+        assert!(markdown.contains("#### 会话事件：`…<b>{ratio}</b>`"));
+        assert!(markdown.contains("段「`<script>{ratio}</script>`」"));
         assert!(markdown.contains("### 缺陷 defect\n"));
         assert!(markdown.contains("[`defect`](#缺陷-defect)"));
+        assert_gfm_tables_are_contiguous(&markdown);
+    }
+
+    #[test]
+    fn english_locale_translates_ui_but_preserves_analysis_insights() {
+        let result = crate::result_loader::tests::fixture();
+        let locale = LocaleSnapshot::new(Locale::EnUs);
+        let html = render_html_with_locale(&result, locale).expect("english html");
+        let markdown = render_markdown_with_locale(&result, locale).expect("english markdown");
+
+        assert!(html.contains("<html lang=\"en-US\">"));
+        assert!(html.contains("LLM KV Cache Structure Diagnostics"));
+        assert!(html.contains("Defect Details"));
+        assert!(!html.contains("缺陷详情"));
+        assert!(html.contains("&lt;b&gt;统一生成方式&lt;/b&gt;"));
+
+        assert!(markdown.starts_with("# LLM KV Cache Structure Diagnostics"));
+        assert!(markdown.contains("## Defect Details"));
+        assert!(!markdown.contains("## 缺陷详情"));
+        assert!(markdown.contains("&lt;b&gt;统一生成方式&lt;/b&gt;"));
+        assert_gfm_tables_are_contiguous(&markdown);
     }
 }

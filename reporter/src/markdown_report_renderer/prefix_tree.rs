@@ -7,12 +7,20 @@ use actrail_kv_artifacts::{
 };
 use anyhow::Result;
 
+use crate::locale::{namespace, LocaleModule, LocaleSnapshot};
+
 use super::{
     defects::defect_anchor,
     format::{code, excerpt, fenced, heading_anchor, inline, short_id, table_code},
 };
 
-pub(super) fn render(output: &mut String, result: &AnalysisResult) -> Result<()> {
+pub(super) fn render(
+    output: &mut String,
+    result: &AnalysisResult,
+    locale: LocaleSnapshot,
+) -> Result<()> {
+    let l = locale.create(namespace::REPORT_PREFIX_TREE)?;
+    let defects_locale = locale.create(namespace::REPORT_DEFECTS)?;
     let templates: Vec<_> = result
         .templates
         .iter()
@@ -21,20 +29,23 @@ pub(super) fn render(output: &mut String, result: &AnalysisResult) -> Result<()>
     if templates.is_empty() {
         return Ok(());
     }
-    output.push_str("## 模板前缀树\n\n");
-    output.push_str(
-        "- **P**：稳定片段，区间内所有成员内容一致，可被后续请求复用。\n\
-         - **X**：变体片段，成员在这里分叉。\n\
-         - **X（缺陷）**：该分叉阻断了其后的稳定前缀，已被判为结构缺陷。\n\
-         - **支持度 3/4**：4 个成员请求中有 3 个包含该片段。\n\
-         - 每个模板先给分布与衰减概览，再按顺序列出结构片段。\n\n",
-    );
+    writeln!(output, "## {}\n", l.get("section_title")?)?;
+    writeln!(output, "- {}", l.get("legend_stable")?)?;
+    writeln!(output, "- {}", l.get("legend_dynamic")?)?;
+    writeln!(output, "- {}", l.get("legend_defect")?)?;
+    writeln!(output, "- {}", l.get("legend_support")?)?;
+    writeln!(output, "- {}\n", l.get("overview")?)?;
 
     if templates.len() > 1 {
-        output.push_str(
-            "| 模板 | 成员 | 稳定字节 | 变体片段 | 缺陷片段 |\n\
-             |---|---|---:|---:|---:|\n",
-        );
+        writeln!(
+            output,
+            "| {} | {} | {} | {} | {} |\n|---|---|---:|---:|---:|",
+            l.get("template_header")?,
+            l.get("members_header")?,
+            l.get("stable_bytes_header")?,
+            l.get("dynamic_nodes_header")?,
+            l.get("defect_nodes_header")?
+        )?;
         for (template, view) in &templates {
             let stable_bytes: usize = view
                 .nodes
@@ -52,7 +63,7 @@ pub(super) fn render(output: &mut String, result: &AnalysisResult) -> Result<()>
                 .iter()
                 .filter(|node| node.kind == PrefixNodeKind::Dynamic && !node.defect_ids.is_empty())
                 .count();
-            let anchor = template_anchor(&template.id);
+            let anchor = template_anchor(&template.id, l)?;
             writeln!(
                 output,
                 "| [{}](#{}) | {} | {} B | {} | {} |",
@@ -68,7 +79,7 @@ pub(super) fn render(output: &mut String, result: &AnalysisResult) -> Result<()>
     }
 
     for (template, view) in templates {
-        render_template(output, template, view)?;
+        render_template(output, template, view, l, defects_locale)?;
     }
     Ok(())
 }
@@ -77,6 +88,8 @@ fn render_template(
     output: &mut String,
     template: &RequestTemplate,
     view: &TemplatePrefixView,
+    l: LocaleModule,
+    defects_locale: LocaleModule,
 ) -> Result<()> {
     let member_count = template.member_request_ids.len();
     let stable_nodes: Vec<_> = view
@@ -129,56 +142,103 @@ fn render_template(
     let stable_before_first_x = first_dynamic
         .map(|end| chain[..end].iter().map(|node| node.utf8_bytes).sum())
         .unwrap_or(stable_bytes);
-    writeln!(output, "### 模板 {}\n", heading_anchor(&template.id))?;
-    writeln!(output, "- 完整 ID：{}\n", code(&template.id))?;
     writeln!(
         output,
-        "- {} 个成员请求；结构片段 {} 个（P {} / X {}）。\n",
-        member_count,
-        view.nodes.len(),
-        stable_nodes.len(),
-        dynamic_nodes.len()
+        "### {} {}\n",
+        l.get("template_header")?,
+        heading_anchor(&template.id)
     )?;
-    output.push_str("| 指标 | 数值 |\n|---|---:|\n");
-    writeln!(output, "| 稳定字节 | {stable_bytes} B |")?;
-    writeln!(output, "| 变体区字节 | {dynamic_bytes} B |")?;
-    writeln!(output, "| 变体总数 | {variant_total} |")?;
-    writeln!(output, "| 缺失变体 | {missing_total} |")?;
-    writeln!(output, "| 缺陷片段 | {defect_nodes} |\n")?;
+    writeln!(output, "- {}: {}\n", l.get("full_id")?, code(&template.id))?;
+    writeln!(
+        output,
+        "- {}\n",
+        l.format(
+            "members_nodes",
+            &[
+                ("members", member_count.to_string()),
+                ("nodes", view.nodes.len().to_string()),
+                ("stable", stable_nodes.len().to_string()),
+                ("dynamic", dynamic_nodes.len().to_string()),
+            ]
+        )?
+    )?;
+    writeln!(
+        output,
+        "| {} | {} |\n|---|---:|",
+        l.get("metric_header")?,
+        l.get("value_header")?
+    )?;
+    writeln!(output, "| {} | {stable_bytes} B |", l.get("stable_bytes")?)?;
+    writeln!(
+        output,
+        "| {} | {dynamic_bytes} B |",
+        l.get("dynamic_bytes")?
+    )?;
+    writeln!(output, "| {} | {variant_total} |", l.get("variant_total")?)?;
+    writeln!(
+        output,
+        "| {} | {missing_total} |",
+        l.get("missing_variants")?
+    )?;
+    writeln!(output, "| {} | {defect_nodes} |\n", l.get("defect_nodes")?)?;
 
     let total_bytes = stable_bytes.saturating_add(dynamic_bytes).max(1);
     let stable_pct = stable_bytes as f64 * 100.0 / total_bytes as f64;
     let dynamic_pct = dynamic_bytes as f64 * 100.0 / total_bytes as f64;
-    output.push_str("#### 复用分布\n\n");
-    output.push_str("| 区域 | 字节 | 占比 |\n|---|---:|---:|\n");
-    writeln!(output, "| 稳定前缀 | {stable_bytes} B | {stable_pct:.1}% |")?;
     writeln!(
         output,
-        "| 变体/缺失区 | {dynamic_bytes} B | {dynamic_pct:.1}% |\n"
+        "#### {}\n\n| {} | {} | {} |\n|---|---:|---:|",
+        l.get("distribution_title")?,
+        l.get("region_header")?,
+        l.get("bytes_header")?,
+        l.get("ratio_header")?
     )?;
     writeln!(
         output,
-        "首个分叉点之前累计稳定前缀 **{stable_before_first_x} B**。\n"
+        "| {} | {stable_bytes} B | {stable_pct:.1}% |",
+        l.get("stable_region")?
+    )?;
+    writeln!(
+        output,
+        "| {} | {dynamic_bytes} B | {dynamic_pct:.1}% |\n",
+        l.get("dynamic_region")?
+    )?;
+    writeln!(
+        output,
+        "{}\n",
+        l.format(
+            "first_prefix",
+            &[("bytes", stable_before_first_x.to_string())]
+        )?
     )?;
     if let Some(first_x) = first_dynamic {
         let node = chain[first_x];
         writeln!(
             output,
-            "首个分叉点在第 {} 段「{}」，{}/{} 个成员包含该片段（{:.0}%）。\n",
-            first_x + 1,
-            excerpt(&node.excerpt, 48),
-            node.support_count,
-            member_count,
-            node.support_ratio * 100.0
+            "{}\n",
+            l.format(
+                "first_divergence",
+                &[
+                    ("index", (first_x + 1).to_string()),
+                    ("excerpt", code(&excerpt(&node.excerpt, 48))),
+                    ("support", node.support_count.to_string()),
+                    ("members", member_count.to_string()),
+                    ("ratio", format!("{:.0}", node.support_ratio * 100.0)),
+                ]
+            )?
         )?;
     }
 
     if chain.len() > 1 {
-        output.push_str("#### 成员衰减\n\n");
-        output.push_str(
-            "| 片段序号 | 类型 | 存活成员数 | 支持率 |\n\
-             |---:|---|---:|---:|\n",
-        );
+        writeln!(
+            output,
+            "#### {}\n\n| {} | {} | {} | {} |\n|---:|---|---:|---:|",
+            l.get("decay_title")?,
+            l.get("decay_index")?,
+            l.get("decay_type")?,
+            l.get("decay_alive")?,
+            l.get("decay_support")?
+        )?;
         for (index, node) in chain.iter().enumerate() {
             writeln!(
                 output,
@@ -194,17 +254,30 @@ fn render_template(
                 node.support_ratio * 100.0
             )?;
         }
-        writeln!(output, "\n曲线每次下坠代表一批成员从该片段开始分叉。\n")?;
+        writeln!(output, "\n{}\n", l.get("decay_note")?)?;
     }
 
-    output.push_str("#### 结构骨架\n\n");
+    writeln!(output, "#### {}\n", l.get("structure_title")?)?;
     for (index, node) in chain.iter().enumerate() {
-        render_node(output, template, node, index, member_count)?;
+        render_node(
+            output,
+            template,
+            node,
+            index,
+            member_count,
+            l,
+            defects_locale,
+        )?;
     }
     if view.truncated {
-        output.push_str("该模板节点数超过上限，视图已截断。\n\n");
+        writeln!(output, "{}\n", l.get("truncated")?)?;
     }
-    writeln!(output, "[返回模板列表](#模板前缀树)\n")?;
+    writeln!(
+        output,
+        "[{}](#{})\n",
+        l.get("return_templates")?,
+        heading_anchor(l.get("section_title")?)
+    )?;
     Ok(())
 }
 
@@ -214,6 +287,8 @@ fn render_node(
     node: &PrefixNode,
     index: usize,
     member_count: usize,
+    l: LocaleModule,
+    defects_locale: LocaleModule,
 ) -> Result<()> {
     let kind = if node.kind == PrefixNodeKind::Dynamic {
         "X"
@@ -222,62 +297,76 @@ fn render_node(
     };
     writeln!(
         output,
-        "##### 片段 #{index} · {kind} · {}\n",
+        "##### {} #{index} · {kind} · {}\n",
+        l.get("fragment")?,
         inline(&excerpt(&node.excerpt, 120))
     )?;
     writeln!(
         output,
-        "- 类型：{kind}{}",
+        "- {}: {kind}{}",
+        l.get("type_label")?,
         if node.defect_ids.is_empty() {
             ""
         } else {
-            "（缺陷）"
+            l.get("defect_marker")?
         }
     )?;
-    write!(output, "- 来源：{}", code(&node.source.json_path))?;
+    write!(
+        output,
+        "- {}: {}",
+        l.get("source")?,
+        code(&node.source.json_path)
+    )?;
     if let Some(role) = node.source.role.as_deref() {
-        write!(output, "；role={}", code(role))?;
+        write!(output, "; role={}", code(role))?;
     }
     output.push('\n');
     let range = match (node.source.byte_start, node.source.byte_end) {
         (Some(start), Some(end)) => format!("bytes {start}..{end}"),
         _ => "bytes —".to_string(),
     };
-    write!(output, "- 位置：{}", code(&range))?;
+    write!(output, "- {}: {}", l.get("position")?, code(&range))?;
     if let Some(unit) = node.source.unit_index {
-        write!(output, "；单元 #{unit}")?;
+        write!(output, "; unit #{unit}")?;
     }
     output.push('\n');
     writeln!(
         output,
-        "- 字节数：{} B；支持度：{}/{}（{:.0}%）",
+        "- {}: {} B; {}: {}/{} ({:.0}%)",
+        l.get("byte_support")?,
         node.utf8_bytes,
+        l.get("support")?,
         node.support_count,
         member_count,
         node.support_ratio * 100.0
     )?;
-    writeln!(output, "- 摘要：{}\n", code(&node.excerpt))?;
+    writeln!(output, "- {}: {}\n", l.get("summary")?, code(&node.excerpt))?;
 
     if let Some(variants) = &node.variants {
         if !variants.is_empty() {
-            output.push_str("变体：\n\n");
-            output.push_str("| 变体 | 次数 |\n|---|---:|\n");
+            writeln!(
+                output,
+                "{}:\n\n| {} | {} |\n|---|---:|",
+                l.get("variants")?,
+                l.get("variants")?,
+                l.get("count")?
+            )?;
             let mut ordered = variants.iter().collect::<Vec<_>>();
             ordered.sort_by_key(|variant| std::cmp::Reverse(variant.count));
             for variant in ordered {
                 let missing = variant.excerpt.starts_with("（此位置缺失");
                 let label = if missing {
-                    "此位置缺失".to_string()
+                    l.get("missing_at_position")?.to_string()
                 } else {
                     variant.excerpt.clone()
                 };
                 let mut count = if variant.count_known {
                     variant.count.to_string()
                 } else {
-                    format!("{}（约）", variant.count)
+                    format!("{}{}", variant.count, l.get("approx")?)
                 };
                 if variant.count == 0 {
-                    count.push_str("（未出现）");
+                    count.push_str(l.get("not_seen")?);
                 }
                 writeln!(output, "| {} | {} |", table_code(&label), count)?;
             }
@@ -286,16 +375,21 @@ fn render_node(
     }
 
     if !node.defect_ids.is_empty() {
-        output.push_str("关联缺陷：\n\n");
+        writeln!(output, "{}:\n", l.get("associated_defects")?)?;
         for id in &node.defect_ids {
-            writeln!(output, "- [{}](#{})", code(id), defect_anchor(id))?;
+            writeln!(
+                output,
+                "- [{}](#{})",
+                code(id),
+                defect_anchor(id, defects_locale)?
+            )?;
         }
         output.push('\n');
     }
 
     if let Some(sample) = &node.content_sample {
         if !sample.is_empty() {
-            output.push_str("内容样本：\n\n");
+            writeln!(output, "{}:\n", l.get("content_sample")?)?;
             writeln!(output, "{}\n", fenced(sample))?;
         }
     }
@@ -310,17 +404,27 @@ fn render_node(
     if node.kind == PrefixNodeKind::Dynamic || !lost.is_empty() {
         writeln!(
             output,
-            "- 存活 {} / {}：{}",
-            alive.len(),
-            all.len(),
-            member_list(alive.iter().copied())
+            "- {}",
+            l.format(
+                "alive_members",
+                &[
+                    ("alive", alive.len().to_string()),
+                    ("all", all.len().to_string()),
+                    ("members", member_list(alive.iter().copied(), l)?),
+                ]
+            )?
         )?;
         if !lost.is_empty() {
             writeln!(
                 output,
-                "- 衰减 {}：{}",
-                lost.len(),
-                member_list(lost.iter().copied())
+                "- {}",
+                l.format(
+                    "lost_members",
+                    &[
+                        ("lost", lost.len().to_string()),
+                        ("members", member_list(lost.iter().copied(), l)?),
+                    ]
+                )?
             )?;
         }
         output.push('\n');
@@ -328,7 +432,7 @@ fn render_node(
     Ok(())
 }
 
-fn member_list<'a>(ids: impl Iterator<Item = &'a str>) -> String {
+fn member_list<'a>(ids: impl Iterator<Item = &'a str>, l: LocaleModule) -> Result<String> {
     let mut values = Vec::new();
     for (index, id) in ids.enumerate() {
         if index == 8 {
@@ -338,12 +442,19 @@ fn member_list<'a>(ids: impl Iterator<Item = &'a str>) -> String {
         values.push(code(&short_id(id)));
     }
     if values.is_empty() {
-        "—".to_string()
+        Ok("—".to_string())
     } else {
-        values.join("、")
+        Ok(values.join(
+            l.get("list_separator")
+                .map_err(|error| anyhow::anyhow!(error))?,
+        ))
     }
 }
 
-fn template_anchor(id: &str) -> String {
-    heading_anchor(&format!("模板 {}", heading_anchor(id)))
+fn template_anchor(id: &str, l: LocaleModule) -> Result<String> {
+    Ok(heading_anchor(&format!(
+        "{} {}",
+        l.get("template_header")?,
+        heading_anchor(id)
+    )))
 }

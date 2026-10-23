@@ -5,6 +5,8 @@ use std::{collections::BTreeMap, fmt::Write};
 use actrail_kv_artifacts::{CacheMetricBasis, KvCacheMetric, PrefixReuseSummary};
 use anyhow::Result;
 
+use crate::locale::{namespace, LocaleSnapshot};
+
 use super::format::{code, human_bytes};
 
 const PREFIX_REUSE_TARGET: f64 = 0.9;
@@ -14,83 +16,113 @@ pub(super) fn render(
     output: &mut String,
     summary: &PrefixReuseSummary,
     cache_metrics: &[KvCacheMetric],
+    locale: LocaleSnapshot,
 ) -> Result<()> {
+    let l = locale.create(namespace::REPORT_PREFIX_REUSE)?;
     let current = summary.ratio.clamp(0.0, 1.0);
     let potential = summary.potential_ratio.clamp(current, 1.0);
     let target = PREFIX_REUSE_TARGET.clamp(0.0, 1.0);
-    output.push_str("## 结构复用率\n\n");
-    output.push_str(
-        "口径：会话内相邻请求对的公共前缀字节 / 上下文总字节。\
-         这是结构代理，不是真实 KV 命中率，也不代表 Token 或金额收益。\n\n",
-    );
-    output.push_str("| 指标 | 数值 |\n|---|---:|\n");
-    writeln!(output, "| 当前 | {:.1}% |", current * 100.0)?;
-    writeln!(output, "| 目标 | {:.0}% |", target * 100.0)?;
+    writeln!(output, "## {}\n", l.get("section_title")?)?;
+    writeln!(output, "{}\n", l.get("scope")?)?;
     writeln!(
         output,
-        "| 补完已知结构问题后的上界 | {:.1}% |",
+        "| {} | {} |\n|---|---:|",
+        l.get("metric_header")?,
+        l.get("value_header")?
+    )?;
+    writeln!(
+        output,
+        "| {} | {:.1}% |",
+        l.get("current")?,
+        current * 100.0
+    )?;
+    writeln!(output, "| {} | {:.0}% |", l.get("target")?, target * 100.0)?;
+    writeln!(
+        output,
+        "| {} | {:.1}% |",
+        l.get("upper_bound")?,
         potential * 100.0
     )?;
     writeln!(
         output,
-        "| 已知可恢复 | {:.1} KB |",
+        "| {} | {:.1} KB |",
+        l.get("known_recoverable_kb")?,
         summary.gain_bytes as f64 / 1024.0
     )?;
     output.push('\n');
 
-    output.push_str("### 字节构成\n\n");
-    output.push_str("| 构成 | 字节 |\n|---|---:|\n");
+    writeln!(output, "### {}\n", l.get("composition_title")?)?;
     writeln!(
         output,
-        "| 已复用 | {} |",
+        "| {} | {} |\n|---|---:|",
+        l.get("composition_header")?,
+        l.get("bytes_header")?
+    )?;
+    writeln!(
+        output,
+        "| {} | {} |",
+        l.get("reusable")?,
         human_bytes(summary.composition.reusable_bytes)
     )?;
     writeln!(
         output,
-        "| 已知可恢复 | {} |",
+        "| {} | {} |",
+        l.get("recoverable")?,
         human_bytes(summary.composition.recoverable_bytes)
     )?;
     writeln!(
         output,
-        "| 每轮新增 | {} |",
+        "| {} | {} |",
+        l.get("new_content")?,
         human_bytes(summary.composition.new_content_bytes)
     )?;
-    output.push_str("\n> 会话首个请求没有前序，不进入相邻请求对统计。\n\n");
+    writeln!(output, "\n> {}\n", l.get("composition_note")?)?;
 
     if current >= target {
         writeln!(
             output,
-            "已高于目标 {:.1} 个百分点；覆盖 {} 个会话的 {} 个相邻请求对。\n",
-            (current - target) * 100.0,
-            summary.sessions,
-            summary.request_pairs
+            "{}\n",
+            l.format(
+                "above_target",
+                &[
+                    ("delta", format!("{:.1}", (current - target) * 100.0)),
+                    ("sessions", summary.sessions.to_string()),
+                    ("pairs", summary.request_pairs.to_string()),
+                ],
+            )?
         )?;
     } else if potential >= target {
         writeln!(
             output,
-            "距目标 {:.1} 个百分点；补完已知结构问题后可越过目标。\
-             覆盖 {} 个会话的 {} 个相邻请求对。\n",
-            (target - current) * 100.0,
-            summary.sessions,
-            summary.request_pairs
+            "{}\n",
+            l.format(
+                "reachable_target",
+                &[
+                    ("distance", format!("{:.1}", (target - current) * 100.0)),
+                    ("sessions", summary.sessions.to_string()),
+                    ("pairs", summary.request_pairs.to_string()),
+                ],
+            )?
         )?;
     } else {
         writeln!(
             output,
-            "距目标 {:.1} 个百分点；补完已知结构问题后到 {:.1}%，仍差 {:.1} 个百分点。\
-             剩余 {:.1}% 的上下文是每轮新增内容，按前缀缓存口径不可复用——\
-             要再往上走需要减少每轮新增量，而不是继续调整内容顺序。\
-             覆盖 {} 个会话的 {} 个相邻请求对。\n",
-            (target - current) * 100.0,
-            potential * 100.0,
-            (target - potential) * 100.0,
-            (1.0 - potential) * 100.0,
-            summary.sessions,
-            summary.request_pairs
+            "{}\n",
+            l.format(
+                "below_target",
+                &[
+                    ("distance", format!("{:.1}", (target - current) * 100.0)),
+                    ("potential", format!("{:.1}", potential * 100.0)),
+                    ("remaining", format!("{:.1}", (target - potential) * 100.0)),
+                    ("new_content", format!("{:.1}", (1.0 - potential) * 100.0)),
+                    ("sessions", summary.sessions.to_string()),
+                    ("pairs", summary.request_pairs.to_string()),
+                ],
+            )?
         )?;
     }
 
-    render_cross_check(output, summary, cache_metrics)
+    render_cross_check(output, summary, cache_metrics, locale)
 }
 
 #[derive(Default)]
@@ -105,7 +137,9 @@ fn render_cross_check(
     output: &mut String,
     summary: &PrefixReuseSummary,
     cache_metrics: &[KvCacheMetric],
+    locale: LocaleSnapshot,
 ) -> Result<()> {
+    let l = locale.create(namespace::REPORT_PREFIX_REUSE)?;
     if cache_metrics.is_empty() || summary.by_session.is_empty() {
         return Ok(());
     }
@@ -142,18 +176,14 @@ fn render_cross_check(
     if rows.is_empty() {
         return Ok(());
     }
-    output.push_str("### 结构代理 vs 真实命中\n\n");
-    output.push_str(
-        "结构复用率按字节口径（公共前缀 / 上下文），真实命中率按 token 口径\
-         （cached / prompt）；两者口径不同，只用来判断方向是否一致，不表示两者应当相等。\
-         估算口径的请求不参与对比。\n\n",
-    );
+    writeln!(output, "### {}\n", l.get("cross_title")?)?;
+    writeln!(output, "{}\n", l.get("cross_intro")?)?;
     let estimated_only = rows.len() - rows.iter().filter(|row| row.2.is_some()).count();
     if estimated_only == rows.len() {
         writeln!(
             output,
-            "本次没有采集到上游 usage（{} 个会话全部为估算口径），无法与真实命中率交叉验证。\n",
-            rows.len()
+            "{}\n",
+            l.format("estimated_only", &[("sessions", rows.len().to_string())])?
         )?;
         return Ok(());
     }
@@ -172,32 +202,52 @@ fn render_cross_check(
     if estimated_only > 0 {
         writeln!(
             output,
-            "另有 {} 个会话没有真实 usage，未参与对比。\n",
-            estimated_only
+            "{}\n",
+            l.format(
+                "other_estimated",
+                &[("sessions", estimated_only.to_string())]
+            )?
         )?;
     }
     if truncated {
         writeln!(
             output,
-            "仅列出差异最大的 {} 个会话（共 {} 个可比会话）。\n",
-            MAX_CROSS_CHECK_ROWS, total
+            "{}\n",
+            l.format(
+                "cross_truncated",
+                &[
+                    ("shown", MAX_CROSS_CHECK_ROWS.to_string()),
+                    ("total", total.to_string()),
+                ]
+            )?
         )?;
     }
-    output.push_str(
-        "| 会话 | 结构复用率（字节） | 真实命中率（token） | 差值 | 口径覆盖 |\n\
-         |---|---:|---:|---:|---|\n",
-    );
+    writeln!(
+        output,
+        "| {} | {} | {} | {} | {} |",
+        l.get("session_header")?,
+        l.get("structural_header")?,
+        l.get("real_header")?,
+        l.get("delta_header")?,
+        l.get("coverage_header")?
+    )?;
+    output.push_str("|---|---:|---:|---:|---|\n");
     for (session_key, structural, real_hit_rate, reported, estimated) in rows {
         let rate = real_hit_rate.expect("filtered to real hit rates");
         writeln!(
             output,
-            "| {} | {:.1}% | {:.1}% | {:+.1}pp | 真实 {} / 估算 {} |",
+            "| {} | {:.1}% | {:.1}% | {:+.1}pp | {} |",
             code(session_key),
             structural * 100.0,
             rate * 100.0,
             (structural - rate) * 100.0,
-            reported,
-            estimated
+            l.format(
+                "coverage",
+                &[
+                    ("reported", reported.to_string()),
+                    ("estimated", estimated.to_string()),
+                ]
+            )?
         )?;
     }
     output.push('\n');

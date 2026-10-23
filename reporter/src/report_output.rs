@@ -9,7 +9,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 use tempfile::NamedTempFile;
 
-use crate::{load_result, render_html, render_markdown};
+use crate::{load_result, render_html_with_locale, render_markdown_with_locale, LocaleFactory};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReportFormat {
@@ -20,7 +20,8 @@ pub enum ReportFormat {
 pub(crate) fn write_html_only(input: &Path, output: &Path) -> Result<()> {
     ensure_distinct_paths(input, output)?;
     let result = load_result(input)?;
-    let html = render_html(&result)?;
+    let locale = LocaleFactory::snapshot()?;
+    let html = render_html_with_locale(&result, locale)?;
     write_atomic_set(&[(output.to_path_buf(), html.into_bytes())])
 }
 
@@ -34,11 +35,36 @@ pub(crate) fn write_reports(
         ensure_distinct_paths(input, path)?;
     }
     let result = load_result(input)?;
+    let locale = LocaleFactory::snapshot()?;
     let mut rendered = Vec::with_capacity(targets.len());
     for (format, path) in targets {
         let content = match format {
-            ReportFormat::Html => render_html(&result)?,
-            ReportFormat::Markdown => render_markdown(&result)?,
+            ReportFormat::Html => render_html_with_locale(&result, locale)?,
+            ReportFormat::Markdown => render_markdown_with_locale(&result, locale)?,
+        };
+        rendered.push((path, content.into_bytes()));
+    }
+    write_atomic_set(&rendered)
+}
+
+#[cfg(test)]
+pub(crate) fn write_reports_with_locale(
+    input: &Path,
+    output: &Path,
+    format: Option<ReportFormat>,
+    locale: crate::Locale,
+) -> Result<()> {
+    let snapshot = crate::LocaleSnapshot::new(locale);
+    let targets = report_paths(output, format);
+    for (_, path) in &targets {
+        ensure_distinct_paths(input, path)?;
+    }
+    let result = load_result(input)?;
+    let mut rendered = Vec::with_capacity(targets.len());
+    for (format, path) in targets {
+        let content = match format {
+            ReportFormat::Html => render_html_with_locale(&result, snapshot)?,
+            ReportFormat::Markdown => render_markdown_with_locale(&result, snapshot)?,
         };
         rendered.push((path, content.into_bytes()));
     }

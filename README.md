@@ -63,6 +63,7 @@ echo "$demo_output/report.md"
 ```
 
 默认同时生成 HTML 和 Markdown。可以用 `--format html` 或 `--format md` 只生成一种格式。
+报告语言默认 `zh-CN`，可用 `--locale en-US` 导出英文界面。
 在浏览器中打开 HTML，或直接用 Markdown 阅读器打开 `.md`，都能看到模板、`P1 / X / P2` 证据、
 受影响请求数、排序分数和对应的优化启示。
 

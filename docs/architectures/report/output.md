@@ -12,6 +12,9 @@
 默认双份模式会把 `.html`、`.md` 或无后缀输出路径归一化为同一基础路径。HTML 是单文件、
 无脚本静态页面；Markdown 不嵌入 HTML、CSS、SVG 或 JavaScript。
 
+`--locale` 默认 `zh-CN`，首期支持 `zh-CN`、`en-US`。一次导出固定一个 locale 快照，
+HTML 与 Markdown 使用相同语言。HTML 的 `lang` 属性随 locale 变化。
+
 | 区域 | 数据来源 | 展示内容 |
 |---|---|---|
 | 标题与摘要 | `run`、`defects[]` | 输入、分析、跳过记录数和聚合问题数。 |
@@ -36,4 +39,6 @@
 - HTML 中的所有文本经过 HTML escape；Markdown 中的普通文本经过 GFM escape，代码片段使用动态长度围栏。
 - Markdown 中原 HTML 的复用率色条、逐轮走势、成员衰减 SVG 和折叠事件分别转换为指标表、逐轮列表、
   成员衰减表和事件表，不丢失原始数值。
+- locale 只翻译固定 UI 文案、表头、说明和事件标签；请求内容、ID、路径、技术标识和
+  analyzer `analysis.json` insights 保持原文。
 - 两种产物都不包含远程资源或请求自动改写行为。

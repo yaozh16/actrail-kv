@@ -93,12 +93,14 @@ actrail-kv-report \
 | `--input` | 无，必填 | analyzer 产出的 `analysis.json`。 |
 | `--output` | 无，必填 | 报告路径或基础路径；不得覆盖 input。 |
 | `--format` | 无，默认双份 | `html` 只生成 HTML，`md` 只生成 Markdown；不传时同时生成两份。 |
+| `--locale` | `zh-CN` | 报告固定 UI 文案语言；首期支持 `zh-CN`、`en-US`。 |
 
 默认双份模式下，`report.html`、`report.md` 或无后缀的 `report` 都会派生为
 `report.html` + `report.md`。传 `--format` 时严格写入 `--output` 指定的路径。
 
 report 无可调算法参数，不提供配置文件。报告不访问网络、不重新运行算法。HTML 证据经过 HTML 转义；
 Markdown 使用纯 GFM，不嵌入 HTML、CSS、SVG 或 JavaScript。
+locale 只影响报告固定文案、表头和说明；请求原文、技术标识及 analyzer insights 保持原样。
 
 报告首屏的 90% 结构复用率目标是报告层的产品参数，写死在 `actrail-kv-report` 中，不作为配置项提供；调整目标只需改报告代码，不需要重新分析。
 

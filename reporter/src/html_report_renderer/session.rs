@@ -6,6 +6,8 @@ use actrail_kv_artifacts::{SessionEventType, SessionReport, SessionSwitchEvent};
 use anyhow::Result;
 use html_escape::encode_text;
 
+use crate::locale::{namespace, LocaleModule, LocaleSnapshot};
+
 use super::short_id;
 
 const SESSION_EVIDENCE_CSS: &str = "\
@@ -30,15 +32,21 @@ const SESSION_EVIDENCE_CSS: &str = "\
 pub(super) fn render_session_evidence(
     output: &mut String,
     reports: &[SessionReport],
+    locale: LocaleSnapshot,
 ) -> Result<()> {
-    output.push_str("<h2>会话上下文刷新与前缀复用</h2><style>");
+    let l = locale.create(namespace::REPORT_SESSIONS)?;
+    write!(
+        output,
+        "<h2>{}</h2><style>",
+        encode_text(l.get("section_title")?)
+    )?;
     output.push_str(SESSION_EVIDENCE_CSS);
     output.push_str("</style>");
-    output.push_str(
-        "<p class=\"muted\">同一 session 内的相邻请求本应保持 append-only。\
-         每轮前缀复用度 = 与上一条请求的公共前缀字节 / 上一条内容性上下文总字节；\
-         低于 100% 表示上一条上下文未被完整保留，会废弃原有 KVC 前缀。</p>",
-    );
+    write!(
+        output,
+        "<p class=\"muted\">{}</p>",
+        encode_text(l.get("intro")?)
+    )?;
 
     let mut requests = 0usize;
     let mut lcp_bytes = 0usize;
@@ -48,16 +56,41 @@ pub(super) fn render_session_evidence(
     let mut abandoned_bytes = 0usize;
     for report in reports {
         requests += report.request_count;
-        let report_refreshes = effective_refresh_count(report);
-        refresh_count += report_refreshes;
-        refresh_sessions += usize::from(report_refreshes > 0);
+        let refreshes = effective_refresh_count(report);
+        refresh_count += refreshes;
+        refresh_sessions += usize::from(refreshes > 0);
         abandoned_bytes += effective_abandoned_prefix_bytes(report);
         for event in &report.events {
             lcp_bytes += event.lcp_bytes;
             next_bytes += event.next_total_bytes;
         }
     }
-    let reuse_ratio = ratio(lcp_bytes, next_bytes);
+    write!(
+        output,
+        "<div class=\"pt-summary\"><div class=\"pt-metric\"><b>{}</b>{}</div>\
+         <div class=\"pt-metric\"><b>{}</b>{}</div>\
+         <div class=\"pt-metric\"><b>{}</b>{}</div>\
+         <div class=\"pt-metric\"><b>{}</b>{}</div>\
+         <div class=\"pt-metric\"><b>{:.1}%</b>{}</div>\
+         <div class=\"pt-metric\"><b>{}</b> B</div></div>",
+        reports.len(),
+        encode_text(l.get("sessions")?),
+        requests,
+        encode_text(l.get("requests")?),
+        refresh_count,
+        encode_text(l.get("refresh_warnings")?),
+        refresh_sessions,
+        encode_text(l.get("refresh_sessions")?),
+        ratio(lcp_bytes, next_bytes) * 100.0,
+        encode_text(l.get("current_ratio")?),
+        abandoned_bytes
+    )?;
+    write!(
+        output,
+        "<p class=\"muted\">{}</p>",
+        encode_text(l.get("note")?)
+    )?;
+
     let common_prefix = common_key_prefix(reports.iter().map(|report| report.session_key.as_str()));
     let endpoints: std::collections::BTreeSet<&str> = reports
         .iter()
@@ -65,38 +98,25 @@ pub(super) fn render_session_evidence(
         .collect();
     let models: std::collections::BTreeSet<&str> =
         reports.iter().map(|report| report.model.as_str()).collect();
-    let mut meta = format!(
-        "端点 <code>{}</code> · 模型 <code>{}</code>",
-        encode_text(&endpoints.into_iter().collect::<Vec<_>>().join(" / ")),
-        encode_text(&models.into_iter().collect::<Vec<_>>().join(" / "))
-    );
-    if !common_prefix.is_empty() {
-        write!(
-            meta,
-            " · 会话列省略共有前缀 <code>{}</code>（完整会话名见 analysis.json）",
-            encode_text(&common_prefix)
-        )?;
-    }
-    write!(output, "<p class=\"muted\">{meta}</p>")?;
     write!(
         output,
-        "<div class=\"pt-summary\"><div class=\"pt-metric\"><b>{}</b>会话</div>\
-         <div class=\"pt-metric\"><b>{}</b>请求</div>\
-         <div class=\"pt-metric\"><b>{}</b>上下文刷新警告</div>\
-         <div class=\"pt-metric\"><b>{}</b>发生刷新的会话</div>\
-         <div class=\"pt-metric\"><b>{:.1}%</b>当前前缀复用占比</div>\
-         <div class=\"pt-metric\"><b>{}</b> B</div></div>",
-        reports.len(),
-        requests,
-        refresh_count,
-        refresh_sessions,
-        reuse_ratio * 100.0,
-        abandoned_bytes
+        "<p class=\"muted\">{} <code>{}</code> · {} <code>{}</code>",
+        encode_text(l.get("endpoints")?),
+        encode_text(&endpoints.into_iter().collect::<Vec<_>>().join(" / ")),
+        encode_text(l.get("models")?),
+        encode_text(&models.into_iter().collect::<Vec<_>>().join(" / "))
     )?;
-    output.push_str(
-        "<p class=\"muted\">末项为废弃前缀字节。上下文压缩、subagent 创建或任务切换都可能触发刷新；\
-         这些是 KVC 前缀废弃风险，不自动判定为错误，由用户确认是否接受。</p>",
-    );
+    if !common_prefix.is_empty() {
+        write!(
+            output,
+            " · {}",
+            encode_text(&l.format(
+                "common_prefix_omitted",
+                &[("prefix", common_prefix.clone())],
+            )?)
+        )?;
+    }
+    output.push_str("</p>");
 
     let mut attention: Vec<&SessionReport> = reports
         .iter()
@@ -117,30 +137,43 @@ pub(super) fn render_session_evidence(
     normal.sort_by(|left, right| left.session_key.cmp(&right.session_key));
 
     if attention.is_empty() {
-        output.push_str(
-            "<p class=\"muted\">未发现上下文刷新：所有会话的相邻请求都保持前缀连续。</p>",
-        );
+        write!(
+            output,
+            "<p class=\"muted\">{}</p>",
+            encode_text(l.get("no_refresh")?)
+        )?;
     } else {
         write!(
             output,
-            "<h3>上下文刷新警告（{} 个会话）</h3>",
-            attention.len()
+            "<h3>{}</h3>",
+            encode_text(&l.format(
+                "warning_heading",
+                &[("sessions", attention.len().to_string())],
+            )?)
         )?;
-        render_table(output, &attention, true, &common_prefix)?;
+        render_table(output, &attention, true, &common_prefix, l)?;
     }
     if !normal.is_empty() {
         let include_detail = normal.iter().any(|report| report.events.len() > 1);
-        const OPEN_LIMIT: usize = 8;
-        if normal.len() <= OPEN_LIMIT {
-            write!(output, "<h3>会话明细（{}）</h3>", normal.len())?;
-            render_table(output, &normal, include_detail, &common_prefix)?;
+        if normal.len() <= 8 {
+            write!(
+                output,
+                "<h3>{}</h3>",
+                encode_text(
+                    &l.format("detail_heading", &[("sessions", normal.len().to_string())],)?
+                )
+            )?;
+            render_table(output, &normal, include_detail, &common_prefix, l)?;
         } else {
             write!(
                 output,
-                "<details class=\"sx-detail\"><summary>查看其余 {} 个会话（未发现上下文刷新）</summary>",
-                normal.len()
+                "<details class=\"sx-detail\"><summary>{}</summary>",
+                encode_text(&l.format(
+                    "collapsed_detail_heading",
+                    &[("sessions", normal.len().to_string())],
+                )?)
             )?;
-            render_table(output, &normal, include_detail, &common_prefix)?;
+            render_table(output, &normal, include_detail, &common_prefix, l)?;
             output.push_str("</details>");
         }
     }
@@ -214,14 +247,24 @@ fn render_table(
     reports: &[&SessionReport],
     include_detail: bool,
     common_prefix: &str,
+    l: LocaleModule,
 ) -> Result<()> {
-    output.push_str(
-        "<table class=\"pt-table\"><thead><tr><th>会话</th><th>请求</th><th>刷新</th>\
-         <th>首次刷新</th><th>事件</th><th>最低前缀复用度</th><th>废弃前缀</th>\
-         <th>当前复用率</th><th>逐轮</th>",
-    );
+    write!(
+        output,
+        "<table class=\"pt-table\"><thead><tr><th>{}</th><th>{}</th><th>{}</th>\
+         <th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th>",
+        encode_text(l.get("table_session")?),
+        encode_text(l.get("table_requests")?),
+        encode_text(l.get("table_refreshes")?),
+        encode_text(l.get("table_first_refresh")?),
+        encode_text(l.get("table_events")?),
+        encode_text(l.get("table_min_reuse")?),
+        encode_text(l.get("table_abandoned")?),
+        encode_text(l.get("table_current_ratio")?),
+        encode_text(l.get("table_trend")?)
+    )?;
     if include_detail {
-        output.push_str("<th>明细</th>");
+        write!(output, "<th>{}</th>", encode_text(l.get("detail")?))?;
     }
     output.push_str("</tr></thead><tbody>");
     for report in reports {
@@ -252,12 +295,12 @@ fn render_table(
             row_class = if refresh_count > 0 { "sx-warn" } else { "" },
             session = encode_text(&session_label(&report.session_key, common_prefix)),
             requests = report.request_count,
-            tags = event_tags(report),
+            tags = event_tags(report, l)?,
             percent = ratio(lcp, total) * 100.0,
             spark = reuse_spark(report),
             abandoned = effective_abandoned_prefix_bytes(report),
             detail = if include_detail {
-                format!("<td>{}</td>", event_detail(report))
+                format!("<td>{}</td>", event_detail(report, l)?)
             } else {
                 String::new()
             },
@@ -273,20 +316,23 @@ pub(super) fn first_refresh_pair(report: &SessionReport) -> Option<(usize, usize
         .iter()
         .enumerate()
         .filter(|(_, event)| event_is_refresh(event))
-        .map(|(index, event)| {
-            let previous = if event.previous_sequence == 0 {
-                index + 1
-            } else {
-                event.previous_sequence
-            };
-            let next = if event.next_sequence == 0 {
-                index + 2
-            } else {
-                event.next_sequence
-            };
-            (previous, next)
-        })
+        .map(|(index, event)| event_sequences(event, index))
         .min_by_key(|(previous, _)| *previous)
+}
+
+fn event_sequences(event: &SessionSwitchEvent, index: usize) -> (usize, usize) {
+    (
+        if event.previous_sequence == 0 {
+            index + 1
+        } else {
+            event.previous_sequence
+        },
+        if event.next_sequence == 0 {
+            index + 2
+        } else {
+            event.next_sequence
+        },
+    )
 }
 
 fn reuse_spark(report: &SessionReport) -> String {
@@ -327,56 +373,59 @@ fn reuse_spark(report: &SessionReport) -> String {
     bars
 }
 
-fn event_tags(report: &SessionReport) -> String {
+fn event_tags(report: &SessionReport, l: LocaleModule) -> Result<String> {
     let mut tags = String::new();
-    for (count, class, label) in [
-        (report.append_count, "sx-append", "追加"),
-        (report.fork_count, "sx-fork", "分叉"),
-        (report.reorder_count, "sx-reorder", "重排"),
-        (report.reset_count, "sx-reset", "重置"),
+    for (count, class, key) in [
+        (report.append_count, "sx-append", "append"),
+        (report.fork_count, "sx-fork", "fork"),
+        (report.reorder_count, "sx-reorder", "reorder"),
+        (report.reset_count, "sx-reset", "reset"),
     ] {
         if count > 0 {
             write!(
                 tags,
-                "<span class=\"sx-tag {class}\">{label}×{count}</span>"
+                "<span class=\"sx-tag {class}\">{}×{count}</span>",
+                encode_text(l.get(key)?)
             )
             .expect("writing into String cannot fail");
         }
     }
-    if tags.is_empty() {
+    Ok(if tags.is_empty() {
         "—".to_string()
     } else {
         tags
-    }
+    })
 }
 
-fn event_detail(report: &SessionReport) -> String {
-    let mut detail = String::from(
-        "<details><summary>事件</summary><table class=\"pt-table\"><thead><tr>\
-         <th>轮次</th><th>类型</th><th>风险</th><th>前一请求</th><th>后一请求</th>\
-         <th>结构前缀</th><th>保留前缀</th><th>前缀复用度</th><th>废弃前缀</th><th>重算</th>\
-         <th>可恢复稳定</th><th>比较域</th><th>块结构</th></tr></thead><tbody>",
-    );
+fn event_detail(report: &SessionReport, l: LocaleModule) -> Result<String> {
+    let mut detail = String::from("<details><summary>");
+    detail.push_str(&encode_text(l.get("table_events")?));
+    detail.push_str("</summary><table class=\"pt-table\"><thead><tr>");
+    for key in [
+        "event_round",
+        "event_type",
+        "event_risk",
+        "event_previous",
+        "event_next",
+        "event_structural_prefix",
+        "event_retained_prefix",
+        "event_reuse_ratio",
+        "event_abandoned",
+        "event_recomputed",
+        "event_recoverable",
+        "event_domain",
+        "event_blocks",
+    ] {
+        write!(detail, "<th>{}</th>", encode_text(l.get(key)?))
+            .expect("writing into String cannot fail");
+    }
+    detail.push_str("</tr></thead><tbody>");
     for (index, event) in report.events.iter().enumerate() {
+        let (previous_sequence, next_sequence) = event_sequences(event, index);
         let reuse = event
             .prefix_reuse_ratio
             .map(|value| format!("{:.0}%", value * 100.0))
             .unwrap_or_else(|| "—".to_string());
-        let previous_sequence = if event.previous_sequence == 0 {
-            index + 1
-        } else {
-            event.previous_sequence
-        };
-        let next_sequence = if event.next_sequence == 0 {
-            index + 2
-        } else {
-            event.next_sequence
-        };
-        let risk = if event_is_refresh(event) {
-            "<span class=\"sx-tag sx-reset\">刷新</span>"
-        } else {
-            "—"
-        };
         write!(
             detail,
             "<tr><td>{} → {}</td><td>{}</td><td>{}</td><td><code>{}</code></td><td><code>{}</code></td>\
@@ -384,8 +433,15 @@ fn event_detail(report: &SessionReport) -> String {
              <td>{}</td><td><code>{}</code></td></tr>",
             previous_sequence,
             next_sequence,
-            event_label(&event.event_type),
-            risk,
+            encode_text(event_label(&event.event_type, l)?),
+            if event_is_refresh(event) {
+                format!(
+                    "<span class=\"sx-tag sx-reset\">{}</span>",
+                    encode_text(l.get("event_refresh")?)
+                )
+            } else {
+                "—".to_string()
+            },
             encode_text(&short_id(&event.prev_request_id)),
             encode_text(&short_id(&event.next_request_id)),
             event.lcp_units,
@@ -395,13 +451,17 @@ fn event_detail(report: &SessionReport) -> String {
             event.abandoned_prefix_bytes,
             event.recomputed_bytes,
             event.stable_after_switch_bytes,
-            if event.domain_changed { "已变化" } else { "未变化" },
+            encode_text(if event.domain_changed {
+                l.get("event_changed")?
+            } else {
+                l.get("event_unchanged")?
+            }),
             encode_text(&event.next_block_runs)
         )
         .expect("writing into String cannot fail");
     }
     detail.push_str("</tbody></table></details>");
-    detail
+    Ok(detail)
 }
 
 fn event_is_refresh(event: &SessionSwitchEvent) -> bool {
@@ -410,11 +470,11 @@ fn event_is_refresh(event: &SessionSwitchEvent) -> bool {
             && !matches!(event.event_type, SessionEventType::Append))
 }
 
-fn event_label(event: &SessionEventType) -> &'static str {
-    match event {
-        SessionEventType::Append => "追加",
-        SessionEventType::Fork => "分叉",
-        SessionEventType::Reorder => "重排",
-        SessionEventType::Reset => "重置",
-    }
+fn event_label(event: &SessionEventType, l: LocaleModule) -> Result<&'static str> {
+    l.get(match event {
+        SessionEventType::Append => "append",
+        SessionEventType::Fork => "fork",
+        SessionEventType::Reorder => "reorder",
+        SessionEventType::Reset => "reset",
+    })
 }

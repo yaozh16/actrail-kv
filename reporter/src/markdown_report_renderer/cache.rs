@@ -5,14 +5,18 @@ use std::fmt::Write;
 use actrail_kv_artifacts::{AnalysisResult, CacheMetricBasis};
 use anyhow::Result;
 
+use crate::locale::{namespace, LocaleSnapshot};
+
 use super::format::table_code;
 
-pub(super) fn render(output: &mut String, result: &AnalysisResult) -> Result<()> {
-    output.push_str("## KV 缓存命中率\n\n");
-    output.push_str(
-        "命中率 = cached_tokens / prompt_tokens（真实 usage）；\
-         无 usage 时按与会话内上一条请求的上下文公共前缀估算，并在“口径”列标注。\n\n",
-    );
+pub(super) fn render(
+    output: &mut String,
+    result: &AnalysisResult,
+    locale: LocaleSnapshot,
+) -> Result<()> {
+    let l = locale.create(namespace::REPORT_CACHE)?;
+    writeln!(output, "## {}\n", l.get("section_title")?)?;
+    writeln!(output, "{}\n", l.get("intro")?)?;
     let reported = result
         .cache_metrics
         .iter()
@@ -25,10 +29,14 @@ pub(super) fn render(output: &mut String, result: &AnalysisResult) -> Result<()>
         .map(|metric| metric.hit_rate)
         .sum::<f64>()
         / result.cache_metrics.len() as f64;
-    output.push_str(
-        "| 请求 | 平均命中率 | 真实 usage | 估算 |\n\
-         |---:|---:|---:|---:|\n",
-    );
+    writeln!(
+        output,
+        "| {} | {} | {} | {} |\n|---:|---:|---:|---:|",
+        l.get("requests")?,
+        l.get("average_hit")?,
+        l.get("reported")?,
+        l.get("estimated")?
+    )?;
     writeln!(
         output,
         "| {} | {:.1}% | {} | {} |\n",
@@ -38,25 +46,37 @@ pub(super) fn render(output: &mut String, result: &AnalysisResult) -> Result<()>
         estimated
     )?;
 
-    output.push_str(
-        "| 会话 | 序号 | 请求 | prompt | hit(cached) | miss | output | TTFT | 总耗时 | 命中率 | Δ | 口径 | 明细 |\n\
-         |---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---|---|\n",
-    );
+    writeln!(
+        output,
+        "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+        l.get("session")?,
+        l.get("sequence")?,
+        l.get("request")?,
+        l.get("prompt")?,
+        l.get("cached")?,
+        l.get("miss")?,
+        l.get("output")?,
+        l.get("ttft")?,
+        l.get("total")?,
+        l.get("hit_rate")?,
+        l.get("delta")?,
+        l.get("basis")?,
+        l.get("detail")?
+    )?;
+    output.push_str("|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|\n");
     for metric in &result.cache_metrics {
-        let session = metric
-            .session_key
-            .as_deref()
-            .map(table_code)
-            .unwrap_or_else(|| "（无 session，按输入顺序）".to_string());
+        let session = match metric.session_key.as_deref() {
+            Some(session) => table_code(session),
+            None => l.get("no_session")?.to_string(),
+        };
         let tokens = |value: Option<u32>| {
             value
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "—".to_string())
         };
-        let latency = |value: Option<u64>| {
-            value
-                .map(|value| format!("{value} ms"))
-                .unwrap_or_else(|| "—".to_string())
+        let latency = |value: Option<u64>| match value {
+            Some(value) => l.format("milliseconds", &[("value", value.to_string())]),
+            None => Ok("—".to_string()),
         };
         let delta = metric
             .hit_rate_delta
@@ -70,11 +90,13 @@ pub(super) fn render(output: &mut String, result: &AnalysisResult) -> Result<()>
             .unwrap_or_else(|| "—".to_string());
         let detail = match metric.basis {
             CacheMetricBasis::Reported => "—".to_string(),
-            CacheMetricBasis::Estimated => format!(
-                "LCP {}B / payload {}B",
-                metric.estimated_lcp_bytes.unwrap_or(0),
-                metric.payload_bytes
-            ),
+            CacheMetricBasis::Estimated => l.format(
+                "estimated_detail",
+                &[
+                    ("lcp", metric.estimated_lcp_bytes.unwrap_or(0).to_string()),
+                    ("payload", metric.payload_bytes.to_string()),
+                ],
+            )?,
         };
         writeln!(
             output,
@@ -85,13 +107,13 @@ pub(super) fn render(output: &mut String, result: &AnalysisResult) -> Result<()>
             tokens(metric.cached_tokens),
             tokens(metric.miss_tokens),
             tokens(metric.output_tokens),
-            latency(metric.ttft_ms),
-            latency(metric.total_ms),
+            latency(metric.ttft_ms)?,
+            latency(metric.total_ms)?,
             metric.hit_rate * 100.0,
             delta,
             match metric.basis {
-                CacheMetricBasis::Reported => "真实",
-                CacheMetricBasis::Estimated => "估算",
+                CacheMetricBasis::Reported => l.get("basis_reported")?,
+                CacheMetricBasis::Estimated => l.get("basis_estimated")?,
             },
             detail
         )?;

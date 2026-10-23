@@ -120,6 +120,12 @@ actrail-kv/
 │   ├── html_report_renderer.rs                  # 报告编排、缺陷、复用率、命中率与前缀树；全转义
 │   ├── html_report_renderer/
 │   │   └── session.rs                           # 会话上下文刷新 warning 与逐轮事件
+│   ├── locale/                                  # 全局 locale 工厂、快照与 namespace 子表
+│   │   ├── mod.rs                               # Locale、namespace 常量与公共 API
+│   │   ├── factory.rs                           # 初始化、切换和当前 locale 快照
+│   │   ├── registry.rs                          # locale/namespace/key 注册与完整校验
+│   │   ├── snapshot.rs                          # 不可变快照、模块句柄与 format
+│   │   └── catalogs/                            # zh-CN / en-US 文案子表
 │   ├── markdown_report_renderer/                # 纯 GFM 报告，与 HTML 信息内容等价
 │   │   ├── mod.rs                               # Markdown 总章节编排
 │   │   ├── format.rs                            # GFM 转义、表格与代码片段辅助

@@ -5,28 +5,43 @@ use std::{collections::BTreeMap, fmt::Write};
 use actrail_kv_artifacts::{AnalysisResult, ContextDefect, DefectFactKind, MismatchPattern};
 use anyhow::{anyhow, Result};
 
+use crate::locale::{namespace, LocaleModule, LocaleSnapshot};
+
 use super::format::{code, heading_anchor, inline, table_code};
 
-pub(super) fn render_top_k(output: &mut String, result: &AnalysisResult) -> Result<()> {
+pub(super) fn render_top_k(
+    output: &mut String,
+    result: &AnalysisResult,
+    locale: LocaleSnapshot,
+) -> Result<()> {
+    let l = locale.create(namespace::REPORT_TOP_K)?;
     let defects: BTreeMap<_, _> = result
         .defects
         .iter()
         .map(|defect| (defect.id.as_str(), defect))
         .collect();
-    output.push_str("## Top K\n\n");
-    output.push_str(
-        "按 `top_k[]` 的得分序排列（score → 受影响请求数 → 被阻断稳定字节 → 缺陷 ID）；\
-         每行给出位置、被阻断稳定字节与建议动作，可跳到下面的证据。\
-         被阻断稳定字节是结构代理，不代表真实 Token、KV miss 或金额收益。\n\n",
-    );
+    writeln!(output, "## {}\n", l.get("section_title")?)?;
+    writeln!(output, "{}\n", l.get("intro")?)?;
     if result.top_k.is_empty() {
-        output.push_str("本次未发现上下文结构缺陷。\n\n");
+        writeln!(output, "{}\n", l.get("empty")?)?;
         return Ok(());
     }
-    output.push_str(
-        "| 排名 | 位置 | 被阻断稳定字节 | 受影响请求 | 得分 | 建议动作 | 缺陷 |\n\
-         |---:|---|---:|---:|---:|---|---|\n",
-    );
+    writeln!(
+        output,
+        "| {} | {} | {} | {} | {} | {} | {} |",
+        l.get("rank_header")?,
+        l.get("location_header")?,
+        l.get("blocked_header")?,
+        l.get("affected_header")?,
+        l.get("score_header")?,
+        l.get("advice_header")?,
+        l.get("defect_header")?
+    )?;
+    output.push_str("|---:|---|---:|---:|---:|---|---|\n");
+    let defects_locale = locale.create(namespace::REPORT_DEFECTS)?;
+    let common = locale.create(namespace::REPORT_COMMON)?;
+    let role = common.get("role")?;
+    let unit = common.get("unit")?;
     for (index, id) in result.top_k.iter().enumerate() {
         let defect = defects
             .get(id.as_str())
@@ -36,128 +51,184 @@ pub(super) fn render_top_k(output: &mut String, result: &AnalysisResult) -> Resu
             .first()
             .map(|insight| insight.summary.as_str())
             .unwrap_or("—");
-        let anchor = defect_anchor(id);
         writeln!(
             output,
             "| {} | {} | {} | {} | {:.2} | {} | [{}](#{}) |",
             index + 1,
-            table_code(&defect_location(defect)),
+            table_code(&defect_location(defect, role, unit)),
             defect.blocked_stable_bytes,
             defect.affected_count,
             defect.score.score,
             inline(advice),
             table_code(id),
-            anchor
+            defect_anchor(id, defects_locale)?
         )?;
     }
     output.push('\n');
     Ok(())
 }
 
-pub(super) fn render_details(output: &mut String, result: &AnalysisResult) -> Result<()> {
-    output.push_str("## 缺陷详情\n\n");
+pub(super) fn render_details(
+    output: &mut String,
+    result: &AnalysisResult,
+    locale: LocaleSnapshot,
+) -> Result<()> {
+    let l = locale.create(namespace::REPORT_DEFECTS)?;
+    writeln!(output, "## {}\n", l.get("section_title")?)?;
     for defect in &result.defects {
-        render_defect(output, defect)?;
+        render_defect(output, defect, locale)?;
     }
     Ok(())
 }
 
-fn render_defect(output: &mut String, defect: &ContextDefect) -> Result<()> {
-    writeln!(output, "### 缺陷 {}\n", defect_label(&defect.id))?;
-    output.push_str("[↑ 返回 Top K](#top-k)\n\n");
-    writeln!(output, "- 原始缺陷 ID：{}\n", code(&defect.id))?;
+fn render_defect(
+    output: &mut String,
+    defect: &ContextDefect,
+    locale: LocaleSnapshot,
+) -> Result<()> {
+    let l = locale.create(namespace::REPORT_DEFECTS)?;
+    let common = locale.create(namespace::REPORT_COMMON)?;
     writeln!(
         output,
-        "- 比较组：window={} endpoint={} model={} schema={}",
+        "### {} {}\n",
+        l.get("item_title")?,
+        defect_label(&defect.id)
+    )?;
+    writeln!(output, "[{}](#top-k)\n", common.get("back_to_top_k")?)?;
+    writeln!(
+        output,
+        "- {}: {}\n",
+        l.get("original_id")?,
+        code(&defect.id)
+    )?;
+    writeln!(
+        output,
+        "- {}: window={} endpoint={} model={} schema={}",
+        l.get("comparison_group")?,
         code(&defect.comparison_group.time_window_key),
         code(&defect.comparison_group.endpoint_key),
         code(&defect.comparison_group.model),
         code(&defect.comparison_group.context_schema_key)
     )?;
     if let Some(agent) = &defect.comparison_group.agent_key {
-        writeln!(output, "- Agent：{}", code(agent))?;
+        writeln!(output, "- {}: {}", l.get("agent")?, code(agent))?;
     }
     if let Some(deployment) = &defect.comparison_group.model_deployment_key {
-        writeln!(output, "- 模型部署：{}", code(deployment))?;
+        writeln!(output, "- {}: {}", l.get("deployment")?, code(deployment))?;
     }
     if let Some(namespace) = &defect.comparison_group.kv_namespace {
-        writeln!(output, "- KV namespace：{}", code(namespace))?;
+        writeln!(output, "- {}: {}", l.get("namespace")?, code(namespace))?;
     }
     writeln!(
         output,
-        "- **P1** 公共前缀 {} bytes → **X** {} → **P2** 恢复稳定 {} bytes（支持 {} 条）\n",
-        defect.actual_prefix_bytes,
-        pattern_label(&defect.mismatch.pattern),
-        defect.recovered_stable.utf8_bytes,
-        defect.recovered_stable.support_count
+        "- {}\n",
+        l.format(
+            "p1_summary",
+            &[
+                ("actual", defect.actual_prefix_bytes.to_string()),
+                (
+                    "pattern",
+                    pattern_label(&defect.mismatch.pattern, l)?.to_owned()
+                ),
+                ("stable", defect.recovered_stable.utf8_bytes.to_string()),
+                ("support", defect.recovered_stable.support_count.to_string()),
+            ],
+        )?
     )?;
 
-    output.push_str("#### X 变体\n\n");
+    writeln!(output, "#### {}\n", l.get("variants_title")?)?;
     for variant in &defect.mismatch.variants {
         let evidence = &variant.representative;
         writeln!(
             output,
-            "- {} 条请求；代表请求 {}；{} bytes",
-            variant.member_request_ids.len(),
+            "- {}; {}: {}; {}",
+            l.format(
+                "request_count",
+                &[("count", variant.member_request_ids.len().to_string())]
+            )?,
+            l.get("representative")?,
             code(&evidence.request_id),
-            evidence.utf8_bytes
+            l.format("bytes", &[("bytes", evidence.utf8_bytes.to_string())])?
         )?;
         if !evidence.sources.is_empty() {
-            write!(output, "  - 位置：")?;
+            write!(output, "  - {}: ", l.get("location")?)?;
             for (index, source) in evidence.sources.iter().enumerate() {
                 if index > 0 {
-                    output.push('；');
+                    output.push(';');
                 }
                 write!(output, "{}", code(&source.json_path))?;
             }
             output.push('\n');
         }
         match &evidence.excerpt {
-            Some(excerpt) => writeln!(output, "  - 内容：{}\n", code(excerpt))?,
-            None => output.push_str("  - 该变体在此区域缺失内容\n\n"),
+            Some(excerpt) => writeln!(output, "  - {}: {}\n", l.get("content")?, code(excerpt))?,
+            None => writeln!(output, "  - {}\n", l.get("missing_variant")?)?,
         }
     }
 
     if !defect.mismatch.facts.is_empty() {
-        output.push_str("#### 已确认事实\n\n");
+        writeln!(output, "#### {}\n", l.get("facts_title")?)?;
         for fact in &defect.mismatch.facts {
-            write!(output, "- {}", fact_label(&fact.kind))?;
+            write!(output, "- {}", fact_label(&fact.kind, l)?)?;
             if let Some(detail) = &fact.detail {
-                write!(output, "：{}", inline(detail))?;
+                write!(output, ": {}", inline(detail))?;
             }
             output.push('\n');
         }
         output.push('\n');
     }
 
-    output.push_str("#### P2 稳定证据\n\n");
+    writeln!(output, "#### {}\n", l.get("p2_title")?)?;
     writeln!(output, "{}\n", code(&defect.recovered_stable.excerpt))?;
-    output.push_str("| 指标 | 数值 |\n|---|---:|\n");
     writeln!(
         output,
-        "| 实际前缀 | {} bytes |",
+        "| {} | {} |\n|---|---:|",
+        l.get("metric_header")?,
+        l.get("value_header")?
+    )?;
+    writeln!(
+        output,
+        "| {} | {} bytes |",
+        l.get("actual_prefix")?,
         defect.actual_prefix_bytes
     )?;
     writeln!(
         output,
-        "| 潜在前缀 | {} bytes |",
+        "| {} | {} bytes |",
+        l.get("potential_prefix")?,
         defect.potential_prefix_bytes
     )?;
     writeln!(
         output,
-        "| 阻断稳定字节 | {} bytes |",
+        "| {} | {} bytes |",
+        l.get("blocked_bytes")?,
         defect.blocked_stable_bytes
     )?;
-    writeln!(output, "| 可比较请求 | {} |", defect.comparable_count)?;
-    writeln!(output, "| 影响请求 | {} |", defect.affected_count)?;
-    writeln!(output, "| 置信度 | {:.3} |\n", defect.confidence)?;
+    writeln!(
+        output,
+        "| {} | {} |",
+        l.get("comparable_requests")?,
+        defect.comparable_count
+    )?;
+    writeln!(
+        output,
+        "| {} | {} |",
+        l.get("affected_requests")?,
+        defect.affected_count
+    )?;
+    writeln!(
+        output,
+        "| {} | {:.3} |\n",
+        l.get("confidence")?,
+        defect.confidence
+    )?;
 
     if !defect.insights.is_empty() {
-        output.push_str("#### 优化启示\n\n");
+        writeln!(output, "#### {}\n", l.get("insights_title")?)?;
         for insight in &defect.insights {
             write!(output, "- **{}**", inline(&insight.summary))?;
             if let Some(detail) = &insight.detail {
-                write!(output, "：{}", inline(detail))?;
+                write!(output, ": {}", inline(detail))?;
             }
             output.push('\n');
         }
@@ -166,15 +237,19 @@ fn render_defect(output: &mut String, defect: &ContextDefect) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn defect_anchor(id: &str) -> String {
-    heading_anchor(&format!("缺陷 {}", defect_label(id)))
+pub(super) fn defect_anchor(id: &str, locale: LocaleModule) -> Result<String> {
+    Ok(heading_anchor(&format!(
+        "{} {}",
+        locale.get("item_title")?,
+        defect_label(id)
+    )))
 }
 
 fn defect_label(id: &str) -> String {
     heading_anchor(id)
 }
 
-fn defect_location(defect: &ContextDefect) -> String {
+fn defect_location(defect: &ContextDefect, role_label: &str, unit_label: &str) -> String {
     let source = defect
         .mismatch
         .variants
@@ -185,30 +260,30 @@ fn defect_location(defect: &ContextDefect) -> String {
     };
     let mut location = source.json_path.clone();
     if let Some(role) = source.role.as_deref() {
-        write!(location, " ({role})").expect("writing into String cannot fail");
+        write!(location, " ({role_label}={role})").expect("writing into String cannot fail");
     }
     if let Some(unit) = source.unit_index {
-        write!(location, " · 单元 #{unit}").expect("writing into String cannot fail");
+        write!(location, " · {unit_label} #{unit}").expect("writing into String cannot fail");
     }
     location
 }
 
-fn pattern_label(pattern: &MismatchPattern) -> &'static str {
-    match pattern {
-        MismatchPattern::ValueMismatch => "同一位置内容不同",
-        MismatchPattern::InsertionDeletion => "插入或缺失",
-        MismatchPattern::Reorder => "移动或重排",
-        MismatchPattern::Mixed => "混合变体",
-    }
+fn pattern_label(pattern: &MismatchPattern, locale: LocaleModule) -> Result<&'static str> {
+    locale.get(match pattern {
+        MismatchPattern::ValueMismatch => "pattern_value_mismatch",
+        MismatchPattern::InsertionDeletion => "pattern_insertion_deletion",
+        MismatchPattern::Reorder => "pattern_reorder",
+        MismatchPattern::Mixed => "pattern_mixed",
+    })
 }
 
-fn fact_label(kind: &DefectFactKind) -> &'static str {
-    match kind {
-        DefectFactKind::ContentVariation => "内容持续变化",
-        DefectFactKind::FixedVariants => "少数固定版本",
-        DefectFactKind::StructuredDataEquivalent => "结构化数据等价",
-        DefectFactKind::InsertionDeletion => "存在插入或缺失",
-        DefectFactKind::Reorder => "存在可证明的移动或重排",
-        DefectFactKind::Scope => "模型可见层级范围",
-    }
+fn fact_label(kind: &DefectFactKind, locale: LocaleModule) -> Result<&'static str> {
+    locale.get(match kind {
+        DefectFactKind::ContentVariation => "fact_content_variation",
+        DefectFactKind::FixedVariants => "fact_fixed_variants",
+        DefectFactKind::StructuredDataEquivalent => "fact_structured_equivalence",
+        DefectFactKind::InsertionDeletion => "fact_insertion_deletion",
+        DefectFactKind::Reorder => "fact_reorder",
+        DefectFactKind::Scope => "fact_scope",
+    })
 }

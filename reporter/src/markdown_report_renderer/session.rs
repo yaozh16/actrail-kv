@@ -5,15 +5,18 @@ use std::{collections::BTreeSet, fmt::Write};
 use actrail_kv_artifacts::{SessionEventType, SessionReport, SessionSwitchEvent};
 use anyhow::Result;
 
+use crate::locale::{namespace, LocaleModule, LocaleSnapshot};
+
 use super::format::{code, short_id, table_code};
 
-pub(super) fn render(output: &mut String, reports: &[SessionReport]) -> Result<()> {
-    output.push_str("## 会话上下文刷新与前缀复用\n\n");
-    output.push_str(
-        "同一 session 内的相邻请求本应保持 append-only。\
-         每轮前缀复用度 = 与上一条请求的公共前缀字节 / 上一条内容性上下文总字节；\
-         低于 100% 表示上一条上下文未被完整保留，会废弃原有 KVC 前缀。\n\n",
-    );
+pub(super) fn render(
+    output: &mut String,
+    reports: &[SessionReport],
+    locale: LocaleSnapshot,
+) -> Result<()> {
+    let l = locale.create(namespace::REPORT_SESSIONS)?;
+    writeln!(output, "## {}\n", l.get("section_title")?)?;
+    writeln!(output, "{}\n", l.get("intro")?)?;
 
     let mut requests = 0usize;
     let mut lcp_bytes = 0usize;
@@ -32,22 +35,37 @@ pub(super) fn render(output: &mut String, reports: &[SessionReport]) -> Result<(
             next_bytes += event.next_total_bytes;
         }
     }
-    output.push_str("| 指标 | 数值 |\n|---|---:|\n");
-    writeln!(output, "| 会话 | {} |", reports.len())?;
-    writeln!(output, "| 请求 | {requests} |")?;
-    writeln!(output, "| 上下文刷新警告 | {refresh_count} |")?;
-    writeln!(output, "| 发生刷新的会话 | {refresh_sessions} |")?;
     writeln!(
         output,
-        "| 当前前缀复用占比 | {:.1}% |",
+        "| {} | {} |\n|---|---:|",
+        l.get("metric_header")?,
+        l.get("value_header")?
+    )?;
+    writeln!(output, "| {} | {} |", l.get("sessions")?, reports.len())?;
+    writeln!(output, "| {} | {requests} |", l.get("requests")?)?;
+    writeln!(
+        output,
+        "| {} | {refresh_count} |",
+        l.get("refresh_warnings")?
+    )?;
+    writeln!(
+        output,
+        "| {} | {refresh_sessions} |",
+        l.get("refresh_sessions")?
+    )?;
+    writeln!(
+        output,
+        "| {} | {:.1}% |",
+        l.get("current_ratio")?,
         ratio(lcp_bytes, next_bytes) * 100.0
     )?;
-    writeln!(output, "| 废弃前缀 | {abandoned_bytes} B |\n")?;
+    writeln!(
+        output,
+        "| {} | {abandoned_bytes} B |\n",
+        l.get("abandoned")?
+    )?;
 
-    output.push_str(
-        "> 上下文压缩、subagent 创建或任务切换都可能触发刷新；\
-         这些是 KVC 前缀废弃风险，不自动判定为错误，由用户确认是否接受。\n\n",
-    );
+    writeln!(output, "> {}\n", l.get("note")?)?;
 
     let common_prefix = common_key_prefix(reports.iter().map(|report| report.session_key.as_str()));
     let endpoints: BTreeSet<&str> = reports
@@ -57,19 +75,21 @@ pub(super) fn render(output: &mut String, reports: &[SessionReport]) -> Result<(
     let models: BTreeSet<&str> = reports.iter().map(|report| report.model.as_str()).collect();
     writeln!(
         output,
-        "端点：{}。模型：{}。\n",
+        "{}: {}. {}: {}.\n",
+        l.get("endpoints")?,
         endpoints
             .into_iter()
             .map(code)
             .collect::<Vec<_>>()
             .join(" / "),
+        l.get("models")?,
         models.into_iter().map(code).collect::<Vec<_>>().join(" / ")
     )?;
     if !common_prefix.is_empty() {
         writeln!(
             output,
-            "会话列省略共有前缀 {}（完整会话名见 analysis.json）。\n",
-            code(&common_prefix)
+            "{}\n",
+            l.format("common_prefix_omitted", &[("prefix", code(&common_prefix))])?
         )?;
     }
 
@@ -92,18 +112,29 @@ pub(super) fn render(output: &mut String, reports: &[SessionReport]) -> Result<(
     normal.sort_by(|left, right| left.session_key.cmp(&right.session_key));
 
     if attention.is_empty() {
-        output.push_str("未发现上下文刷新：所有会话的相邻请求都保持前缀连续。\n\n");
+        writeln!(output, "{}\n", l.get("no_refresh")?)?;
     } else {
-        writeln!(output, "### 上下文刷新警告（{} 个会话）\n", attention.len())?;
-        render_session_table(output, &attention, &common_prefix)?;
+        writeln!(
+            output,
+            "### {}\n",
+            l.format(
+                "warning_heading",
+                &[("sessions", attention.len().to_string())]
+            )?
+        )?;
+        render_session_table(output, &attention, &common_prefix, l)?;
     }
     if !normal.is_empty() {
-        writeln!(output, "### 会话明细（{}）\n", normal.len())?;
-        render_session_table(output, &normal, &common_prefix)?;
+        writeln!(
+            output,
+            "### {}\n",
+            l.format("detail_heading", &[("sessions", normal.len().to_string())])?
+        )?;
+        render_session_table(output, &normal, &common_prefix, l)?;
     }
 
     for report in reports {
-        render_events(output, report, &common_prefix)?;
+        render_events(output, report, &common_prefix, l)?;
     }
     Ok(())
 }
@@ -112,11 +143,22 @@ fn render_session_table(
     output: &mut String,
     reports: &[&SessionReport],
     common_prefix: &str,
+    locale: LocaleModule,
 ) -> Result<()> {
-    output.push_str(
-        "| 会话 | 请求 | 刷新 | 首次刷新 | 事件 | 最低前缀复用度 | 废弃前缀 | 当前复用率 | 逐轮 |\n\
-         |---|---:|---:|---|---|---:|---:|---:|---|\n",
-    );
+    writeln!(
+        output,
+        "| {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+        locale.get("table_session")?,
+        locale.get("table_requests")?,
+        locale.get("table_refreshes")?,
+        locale.get("table_first_refresh")?,
+        locale.get("table_events")?,
+        locale.get("table_min_reuse")?,
+        locale.get("table_abandoned")?,
+        locale.get("table_current_ratio")?,
+        locale.get("table_trend")?
+    )?;
+    output.push_str("|---|---:|---:|---|---|---:|---:|---:|---|\n");
     for report in reports {
         let lcp: usize = report.events.iter().map(|event| event.lcp_bytes).sum();
         let total: usize = report
@@ -152,7 +194,7 @@ fn render_session_table(
             report.request_count,
             effective_refresh_count(report),
             first_refresh,
-            event_tags(report),
+            event_tags(report, locale)?,
             minimum,
             effective_abandoned_prefix_bytes(report),
             ratio(lcp, total) * 100.0,
@@ -163,19 +205,44 @@ fn render_session_table(
     Ok(())
 }
 
-fn render_events(output: &mut String, report: &SessionReport, common_prefix: &str) -> Result<()> {
+fn render_events(
+    output: &mut String,
+    report: &SessionReport,
+    common_prefix: &str,
+    locale: LocaleModule,
+) -> Result<()> {
     if report.events.is_empty() {
         return Ok(());
     }
     writeln!(
         output,
-        "#### 会话事件：{}\n",
-        session_label(&report.session_key, common_prefix)
+        "#### {}\n",
+        locale.format(
+            "event_title",
+            &[(
+                "session",
+                code(&session_label(&report.session_key, common_prefix)),
+            )]
+        )?
     )?;
-    output.push_str(
-        "| 轮次 | 类型 | 风险 | 前一请求 | 后一请求 | 结构前缀 | 保留前缀 | 前缀复用度 | 废弃前缀 | 重算 | 可恢复稳定 | 比较域 | 块结构 |\n\
-         |---|---|---|---|---|---:|---:|---:|---:|---:|---:|---|---|\n",
-    );
+    writeln!(
+        output,
+        "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+        locale.get("event_round")?,
+        locale.get("event_type")?,
+        locale.get("event_risk")?,
+        locale.get("event_previous")?,
+        locale.get("event_next")?,
+        locale.get("event_structural_prefix")?,
+        locale.get("event_retained_prefix")?,
+        locale.get("event_reuse_ratio")?,
+        locale.get("event_abandoned")?,
+        locale.get("event_recomputed")?,
+        locale.get("event_recoverable")?,
+        locale.get("event_domain")?,
+        locale.get("event_blocks")?
+    )?;
+    output.push_str("|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---|---|\n");
     for (index, event) in report.events.iter().enumerate() {
         let (previous, next) = event_sequences(event, index);
         let reuse = event
@@ -185,8 +252,12 @@ fn render_events(output: &mut String, report: &SessionReport, common_prefix: &st
         writeln!(
             output,
             "| {previous} → {next} | {} | {} | {} | {} | {} units / {} B | {} B | {} | {} B | {} B | {} B | {} | {} |",
-            event_label(&event.event_type),
-            if event_is_refresh(event) { "刷新" } else { "—" },
+            event_label(&event.event_type, locale)?,
+            if event_is_refresh(event) {
+                locale.get("event_refresh")?
+            } else {
+                "—"
+            },
             table_code(&short_id(&event.prev_request_id)),
             table_code(&short_id(&event.next_request_id)),
             event.lcp_units,
@@ -196,7 +267,11 @@ fn render_events(output: &mut String, report: &SessionReport, common_prefix: &st
             event.abandoned_prefix_bytes,
             event.recomputed_bytes,
             event.stable_after_switch_bytes,
-            if event.domain_changed { "已变化" } else { "未变化" },
+            if event.domain_changed {
+                locale.get("event_changed")?
+            } else {
+                locale.get("event_unchanged")?
+            },
             table_code(&event.next_block_runs)
         )?;
     }
@@ -251,22 +326,22 @@ fn effective_abandoned_prefix_bytes(report: &SessionReport) -> usize {
     }
 }
 
-fn event_tags(report: &SessionReport) -> String {
+fn event_tags(report: &SessionReport, locale: LocaleModule) -> Result<String> {
     let labels = [
-        (report.append_count, "追加"),
-        (report.fork_count, "分叉"),
-        (report.reorder_count, "重排"),
-        (report.reset_count, "重置"),
+        (report.append_count, "append"),
+        (report.fork_count, "fork"),
+        (report.reorder_count, "reorder"),
+        (report.reset_count, "reset"),
     ]
     .into_iter()
     .filter(|(count, _)| *count > 0)
-    .map(|(count, label)| format!("{label}×{count}"))
-    .collect::<Vec<_>>();
-    if labels.is_empty() {
+    .map(|(count, key)| locale.get(key).map(|label| format!("{label}×{count}")))
+    .collect::<Result<Vec<_>>>()?;
+    Ok(if labels.is_empty() {
         "—".to_string()
     } else {
-        labels.join("、")
-    }
+        labels.join(" / ")
+    })
 }
 
 fn session_label(key: &str, common_prefix: &str) -> String {
@@ -315,11 +390,11 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
     }
 }
 
-fn event_label(event: &SessionEventType) -> &'static str {
-    match event {
-        SessionEventType::Append => "追加",
-        SessionEventType::Fork => "分叉",
-        SessionEventType::Reorder => "重排",
-        SessionEventType::Reset => "重置",
-    }
+fn event_label(event: &SessionEventType, locale: LocaleModule) -> Result<&'static str> {
+    locale.get(match event {
+        SessionEventType::Append => "append",
+        SessionEventType::Fork => "fork",
+        SessionEventType::Reorder => "reorder",
+        SessionEventType::Reset => "reset",
+    })
 }

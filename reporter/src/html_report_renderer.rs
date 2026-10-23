@@ -9,50 +9,83 @@ use actrail_kv_artifacts::{
 use anyhow::{anyhow, Result};
 use html_escape::encode_text;
 
+use crate::locale::{namespace, Locale, LocaleModule, LocaleSnapshot};
+
 mod session;
 
 pub fn render_html(result: &AnalysisResult) -> Result<String> {
+    render_html_with_locale(result, LocaleSnapshot::new(Locale::ZhCn))
+}
+
+pub fn render_html_with_locale(result: &AnalysisResult, locale: LocaleSnapshot) -> Result<String> {
     let defects: BTreeMap<_, _> = result
         .defects
         .iter()
         .map(|defect| (defect.id.as_str(), defect))
         .collect();
     let mut output = String::with_capacity(16_384);
-    output.push_str("<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">");
-    output.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
-    output.push_str("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'\">");
-    output.push_str("<title>Actrail KV 结构诊断</title><style>");
-    output.push_str("body{font:15px/1.55 system-ui,sans-serif;margin:2rem;max-width:1100px;color:#17202a}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d5d8dc;padding:.55rem;text-align:left;vertical-align:top}th{background:#f4f6f7}.defect{border:1px solid #ccd1d1;border-radius:8px;padding:1rem;margin:1rem 0}.muted{color:#626567}code{white-space:pre-wrap;overflow-wrap:anywhere}.sequence{font-size:1.05rem}.variant{margin:.5rem 0;padding:.5rem;background:#f8f9f9}.pt-summary{display:flex;gap:1rem;flex-wrap:wrap;margin:.4rem 0 1rem}.pt-metric{background:#f4f6f7;border:1px solid #e0e3e5;border-radius:6px;padding:.4rem .8rem}.pt-metric b{display:block;font-size:1.2rem}.pt-table{border-collapse:collapse;width:100%;margin:.6rem 0 1.2rem}.pt-table th,.pt-table td{border:1px solid #d5d8dc;padding:.4rem;vertical-align:top;font-size:13px}.pt-table th{background:#f4f6f7}</style></head><body>");
-    output.push_str("<h1>LLM KV 缓存结构诊断</h1>");
     write!(
         output,
-        "<p>输入 {} 条，分析 {} 条，跳过 {} 条；发现 {} 个上下文结构缺陷。</p>",
-        result.run.input_records,
-        result.run.analyzed_records,
-        result.run.skipped_records.len(),
-        result.defects.len()
+        "<!doctype html><html lang=\"{}\"><head><meta charset=\"utf-8\">",
+        locale.locale().code()
     )?;
-    output.push_str("<p class=\"muted\">本报告基于可观察 HTTP payload 的结构代理，不代表真实 Token、KV 命中率或成本收益。</p>");
+    output.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
+    output.push_str("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'\">");
+    let common = locale.create(namespace::REPORT_COMMON)?;
+    write!(
+        output,
+        "<title>{}</title><style>",
+        encode_text(common.get("html_title")?)
+    )?;
+    output.push_str("body{font:15px/1.55 system-ui,sans-serif;margin:2rem;max-width:1100px;color:#17202a}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d5d8dc;padding:.55rem;text-align:left;vertical-align:top}th{background:#f4f6f7}.defect{border:1px solid #ccd1d1;border-radius:8px;padding:1rem;margin:1rem 0}.muted{color:#626567}code{white-space:pre-wrap;overflow-wrap:anywhere}.sequence{font-size:1.05rem}.variant{margin:.5rem 0;padding:.5rem;background:#f8f9f9}.pt-summary{display:flex;gap:1rem;flex-wrap:wrap;margin:.4rem 0 1rem}.pt-metric{background:#f4f6f7;border:1px solid #e0e3e5;border-radius:6px;padding:.4rem .8rem}.pt-metric b{display:block;font-size:1.2rem}.pt-table{border-collapse:collapse;width:100%;margin:.6rem 0 1.2rem}.pt-table th,.pt-table td{border:1px solid #d5d8dc;padding:.4rem;vertical-align:top;font-size:13px}.pt-table th{background:#f4f6f7}</style></head><body>");
+    write!(
+        output,
+        "<h1>{}</h1>",
+        encode_text(common.get("document_title")?)
+    )?;
+    write!(
+        output,
+        "<p>{}</p>",
+        encode_text(&common.format(
+            "summary",
+            &[
+                ("input", result.run.input_records.to_string()),
+                ("analyzed", result.run.analyzed_records.to_string()),
+                ("skipped", result.run.skipped_records.len().to_string()),
+                ("defects", result.defects.len().to_string()),
+            ],
+        )?)
+    )?;
+    write!(
+        output,
+        "<p class=\"muted\">{}</p>",
+        encode_text(common.get("limitations")?)
+    )?;
     if let Some(prefix_reuse) = &result.prefix_reuse {
-        render_prefix_reuse(&mut output, prefix_reuse, &result.cache_metrics)?;
+        render_prefix_reuse(&mut output, prefix_reuse, &result.cache_metrics, locale)?;
     }
-    render_top_k(&mut output, result, &defects)?;
-    output.push_str("<h2>缺陷详情</h2>");
+    render_top_k(&mut output, result, &defects, locale)?;
+    let defects_locale = locale.create(namespace::REPORT_DEFECTS)?;
+    write!(
+        output,
+        "<h2>{}</h2>",
+        encode_text(defects_locale.get("section_title")?)
+    )?;
     for defect in &result.defects {
-        render_defect(&mut output, defect)?;
+        render_defect(&mut output, defect, locale)?;
     }
     if !result.session_reports.is_empty() {
-        session::render_session_evidence(&mut output, &result.session_reports)?;
+        session::render_session_evidence(&mut output, &result.session_reports, locale)?;
     }
     if !result.cache_metrics.is_empty() {
-        render_cache_metrics(&mut output, result)?;
+        render_cache_metrics(&mut output, result, locale)?;
     }
     if result
         .templates
         .iter()
         .any(|template| template.prefix_view.is_some())
     {
-        render_prefix_tree(&mut output, result)?;
+        render_prefix_tree(&mut output, result, locale)?;
     }
     output.push_str("</body></html>");
     Ok(output)
@@ -69,21 +102,36 @@ fn render_top_k(
     output: &mut String,
     result: &AnalysisResult,
     defects: &BTreeMap<&str, &ContextDefect>,
+    locale: LocaleSnapshot,
 ) -> Result<()> {
+    let l = locale.create(namespace::REPORT_TOP_K)?;
+    let common = locale.create(namespace::REPORT_COMMON)?;
     output.push_str("<section id=\"top-k\"><h2>Top K</h2>");
-    output.push_str(
-        "<p class=\"muted\">按 <code>top_k[]</code> 的得分序排列（score → 受影响请求数 → \
-         被阻断稳定字节 → 缺陷 ID）；每行给出位置、被阻断稳定字节与建议动作，可跳到下面的证据。\
-         被阻断稳定字节是结构代理，不代表真实 Token、KV miss 或金额收益。</p>",
-    );
+    write!(
+        output,
+        "<p class=\"muted\">{}</p>",
+        encode_text(l.get("intro")?).replace("`top_k[]`", "<code>top_k[]</code>")
+    )?;
     if result.top_k.is_empty() {
-        output.push_str("<p class=\"muted\">本次未发现上下文结构缺陷。</p></section>");
+        write!(
+            output,
+            "<p class=\"muted\">{}</p></section>",
+            encode_text(l.get("empty")?)
+        )?;
         return Ok(());
     }
-    output.push_str(
-        "<table class=\"pt-table\"><thead><tr><th>排名</th><th>位置</th><th>被阻断稳定字节</th>\
-         <th>受影响请求</th><th>得分</th><th>建议动作</th><th>缺陷</th></tr></thead><tbody>",
-    );
+    write!(
+        output,
+        "<table class=\"pt-table\"><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th>\
+         <th>{}</th><th>{}</th><th>{}</th></tr></thead><tbody>",
+        encode_text(l.get("rank_header")?),
+        encode_text(l.get("location_header")?),
+        encode_text(l.get("blocked_header")?),
+        encode_text(l.get("affected_header")?),
+        encode_text(l.get("score_header")?),
+        encode_text(l.get("advice_header")?),
+        encode_text(l.get("defect_header")?)
+    )?;
     for (index, id) in result.top_k.iter().enumerate() {
         let defect = defects
             .get(id.as_str())
@@ -99,7 +147,11 @@ fn render_top_k(
              <td>{affected}</td><td>{score:.2}</td><td>{advice}</td>\
              <td><a href=\"#defect-{anchor}\"><code>{id}</code></a></td></tr>",
             rank = index + 1,
-            location = encode_text(&defect_location(defect)),
+            location = encode_text(&defect_location(
+                defect,
+                common.get("role")?,
+                common.get("unit")?
+            )),
             blocked = defect.blocked_stable_bytes,
             affected = defect.affected_count,
             score = defect.score.score,
@@ -113,7 +165,7 @@ fn render_top_k(
 }
 
 /// 机会清单里的位置：取第一个变体代表证据的来源，附角色与投影单元序号。
-fn defect_location(defect: &ContextDefect) -> String {
+fn defect_location(defect: &ContextDefect, role_label: &str, unit_label: &str) -> String {
     let source = defect
         .mismatch
         .variants
@@ -124,10 +176,10 @@ fn defect_location(defect: &ContextDefect) -> String {
     };
     let mut location = source.json_path.clone();
     if let Some(role) = source.role.as_deref() {
-        write!(location, " ({role})").expect("writing into String cannot fail");
+        write!(location, " ({role_label}={role})").expect("writing into String cannot fail");
     }
     if let Some(unit) = source.unit_index {
-        write!(location, " · 单元 #{unit}").expect("writing into String cannot fail");
+        write!(location, " · {unit_label} #{unit}").expect("writing into String cannot fail");
     }
     location
 }
@@ -148,17 +200,24 @@ fn render_prefix_reuse(
     output: &mut String,
     summary: &actrail_kv_artifacts::PrefixReuseSummary,
     cache_metrics: &[KvCacheMetric],
+    locale: LocaleSnapshot,
 ) -> Result<()> {
+    let l = locale.create(namespace::REPORT_PREFIX_REUSE)?;
     let current = summary.ratio.clamp(0.0, 1.0);
     let potential = summary.potential_ratio.clamp(current, 1.0);
     let target = PREFIX_REUSE_TARGET.clamp(0.0, 1.0);
-    output.push_str("<section id=\"prefix-reuse\"><h2>结构复用率</h2><style>");
+    write!(
+        output,
+        "<section id=\"prefix-reuse\"><h2>{}</h2><style>",
+        encode_text(l.get("section_title")?)
+    )?;
     output.push_str(PREFIX_REUSE_CSS);
     output.push_str("</style>");
-    output.push_str(
-        "<p class=\"muted\">口径：会话内相邻请求对的公共前缀字节 / 上下文总字节。\
-         这是结构代理，不是真实 KV 命中率，也不代表 Token 或金额收益。</p>",
-    );
+    write!(
+        output,
+        "<p class=\"muted\">{}</p>",
+        encode_text(l.get("scope")?)
+    )?;
     write!(
         output,
         "<div class=\"pr-scale\"><i class=\"pr-now\" style=\"width:{now:.2}%\"></i>\
@@ -173,55 +232,75 @@ fn render_prefix_reuse(
     )?;
     write!(
         output,
-        "<div class=\"pr-legend\"><span><b>当前</b> {:.1}%</span>\
-         <span><b>补完已知结构问题</b> {:.1}%（可恢复 {:.1} KB）</span>\
-         <span><b>目标</b> {:.0}%</span></div>",
+        "<div class=\"pr-legend\"><span><b>{}</b> {:.1}%</span>\
+         <span><b>{}</b> {:.1}% ({} {:.1} KB)</span>\
+         <span><b>{}</b> {:.0}%</span></div>",
+        encode_text(l.get("current")?),
         current * 100.0,
+        encode_text(l.get("upper_bound")?),
         potential * 100.0,
+        encode_text(l.get("known_recoverable_kb")?),
         summary.gain_bytes as f64 / 1024.0,
+        encode_text(l.get("target")?),
         target * 100.0,
     )?;
     let composition = &summary.composition;
     write!(
         output,
-        "<p class=\"pr-note\">字节构成：已复用 {} · 已知可恢复 {} · 每轮新增 {}（会话首个请求没有前序，不进入统计）。</p>",
+        "<p class=\"pr-note\">{}: {} {} · {} {} · {} {}</p><p class=\"pr-note\">{}</p>",
+        encode_text(l.get("composition_title")?),
+        encode_text(l.get("reusable")?),
         human_bytes(composition.reusable_bytes),
+        encode_text(l.get("recoverable")?),
         human_bytes(composition.recoverable_bytes),
+        encode_text(l.get("new_content")?),
         human_bytes(composition.new_content_bytes),
+        encode_text(l.get("composition_note")?),
     )?;
     if current >= target {
         write!(
             output,
-            "<p class=\"pr-note\">已高于目标 {:.1} 个百分点；覆盖 {} 个会话的 {} 个相邻请求对。</p>",
-            (current - target) * 100.0,
-            summary.sessions,
-            summary.request_pairs
+            "<p class=\"pr-note\">{}</p>",
+            encode_text(&l.format(
+                "above_target",
+                &[
+                    ("delta", format!("{:.1}", (current - target) * 100.0)),
+                    ("sessions", summary.sessions.to_string()),
+                    ("pairs", summary.request_pairs.to_string()),
+                ],
+            )?)
         )?;
     } else if potential >= target {
         write!(
             output,
-            "<p class=\"pr-note\">距目标 {:.1} 个百分点；补完已知结构问题后可越过目标。\
-             覆盖 {} 个会话的 {} 个相邻请求对。</p>",
-            (target - current) * 100.0,
-            summary.sessions,
-            summary.request_pairs
+            "<p class=\"pr-note\">{}</p>",
+            encode_text(&l.format(
+                "reachable_target",
+                &[
+                    ("distance", format!("{:.1}", (target - current) * 100.0)),
+                    ("sessions", summary.sessions.to_string()),
+                    ("pairs", summary.request_pairs.to_string()),
+                ],
+            )?)
         )?;
     } else {
         write!(
             output,
-            "<p class=\"pr-note\">距目标 {:.1} 个百分点；补完已知结构问题后到 {:.1}%，仍差 {:.1} 个百分点。\
-             剩余 {:.1}% 的上下文是每轮新增内容，按前缀缓存口径不可复用——\
-             要再往上走需要减少每轮新增量，而不是继续调整内容顺序。\
-             覆盖 {} 个会话的 {} 个相邻请求对。</p>",
-            (target - current) * 100.0,
-            potential * 100.0,
-            (target - potential) * 100.0,
-            (1.0 - potential) * 100.0,
-            summary.sessions,
-            summary.request_pairs
+            "<p class=\"pr-note\">{}</p>",
+            encode_text(&l.format(
+                "below_target",
+                &[
+                    ("distance", format!("{:.1}", (target - current) * 100.0)),
+                    ("potential", format!("{:.1}", potential * 100.0)),
+                    ("remaining", format!("{:.1}", (target - potential) * 100.0)),
+                    ("new_content", format!("{:.1}", (1.0 - potential) * 100.0)),
+                    ("sessions", summary.sessions.to_string()),
+                    ("pairs", summary.request_pairs.to_string()),
+                ],
+            )?)
         )?;
     }
-    render_proxy_cross_check(output, summary, cache_metrics)?;
+    render_proxy_cross_check(output, summary, cache_metrics, locale)?;
     output.push_str("</section>");
     Ok(())
 }
@@ -242,7 +321,9 @@ fn render_proxy_cross_check(
     output: &mut String,
     summary: &actrail_kv_artifacts::PrefixReuseSummary,
     cache_metrics: &[KvCacheMetric],
+    locale: LocaleSnapshot,
 ) -> Result<()> {
+    let l = locale.create(namespace::REPORT_PREFIX_REUSE)?;
     if cache_metrics.is_empty() || summary.by_session.is_empty() {
         return Ok(());
     }
@@ -280,19 +361,18 @@ fn render_proxy_cross_check(
     if rows.is_empty() {
         return Ok(());
     }
-    output.push_str("<h3>结构代理 vs 真实命中</h3>");
-    output.push_str(
-        "<p class=\"muted\">结构复用率按字节口径（公共前缀 / 上下文），真实命中率按 token 口径\
-         （cached / prompt）；两者口径不同，只用来判断方向是否一致，不表示两者应当相等。\
-         估算口径的请求不参与对比。</p>",
-    );
+    write!(
+        output,
+        "<h3>{}</h3><p class=\"muted\">{}</p>",
+        encode_text(l.get("cross_title")?),
+        encode_text(l.get("cross_intro")?)
+    )?;
     let estimated_only = rows.len() - rows.iter().filter(|row| row.2.is_some()).count();
     if estimated_only == rows.len() {
         write!(
             output,
-            "<p class=\"muted\">本次没有采集到上游 usage（{} 个会话全部为估算口径），\
-             无法与真实命中率交叉验证。</p>",
-            rows.len()
+            "<p class=\"muted\">{}</p>",
+            encode_text(&l.format("estimated_only", &[("sessions", rows.len().to_string())],)?)
         )?;
         return Ok(());
     }
@@ -313,25 +393,40 @@ fn render_proxy_cross_check(
     if estimated_only > 0 {
         write!(
             output,
-            "<p class=\"muted\">另有 {} 个会话没有真实 usage，未参与对比。</p>",
-            estimated_only
+            "<p class=\"muted\">{}</p>",
+            encode_text(&l.format(
+                "other_estimated",
+                &[("sessions", estimated_only.to_string())],
+            )?)
         )?;
     }
     if truncated {
         write!(
             output,
-            "<p class=\"muted\">仅列出差异最大的 {} 个会话（共 {} 个可比会话）。</p>",
-            MAX_CROSS_CHECK_ROWS, total
+            "<p class=\"muted\">{}</p>",
+            encode_text(&l.format(
+                "cross_truncated",
+                &[
+                    ("shown", MAX_CROSS_CHECK_ROWS.to_string()),
+                    ("total", total.to_string()),
+                ],
+            )?)
         )?;
     }
-    output.push_str(
-        "<table class=\"pt-table\"><thead><tr><th>会话</th><th>结构复用率（字节）</th>\
-         <th>真实命中率（token）</th><th>差值</th><th>口径覆盖</th></tr></thead><tbody>",
-    );
+    write!(
+        output,
+        "<table class=\"pt-table\"><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th>\
+         <th>{}</th></tr></thead><tbody>",
+        encode_text(l.get("session_header")?),
+        encode_text(l.get("structural_header")?),
+        encode_text(l.get("real_header")?),
+        encode_text(l.get("delta_header")?),
+        encode_text(l.get("coverage_header")?)
+    )?;
     for (session_key, structural, real_hit_rate, reported, estimated) in &rows {
         let real_cell = match real_hit_rate {
             Some(rate) => format!("{:.1}%", rate * 100.0),
-            None => "—（全部为估算口径）".to_string(),
+            None => "—".to_string(),
         };
         let delta_cell = match real_hit_rate {
             Some(rate) => format!("{:+.1}pp", (structural - rate) * 100.0),
@@ -340,9 +435,16 @@ fn render_proxy_cross_check(
         write!(
             output,
             "<tr><td><code>{session}</code></td><td>{structural:.1}%</td><td>{real_cell}</td>\
-             <td>{delta_cell}</td><td>真实 {reported} / 估算 {estimated}</td></tr>",
+             <td>{delta_cell}</td><td>{coverage}</td></tr>",
             session = encode_text(session_key),
             structural = structural * 100.0,
+            coverage = encode_text(&l.format(
+                "coverage",
+                &[
+                    ("reported", reported.to_string()),
+                    ("estimated", estimated.to_string()),
+                ],
+            )?),
         )?;
     }
     output.push_str("</tbody></table>");
@@ -363,12 +465,18 @@ fn human_bytes(bytes: usize) -> String {
     }
 }
 
-fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<()> {
-    output.push_str(
-        "<h2>KV 缓存命中率</h2>\
-         <p class=\"muted\">命中率 = cached_tokens / prompt_tokens（真实 usage）；\
-         无 usage 时按与会话内上一条请求的上下文公共前缀估算，并在“口径”列标注。</p>",
-    );
+fn render_cache_metrics(
+    output: &mut String,
+    result: &AnalysisResult,
+    locale: LocaleSnapshot,
+) -> Result<()> {
+    let l = locale.create(namespace::REPORT_CACHE)?;
+    write!(
+        output,
+        "<h2>{}</h2><p class=\"muted\">{}</p>",
+        encode_text(l.get("section_title")?),
+        encode_text(l.get("intro")?)
+    )?;
     let reported = result
         .cache_metrics
         .iter()
@@ -387,20 +495,38 @@ fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<
     };
     write!(
         output,
-        "<div class=\"pt-summary\"><div class=\"pt-metric\"><b>{}</b>请求</div>\
-         <div class=\"pt-metric\"><b>{:.1}%</b>平均命中率</div>\
-         <div class=\"pt-metric\"><b>{}</b>真实 usage</div>\
-         <div class=\"pt-metric\"><b>{}</b>估算</div></div>",
+        "<div class=\"pt-summary\"><div class=\"pt-metric\"><b>{}</b>{}</div>\
+         <div class=\"pt-metric\"><b>{:.1}%</b>{}</div>\
+         <div class=\"pt-metric\"><b>{}</b>{}</div>\
+         <div class=\"pt-metric\"><b>{}</b>{}</div></div>",
         result.cache_metrics.len(),
+        encode_text(l.get("requests")?),
         average * 100.0,
+        encode_text(l.get("average_hit")?),
         reported,
-        estimated
+        encode_text(l.get("reported")?),
+        estimated,
+        encode_text(l.get("estimated")?)
     )?;
-    output.push_str(
-        "<table class=\"pt-table\"><thead><tr><th>会话</th><th>序号</th><th>请求</th>\
-         <th>prompt</th><th>hit(cached)</th><th>miss</th><th>output</th>\
-         <th>TTFT</th><th>总耗时</th><th>命中率</th><th>Δ</th><th>口径</th><th>明细</th></tr></thead><tbody>",
-    );
+    write!(
+        output,
+        "<table class=\"pt-table\"><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th>\
+         <th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th>\
+         <th>{}</th><th>{}</th></tr></thead><tbody>",
+        encode_text(l.get("session")?),
+        encode_text(l.get("sequence")?),
+        encode_text(l.get("request")?),
+        encode_text(l.get("prompt")?),
+        encode_text(l.get("cached")?),
+        encode_text(l.get("miss")?),
+        encode_text(l.get("output")?),
+        encode_text(l.get("ttft")?),
+        encode_text(l.get("total")?),
+        encode_text(l.get("hit_rate")?),
+        encode_text(l.get("delta")?),
+        encode_text(l.get("basis")?),
+        encode_text(l.get("detail")?)
+    )?;
     let mut current_session: Option<Option<&str>> = None;
     for metric in &result.cache_metrics {
         let session = metric.session_key.as_deref();
@@ -412,11 +538,12 @@ fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<
                     let tail_start = value.len().saturating_sub(12);
                     format!("{}…{}", head, &value[tail_start..])
                 }
-                None => "（无 session，按输入顺序）".to_string(),
+                None => l.get("no_session")?.to_string(),
             };
             write!(
                 output,
-                "<tr><td colspan=\"13\" style=\"background:#f8f9f9\"><strong>会话 {}</strong></td></tr>",
+                "<tr><td colspan=\"13\" style=\"background:#f8f9f9\"><strong>{} {}</strong></td></tr>",
+                encode_text(l.get("session")?),
                 encode_text(&label)
             )?;
         }
@@ -426,10 +553,10 @@ fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<
                 .unwrap_or_else(|| "—".to_string())
         };
         // 时延是上游观测值，未上报时显示 —，不显示 0。
-        let latency = |value: Option<u64>| {
+        let latency = |value: Option<u64>| -> Result<String> {
             value
-                .map(|ms| format!("{ms} ms"))
-                .unwrap_or_else(|| "—".to_string())
+                .map(|ms| l.format("milliseconds", &[("value", ms.to_string())]))
+                .unwrap_or_else(|| Ok("—".to_string()))
         };
         let delta = metric
             .hit_rate_delta
@@ -443,11 +570,13 @@ fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<
             .unwrap_or_else(|| "—".to_string());
         let detail = match metric.basis {
             actrail_kv_artifacts::CacheMetricBasis::Reported => "—".to_string(),
-            actrail_kv_artifacts::CacheMetricBasis::Estimated => format!(
-                "LCP {}B / payload {}B",
-                metric.estimated_lcp_bytes.unwrap_or(0),
-                metric.payload_bytes
-            ),
+            actrail_kv_artifacts::CacheMetricBasis::Estimated => l.format(
+                "estimated_detail",
+                &[
+                    ("lcp", metric.estimated_lcp_bytes.unwrap_or(0).to_string()),
+                    ("payload", metric.payload_bytes.to_string()),
+                ],
+            )?,
         };
         write!(
             output,
@@ -460,13 +589,13 @@ fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<
             tokens(metric.cached_tokens),
             tokens(metric.miss_tokens),
             tokens(metric.output_tokens),
-            latency(metric.ttft_ms),
-            latency(metric.total_ms),
+            latency(metric.ttft_ms)?,
+            latency(metric.total_ms)?,
             metric.hit_rate * 100.0,
             encode_text(&delta),
             match metric.basis {
-                actrail_kv_artifacts::CacheMetricBasis::Reported => "真实",
-                actrail_kv_artifacts::CacheMetricBasis::Estimated => "估算",
+                actrail_kv_artifacts::CacheMetricBasis::Reported => l.get("basis_reported")?,
+                actrail_kv_artifacts::CacheMetricBasis::Estimated => l.get("basis_estimated")?,
             },
             encode_text(&detail)
         )?;
@@ -475,14 +604,22 @@ fn render_cache_metrics(output: &mut String, result: &AnalysisResult) -> Result<
     Ok(())
 }
 
-fn render_defect(output: &mut String, defect: &ContextDefect) -> Result<()> {
+fn render_defect(
+    output: &mut String,
+    defect: &ContextDefect,
+    locale: LocaleSnapshot,
+) -> Result<()> {
+    let l = locale.create(namespace::REPORT_DEFECTS)?;
+    let common = locale.create(namespace::REPORT_COMMON)?;
     write!(
         output,
         "<section class=\"defect\" id=\"defect-{}\"><h3>{}</h3>\
-         <p class=\"muted\"><a href=\"#top-k\">↑ 返回 Top K</a></p>\
-         <p><strong>比较组：</strong><code>window={} endpoint={} model={} schema={}</code></p>",
+         <p class=\"muted\"><a href=\"#top-k\">{}</a></p>\
+         <p><strong>{}</strong><code>window={} endpoint={} model={} schema={}</code></p>",
         encode_text(&defect.id),
         encode_text(&defect.id),
+        encode_text(common.get("back_to_top_k")?),
+        encode_text(l.get("comparison_group")?),
         encode_text(&defect.comparison_group.time_window_key),
         encode_text(&defect.comparison_group.endpoint_key),
         encode_text(&defect.comparison_group.model),
@@ -491,44 +628,59 @@ fn render_defect(output: &mut String, defect: &ContextDefect) -> Result<()> {
     if let Some(agent) = &defect.comparison_group.agent_key {
         write!(
             output,
-            "<p><strong>Agent：</strong><code>{}</code></p>",
+            "<p><strong>{}:</strong> <code>{}</code></p>",
+            encode_text(l.get("agent")?),
             encode_text(agent)
         )?;
     }
     if let Some(deployment) = &defect.comparison_group.model_deployment_key {
         write!(
             output,
-            "<p><strong>模型部署：</strong><code>{}</code></p>",
+            "<p><strong>{}:</strong> <code>{}</code></p>",
+            encode_text(l.get("deployment")?),
             encode_text(deployment)
         )?;
     }
     if let Some(namespace) = &defect.comparison_group.kv_namespace {
         write!(
             output,
-            "<p><strong>KV namespace：</strong><code>{}</code></p>",
+            "<p><strong>{}:</strong> <code>{}</code></p>",
+            encode_text(l.get("namespace")?),
             encode_text(namespace)
         )?;
     }
     write!(
         output,
-        "<p class=\"sequence\"><strong>P1</strong> 公共前缀 {} bytes → <strong>X</strong> {} → <strong>P2</strong> 恢复稳定 {} bytes（支持 {} 条）</p>",
-        defect.actual_prefix_bytes,
-        pattern_label(&defect.mismatch.pattern),
-        defect.recovered_stable.utf8_bytes,
-        defect.recovered_stable.support_count
+        "<p class=\"sequence\">{}</p>",
+        encode_text(&l.format(
+            "p1_summary",
+            &[
+                ("actual", defect.actual_prefix_bytes.to_string()),
+                (
+                    "pattern",
+                    pattern_label(&defect.mismatch.pattern, l)?.to_owned()
+                ),
+                ("stable", defect.recovered_stable.utf8_bytes.to_string()),
+                ("support", defect.recovered_stable.support_count.to_string()),
+            ],
+        )?)
     )?;
-    output.push_str("<h4>X 变体</h4>");
+    write!(output, "<h4>{}</h4>", encode_text(l.get("variants_title")?))?;
     for variant in &defect.mismatch.variants {
         let evidence = &variant.representative;
         write!(
             output,
-            "<div class=\"variant\"><strong>{} 条请求</strong>；代表请求 <code>{}</code>；{} bytes",
-            variant.member_request_ids.len(),
+            "<div class=\"variant\"><strong>{}</strong>; {} <code>{}</code>; {}",
+            encode_text(&l.format(
+                "request_count",
+                &[("count", variant.member_request_ids.len().to_string())],
+            )?),
+            encode_text(l.get("representative")?),
             encode_text(&evidence.request_id),
-            evidence.utf8_bytes
+            encode_text(&l.format("bytes", &[("bytes", evidence.utf8_bytes.to_string())])?)
         )?;
         if !evidence.sources.is_empty() {
-            output.push_str("；位置 ");
+            write!(output, "; {} ", encode_text(l.get("location")?))?;
             for (index, source) in evidence.sources.iter().enumerate() {
                 if index > 0 {
                     output.push_str(", ");
@@ -538,14 +690,22 @@ fn render_defect(output: &mut String, defect: &ContextDefect) -> Result<()> {
         }
         match &evidence.excerpt {
             Some(excerpt) => write!(output, "<br><code>{}</code>", encode_text(excerpt))?,
-            None => output.push_str("<br><em>该变体在此区域缺失内容</em>"),
+            None => write!(
+                output,
+                "<br><em>{}</em>",
+                encode_text(l.get("missing_variant")?)
+            )?,
         }
         output.push_str("</div>");
     }
     if !defect.mismatch.facts.is_empty() {
-        output.push_str("<h4>已确认事实</h4><ul>");
+        write!(
+            output,
+            "<h4>{}</h4><ul>",
+            encode_text(l.get("facts_title")?)
+        )?;
         for fact in &defect.mismatch.facts {
-            write!(output, "<li>{}", fact_label(&fact.kind))?;
+            write!(output, "<li>{}", encode_text(fact_label(&fact.kind, l)?))?;
             if let Some(detail) = &fact.detail {
                 write!(output, "：{}", encode_text(detail))?;
             }
@@ -555,17 +715,34 @@ fn render_defect(output: &mut String, defect: &ContextDefect) -> Result<()> {
     }
     write!(
         output,
-        "<h4>P2 稳定证据</h4><p><code>{}</code></p><p>实际前缀 {} bytes；潜在前缀 {} bytes；阻断 {} bytes；可比较 {} 条；影响 {} 条；置信度 {:.3}。</p>",
+        "<h4>{}</h4><p><code>{}</code></p><table class=\"pt-table\"><tbody>\
+         <tr><th>{}</th><td>{} bytes</td></tr>\
+         <tr><th>{}</th><td>{} bytes</td></tr>\
+         <tr><th>{}</th><td>{} bytes</td></tr>\
+         <tr><th>{}</th><td>{}</td></tr>\
+         <tr><th>{}</th><td>{}</td></tr>\
+         <tr><th>{}</th><td>{:.3}</td></tr></tbody></table>",
+        encode_text(l.get("p2_title")?),
         encode_text(&defect.recovered_stable.excerpt),
+        encode_text(l.get("actual_prefix")?),
         defect.actual_prefix_bytes,
+        encode_text(l.get("potential_prefix")?),
         defect.potential_prefix_bytes,
+        encode_text(l.get("blocked_bytes")?),
         defect.blocked_stable_bytes,
+        encode_text(l.get("comparable_requests")?),
         defect.comparable_count,
+        encode_text(l.get("affected_requests")?),
         defect.affected_count,
+        encode_text(l.get("confidence")?),
         defect.confidence
     )?;
     if !defect.insights.is_empty() {
-        output.push_str("<h4>优化启示</h4><ul>");
+        write!(
+            output,
+            "<h4>{}</h4><ul>",
+            encode_text(l.get("insights_title")?)
+        )?;
         for insight in &defect.insights {
             write!(
                 output,
@@ -583,24 +760,24 @@ fn render_defect(output: &mut String, defect: &ContextDefect) -> Result<()> {
     Ok(())
 }
 
-fn pattern_label(pattern: &MismatchPattern) -> &'static str {
-    match pattern {
-        MismatchPattern::ValueMismatch => "同一位置内容不同",
-        MismatchPattern::InsertionDeletion => "插入或缺失",
-        MismatchPattern::Reorder => "移动或重排",
-        MismatchPattern::Mixed => "混合变体",
-    }
+fn pattern_label(pattern: &MismatchPattern, locale: LocaleModule) -> Result<&'static str> {
+    locale.get(match pattern {
+        MismatchPattern::ValueMismatch => "pattern_value_mismatch",
+        MismatchPattern::InsertionDeletion => "pattern_insertion_deletion",
+        MismatchPattern::Reorder => "pattern_reorder",
+        MismatchPattern::Mixed => "pattern_mixed",
+    })
 }
 
-fn fact_label(kind: &DefectFactKind) -> &'static str {
-    match kind {
-        DefectFactKind::ContentVariation => "内容持续变化",
-        DefectFactKind::FixedVariants => "少数固定版本",
-        DefectFactKind::StructuredDataEquivalent => "结构化数据等价",
-        DefectFactKind::InsertionDeletion => "存在插入或缺失",
-        DefectFactKind::Reorder => "存在可证明的移动或重排",
-        DefectFactKind::Scope => "模型可见层级范围",
-    }
+fn fact_label(kind: &DefectFactKind, locale: LocaleModule) -> Result<&'static str> {
+    locale.get(match kind {
+        DefectFactKind::ContentVariation => "fact_content_variation",
+        DefectFactKind::FixedVariants => "fact_fixed_variants",
+        DefectFactKind::StructuredDataEquivalent => "fact_structured_equivalence",
+        DefectFactKind::InsertionDeletion => "fact_insertion_deletion",
+        DefectFactKind::Reorder => "fact_reorder",
+        DefectFactKind::Scope => "fact_scope",
+    })
 }
 
 const PREFIX_TREE_CSS: &str = "\
@@ -654,7 +831,12 @@ const PREFIX_TREE_CSS: &str = "\
 .pt-members{color:#626567;font-size:12px}\
 ";
 
-fn render_prefix_tree(output: &mut String, result: &AnalysisResult) -> Result<()> {
+fn render_prefix_tree(
+    output: &mut String,
+    result: &AnalysisResult,
+    locale: LocaleSnapshot,
+) -> Result<()> {
+    let l = locale.create(namespace::REPORT_PREFIX_TREE)?;
     let templates_with_view: Vec<_> = result
         .templates
         .iter()
@@ -664,33 +846,36 @@ fn render_prefix_tree(output: &mut String, result: &AnalysisResult) -> Result<()
         return Ok(());
     }
 
-    output.push_str("<section id=\"prefix-tree\"><h2>模板前缀树</h2><style>");
+    write!(
+        output,
+        "<section id=\"prefix-tree\"><h2>{}</h2><style>",
+        encode_text(l.get("section_title")?)
+    )?;
     output.push_str(PREFIX_TREE_CSS);
     output.push_str("</style>");
     output.push_str("<div class=\"pt-legend\">");
-    output.push_str(
-        "<div><b class=\"pt-badge pt-badge-p\">P</b>稳定片段：区间内所有成员内容一致，可被后续请求复用。</div>",
-    );
-    output.push_str(
-        "<div><b class=\"pt-badge pt-badge-x\">X</b>变体片段：成员在这里分叉，展开可见各变体及出现次数。</div>",
-    );
-    output.push_str(
-        "<div><b class=\"pt-badge pt-badge-d\">X</b>红色 X：该分叉阻断了其后的稳定前缀，已被判为结构缺陷。</div>",
-    );
-    output.push_str(
-        "<div>支持度 <code>3/4</code>：4 个成员请求中有 3 个包含该片段，右侧细条为占比。</div>",
-    );
-    output.push_str(
-        "<div>每个模板先给分布与衰减概览，再按顺序列出结构片段；片段行只显示类型、摘要、字节数与支持度，\
-         点开任意一行查看该片段的来源、位置、变体与成员明细。</div>",
-    );
+    write!(
+        output,
+        "<div>{}</div><div>{}</div><div>{}</div><div>{}</div><div>{}</div>",
+        encode_text(l.get("legend_stable")?),
+        encode_text(l.get("legend_dynamic")?),
+        encode_text(l.get("legend_defect")?),
+        encode_text(l.get("legend_support")?),
+        encode_text(l.get("overview")?)
+    )?;
     output.push_str("</div>");
 
     if templates_with_view.len() > 1 {
-        output.push_str(
-            "<table class=\"pt-toc\"><thead><tr><th>模板</th><th>成员</th>\
-             <th>稳定字节</th><th>变体片段</th><th>缺陷片段</th></tr></thead><tbody>",
-        );
+        write!(
+            output,
+            "<table class=\"pt-toc\"><thead><tr><th>{}</th><th>{}</th><th>{}</th>\
+             <th>{}</th><th>{}</th></tr></thead><tbody>",
+            encode_text(l.get("template_header")?),
+            encode_text(l.get("members_header")?),
+            encode_text(l.get("stable_bytes_header")?),
+            encode_text(l.get("dynamic_nodes_header")?),
+            encode_text(l.get("defect_nodes_header")?)
+        )?;
         for (template, view) in &templates_with_view {
             let stable_bytes: usize = view
                 .nodes
@@ -721,7 +906,7 @@ fn render_prefix_tree(output: &mut String, result: &AnalysisResult) -> Result<()
     }
 
     for (template, view) in &templates_with_view {
-        render_template_prefix_section(output, template, view)?;
+        render_template_prefix_section(output, template, view, locale)?;
     }
     output.push_str("</section>");
     Ok(())
@@ -731,7 +916,9 @@ fn render_template_prefix_section(
     output: &mut String,
     template: &actrail_kv_artifacts::RequestTemplate,
     view: &actrail_kv_artifacts::TemplatePrefixView,
+    locale: LocaleSnapshot,
 ) -> Result<()> {
+    let l = locale.create(namespace::REPORT_PREFIX_TREE)?;
     let member_count = template.member_request_ids.len();
     let stable_nodes: Vec<_> = view
         .nodes
@@ -787,25 +974,32 @@ fn render_template_prefix_section(
 
     write!(
         output,
-        "<div class=\"pt-section\" id=\"pt-{anchor}\"><div class=\"pt-head\"><h3>模板 {short}…</h3>\
-         <p class=\"pt-sub\">完整 ID <code>{id}</code></p>\
-         <p class=\"pt-sub\">{members} 个成员请求 · 结构片段 {nodes} 个（P {stable_nodes} / X {dynamic_nodes}）</p></div>",
+        "<div class=\"pt-section\" id=\"pt-{anchor}\"><div class=\"pt-head\"><h3>{template_label} {short}…</h3>\
+         <p class=\"pt-sub\">{full_id_label} <code>{id}</code></p>\
+         <p class=\"pt-sub\">{members_summary}</p></div>",
         anchor = encode_text(&template.id),
+        template_label = encode_text(l.get("template_header")?),
         short = encode_text(&template.id.chars().take(16).collect::<String>()),
+        full_id_label = encode_text(l.get("full_id")?),
         id = encode_text(&template.id),
-        members = member_count,
-        nodes = view.nodes.len(),
-        stable_nodes = stable_nodes.len(),
-        dynamic_nodes = dynamic_nodes.len()
+        members_summary = encode_text(&l.format(
+            "members_nodes",
+            &[
+                ("members", member_count.to_string()),
+                ("nodes", view.nodes.len().to_string()),
+                ("stable", stable_nodes.len().to_string()),
+                ("dynamic", dynamic_nodes.len().to_string()),
+            ],
+        )?)
     )?;
 
     output.push_str("<div class=\"pt-stats\">");
     for (label, value) in [
-        ("稳定字节", format!("{stable_bytes} B")),
-        ("变体区字节", format!("{dynamic_bytes} B")),
-        ("变体总数", variant_total.to_string()),
-        ("缺失变体", missing_total.to_string()),
-        ("缺陷片段", defect_nodes.to_string()),
+        (l.get("stable_bytes")?, format!("{stable_bytes} B")),
+        (l.get("dynamic_bytes")?, format!("{dynamic_bytes} B")),
+        (l.get("variant_total")?, variant_total.to_string()),
+        (l.get("missing_variants")?, missing_total.to_string()),
+        (l.get("defect_nodes")?, defect_nodes.to_string()),
     ] {
         write!(
             output,
@@ -818,37 +1012,55 @@ fn render_template_prefix_section(
     let total_bytes = stable_bytes.saturating_add(dynamic_bytes).max(1);
     let stable_pct = stable_bytes as f64 * 100.0 / total_bytes as f64;
     let dynamic_pct = dynamic_bytes as f64 * 100.0 / total_bytes as f64;
-    output.push_str("<h4 class=\"pt-h\">复用分布</h4>");
+    write!(
+        output,
+        "<h4 class=\"pt-h\">{}</h4>",
+        encode_text(l.get("distribution_title")?)
+    )?;
     write!(
         output,
         "<div class=\"pt-bar\">\
          <i style=\"width:{stable_pct:.1}%;background:#2c6fb0\"></i>\
          <i style=\"width:{dynamic_pct:.1}%;background:#e67e22\"></i></div>\
-         <p class=\"pt-note\">稳定前缀 <b>{stable_bytes} B</b>（{stable_pct:.1}%）· \
-         变体/缺失区 <b>{dynamic_bytes} B</b>（{dynamic_pct:.1}%）· \
-         首个分叉点之前累计稳定前缀 <b>{stable_before_first_x} B</b>。</p>",
+         <p class=\"pt-note\">{stable_label} <b>{stable_bytes} B</b> ({stable_pct:.1}%) · \
+         {dynamic_label} <b>{dynamic_bytes} B</b> ({dynamic_pct:.1}%) · \
+         {first_prefix}</p>",
+        stable_label = encode_text(l.get("stable_region")?),
+        dynamic_label = encode_text(l.get("dynamic_region")?),
+        first_prefix = encode_text(&l.format(
+            "first_prefix",
+            &[("bytes", stable_before_first_x.to_string())]
+        )?),
         stable_pct = stable_pct,
         dynamic_pct = dynamic_pct,
         stable_bytes = stable_bytes,
-        dynamic_bytes = dynamic_bytes,
-        stable_before_first_x = stable_before_first_x
+        dynamic_bytes = dynamic_bytes
     )?;
     if let Some(first_x) = first_dynamic {
         let node = chain[first_x];
         write!(
             output,
-            "<p class=\"pt-note\">首个分叉点在第 {} 段「{}」，{}/{} 个成员包含该片段（{:.0}%）。</p>",
-            first_x + 1,
-            encode_text(&excerpt_label(&node.excerpt, 48)),
-            node.support_count,
-            member_count,
-            node.support_ratio * 100.0
+            "<p class=\"pt-note\">{}</p>",
+            encode_text(&l.format(
+                "first_divergence",
+                &[
+                    ("index", (first_x + 1).to_string()),
+                    ("excerpt", excerpt_label(&node.excerpt, 48)),
+                    ("support", node.support_count.to_string()),
+                    ("members", member_count.to_string()),
+                    ("ratio", format!("{:.0}", node.support_ratio * 100.0),),
+                ],
+            )?)
         )?;
     }
 
     // D7-2 成员衰减曲线（语义链节点序 → 存活成员数）
     if chain.len() > 1 {
-        output.push_str("<h4 class=\"pt-h\">成员衰减</h4>");
+        write!(
+            output,
+            "<h4 class=\"pt-h\">{}</h4>",
+            encode_text(l.get("decay_title")?)
+        )?;
         output.push_str("<svg viewBox=\"0 0 640 190\" style=\"width:100%;max-height:220px;background:#fff;border:1px solid #e0e3e5;border-radius:4px\">");
         for (ratio, label) in [(1.0_f64, "100%"), (0.5, "50%"), (0.0, "0%")] {
             let grid_y = 150 - (ratio * 120.0).round() as i32;
@@ -904,24 +1116,30 @@ fn render_template_prefix_section(
             )?;
         }
         output.push_str("</svg>");
-        output.push_str(
-            "<p class=\"pt-note\">横轴为结构片段序号（P 蓝、X 橙），纵轴为仍包含该片段的成员占比；\
-             曲线每次下坠都代表一批成员从该片段开始分叉。</p>",
-        );
+        write!(
+            output,
+            "<p class=\"pt-note\">{}</p>",
+            encode_text(l.get("decay_note")?)
+        )?;
     }
 
-    output.push_str("<h4 class=\"pt-h\">结构骨架</h4>");
-    output.push_str(
-        "<p class=\"pt-note\">按顺序列出每个片段，行内只保留类型、摘要、字节数与支持度；\
-         点开任意一行查看该片段的来源、字节区间、变体与成员明细。</p>",
-    );
+    write!(
+        output,
+        "<h4 class=\"pt-h\">{}</h4><p class=\"pt-note\">{}</p>",
+        encode_text(l.get("structure_title")?),
+        encode_text(l.get("overview")?)
+    )?;
     output.push_str("<ol class=\"pt-nodes\">");
     for (index, node) in chain.iter().enumerate() {
-        render_prefix_node(output, template, node, index, member_count)?;
+        render_prefix_node(output, template, node, index, member_count, locale)?;
     }
     output.push_str("</ol>");
     if view.truncated {
-        output.push_str("<p class=\"pt-note\">该模板节点数超过上限，视图已截断。</p>");
+        write!(
+            output,
+            "<p class=\"pt-note\">{}</p>",
+            encode_text(l.get("truncated")?)
+        )?;
     }
     output.push_str("</div>");
     Ok(())
@@ -934,7 +1152,9 @@ fn render_prefix_node(
     node: &actrail_kv_artifacts::PrefixNode,
     index: usize,
     member_count: usize,
+    locale: LocaleSnapshot,
 ) -> Result<()> {
+    let l = locale.create(namespace::REPORT_PREFIX_TREE)?;
     let is_dynamic = node.kind == PrefixNodeKind::Dynamic;
     let is_defect = !node.defect_ids.is_empty();
     let mut row_class = if is_dynamic {
@@ -952,6 +1172,14 @@ fn render_prefix_node(
     };
     // X 片段默认展开：它们才是需要关注的分叉点，P 片段保持折叠避免刷屏。
     let open = if is_dynamic { " open" } else { "" };
+    let warning_badge = if is_defect {
+        format!(
+            "<span class=\"pt-warn\">{}</span>",
+            encode_text(l.get("warning_badge")?)
+        )
+    } else {
+        String::new()
+    };
     write!(
         output,
         "<li class=\"{row_class}\"><details{open}><summary>\
@@ -966,20 +1194,21 @@ fn render_prefix_node(
         percent = node.support_ratio * 100.0,
         support = node.support_count,
         members = member_count,
-        warn = if is_defect {
-            "<span class=\"pt-warn\">⚠ 缺陷</span>"
-        } else {
-            ""
-        },
+        warn = warning_badge,
     )?;
 
     let source = &node.source;
     write!(
         output,
-        "<tr><th>来源</th><td><code>{path}</code>{role}</td></tr>",
+        "<tr><th>{source_label}</th><td><code>{path}</code>{role}</td></tr>",
+        source_label = encode_text(l.get("source")?),
         path = encode_text(&source.json_path),
         role = match source.role.as_deref() {
-            Some(role) => format!("<span class=\"pt-tag\">role={}</span>", encode_text(role)),
+            Some(role) => format!(
+                "<span class=\"pt-tag\">{}={}</span>",
+                encode_text(l.get("role")?),
+                encode_text(role)
+            ),
             None => String::new(),
         },
     )?;
@@ -989,23 +1218,34 @@ fn render_prefix_node(
     };
     write!(
         output,
-        "<tr><th>位置</th><td><code>{range}</code>{unit}</td></tr>",
+        "<tr><th>{position_label}</th><td><code>{range}</code>{unit}</td></tr>",
+        position_label = encode_text(l.get("position")?),
         range = encode_text(&range),
         unit = match source.unit_index {
-            Some(unit) => format!("<span class=\"pt-tag\">单元 #{unit}</span>"),
+            Some(unit) => format!(
+                "<span class=\"pt-tag\">{} #{unit}</span>",
+                encode_text(l.get("unit")?)
+            ),
             None => String::new(),
         },
     )?;
     write!(
         output,
-        "<tr><th>支持度</th><td>{} / {} 个成员（{:.0}%）</td></tr>",
-        node.support_count,
-        member_count,
-        node.support_ratio * 100.0
+        "<tr><th>{}</th><td>{}</td></tr>",
+        encode_text(l.get("support")?),
+        encode_text(&l.format(
+            "support_value",
+            &[
+                ("support", node.support_count.to_string()),
+                ("members", member_count.to_string()),
+                ("ratio", format!("{:.0}", node.support_ratio * 100.0)),
+            ],
+        )?)
     )?;
     write!(
         output,
-        "<tr><th>摘要</th><td><code>{}</code></td></tr>",
+        "<tr><th>{}</th><td><code>{}</code></td></tr>",
+        encode_text(l.get("summary")?),
         encode_text(&node.excerpt)
     )?;
 
@@ -1014,18 +1254,22 @@ fn render_prefix_node(
             // 按出现次数降序：读者先看到实际发生过的变体，未被该片段采用的排在后面。
             let mut ordered = variants.iter().collect::<Vec<_>>();
             ordered.sort_by_key(|entry| std::cmp::Reverse(entry.count));
-            output.push_str("<tr><th>变体</th><td><ul class=\"pt-varlist\">");
+            write!(
+                output,
+                "<tr><th>{}</th><td><ul class=\"pt-varlist\">",
+                encode_text(l.get("variants")?)
+            )?;
             for variant in ordered {
                 let missing = variant.excerpt.starts_with("（此位置缺失");
                 let label = if missing {
-                    "此位置缺失".to_string()
+                    l.get("missing_at_position")?.to_string()
                 } else {
                     variant.excerpt.clone()
                 };
                 let (count, zero) = if variant.count_known {
                     (format!("×{}", variant.count), variant.count == 0)
                 } else {
-                    (format!("×{}（约）", variant.count), false)
+                    (format!("×{}{}", variant.count, l.get("approx")?), false)
                 };
                 write!(
                     output,
@@ -1033,7 +1277,7 @@ fn render_prefix_node(
                     if missing { " is-missing" } else { "" },
                     encode_text(&label),
                     encode_text(&count),
-                    if zero { "（未出现）" } else { "" }
+                    if zero { l.get("not_seen")? } else { "" }
                 )?;
             }
             output.push_str("</ul></td></tr>");
@@ -1041,7 +1285,11 @@ fn render_prefix_node(
     }
 
     if !node.defect_ids.is_empty() {
-        output.push_str("<tr><th>缺陷</th><td>");
+        write!(
+            output,
+            "<tr><th>{}</th><td>",
+            encode_text(l.get("associated_defects")?)
+        )?;
         for (position, id) in node.defect_ids.iter().enumerate() {
             if position > 0 {
                 output.push('　');
@@ -1059,7 +1307,8 @@ fn render_prefix_node(
         if !sample.is_empty() {
             write!(
                 output,
-                "<tr><th>内容样本</th><td><pre class=\"pt-sec\">{}</pre></td></tr>",
+                "<tr><th>{}</th><td><pre class=\"pt-sec\">{}</pre></td></tr>",
+                encode_text(l.get("content_sample")?),
                 encode_text(sample)
             )?;
         }
@@ -1074,17 +1323,32 @@ fn render_prefix_node(
         node.member_request_ids.iter().map(String::as_str).collect();
     let lost: Vec<&str> = all.difference(&alive).copied().collect();
     if is_dynamic || !lost.is_empty() {
-        output.push_str("<tr><th>成员</th><td class=\"pt-members\">");
-        write!(output, "存活 {} / {}：", alive.len(), all.len())?;
+        write!(
+            output,
+            "<tr><th>{}</th><td class=\"pt-members\">",
+            encode_text(l.get("members_header")?)
+        )?;
+        write!(
+            output,
+            "{} {} / {}: ",
+            encode_text(l.get("alive_label")?),
+            alive.len(),
+            all.len()
+        )?;
         if alive.is_empty() {
             output.push('—');
         } else {
             let alive_list: Vec<&str> = alive.iter().copied().collect();
-            render_member_list(output, &alive_list)?;
+            render_member_list(output, &alive_list, l)?;
         }
         if !lost.is_empty() {
-            write!(output, "<br>衰减 {}：", lost.len())?;
-            render_member_list(output, &lost)?;
+            write!(
+                output,
+                "<br>{} {}: ",
+                encode_text(l.get("lost_label")?),
+                lost.len()
+            )?;
+            render_member_list(output, &lost, l)?;
         }
         output.push_str("</td></tr>");
     }
@@ -1093,14 +1357,14 @@ fn render_prefix_node(
     Ok(())
 }
 
-fn render_member_list(output: &mut String, ids: &[&str]) -> Result<()> {
+fn render_member_list(output: &mut String, ids: &[&str], locale: LocaleModule) -> Result<()> {
     for (index, id) in ids.iter().enumerate() {
         if index == 8 {
             output.push('…');
             break;
         }
         if index > 0 {
-            output.push('、');
+            output.push_str(locale.get("list_separator")?);
         }
         write!(output, "<code>{}</code>", encode_text(&short_id(id)))?;
     }

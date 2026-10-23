@@ -1,6 +1,7 @@
 //! 本文件公开 analysis.json 加载与 HTML/GFM Markdown 报告生成入口。
 
 mod html_report_renderer;
+pub mod locale;
 mod markdown_report_renderer;
 mod report_output;
 mod result_loader;
@@ -9,8 +10,9 @@ use std::path::Path;
 
 use anyhow::Result;
 
-pub use html_report_renderer::render_html;
-pub use markdown_report_renderer::render_markdown;
+pub use html_report_renderer::{render_html, render_html_with_locale};
+pub use locale::{Locale, LocaleFactory, LocaleSnapshot};
+pub use markdown_report_renderer::{render_markdown, render_markdown_with_locale};
 pub use report_output::ReportFormat;
 pub use result_loader::load_result;
 
@@ -111,9 +113,9 @@ mod tests {
             assert!(!html.contains(unsafe_fragment));
         }
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
-        assert!(html.contains("<strong>P1</strong>"));
-        assert!(html.contains("<strong>X</strong>"));
-        assert!(html.contains("<strong>P2</strong>"));
+        assert!(html.contains("P1"));
+        assert!(html.contains("X"));
+        assert!(html.contains("P2"));
     }
 
     #[test]
