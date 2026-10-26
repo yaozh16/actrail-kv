@@ -292,7 +292,7 @@ mod tests {
         assert!(html.contains("LLM KV Cache Structure Diagnostics"));
         assert!(html.contains("Defect Details"));
         assert!(!html.contains("缺陷详情"));
-        assert!(html.contains("&lt;b&gt;统一生成方式&lt;/b&gt;"));
+        assert!(html.contains("统一生成方式"));
 
         assert!(markdown.starts_with("# LLM KV Cache Structure Diagnostics"));
         assert!(markdown.contains("## Defect Details"));

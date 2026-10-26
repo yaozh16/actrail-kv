@@ -1,13 +1,16 @@
 <!-- 本文件定义 HTML/Markdown 双报告的输出编排、Markdown 模块与测试边界。 -->
 # HTML 与 Markdown 双报告设计
 
+后续 HTML renderer 已按[编译期模板设计](report-html-template.md)重构；本设计中的
+“HTML 渲染函数保持不变”只描述双报告首次落地时的迁移约束，当前 HTML 输出契约仍有效。
+
 ## 数据流
 
 ```text
 analysis.json
   → load_result（只执行一次完整校验）
   → AnalysisResult
-      ├─ html_report_renderer（现有逻辑保持不变）
+      ├─ html_report_renderer（视图模型 + 编译期模板）
       └─ markdown_report_renderer（新增 GFM）
   → 按 --format 选择产物
   → 原子写入 report.html / report.md

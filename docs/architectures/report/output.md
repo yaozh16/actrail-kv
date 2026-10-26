@@ -15,6 +15,10 @@
 `--locale` 默认 `zh-CN`，首期支持 `zh-CN`、`en-US`。一次导出固定一个 locale 快照，
 HTML 与 Markdown 使用相同语言。HTML 的 `lang` 属性随 locale 变化。
 
+HTML 的页面外壳、CSS 和重复区块由 `reporter/templates/report/` 下的 Askama 模板描述。
+模板在编译期解析并嵌入二进制，运行时不需要模板文件。Rust view model 负责本地化、聚合、
+排序和数值格式化；模板只执行条件、循环与转义，不可信文本由 Askama 自动 HTML escape。
+
 | 区域 | 数据来源 | 展示内容 |
 |---|---|---|
 | 标题与摘要 | `run`、`defects[]` | 输入、分析、跳过记录数和聚合问题数。 |

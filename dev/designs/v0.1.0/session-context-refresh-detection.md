@@ -176,9 +176,9 @@ analyzer/src/session/
 `artifacts/src/analysis_result.rs` 拆分出 session、cache metric、运行摘要和 prefix reuse 子模块；
 `artifacts/src/lib.rs` 的公共 API 与磁盘字段路径保持不变。
 
-`reporter/src/html_report_renderer.rs` 将 session 报告拆到
-`reporter/src/html_report_renderer/session.rs`，通用 HTML escape、字节格式化和短 ID
-保留在主模块。
+HTML 报告的后继模板化将 session 视图拆到
+`reporter/src/html_report_renderer/view/session.rs`，通用字节格式化、摘要和短 ID
+位于 `reporter/src/html_report_renderer/format.rs`。
 
 ## 报告实现
 

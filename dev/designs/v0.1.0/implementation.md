@@ -8,6 +8,7 @@
 - [会话上下文刷新检测需求](../../requirements/v0.1.0/session-context-refresh-detection.md)
 - [HTML 与 Markdown 双报告需求](../../requirements/v0.1.0/report-markdown-output.md)
 - [Report Locale 需求](../../requirements/v0.1.0/report-locale.md)
+- [HTML 编译期模板需求](../../requirements/v0.1.0/report-html-template.md)
 
 ## 实现设计
 
@@ -15,6 +16,7 @@
 - [会话上下文刷新检测设计](session-context-refresh-detection.md)
 - [HTML 与 Markdown 双报告设计](report-markdown-output.md)
 - [Report Locale 设计](report-locale.md)
+- [HTML 编译期模板设计](report-html-template.md)
 
 ## 架构与实现契约
 
@@ -27,4 +29,5 @@
 
 ## 失效设计索引
 
-- 无。此索引创建时，以上 v0.1.0 文档均为当前有效版本。
+- [`report-markdown-output.md`](report-markdown-output.md) 中“HTML renderer 现有逻辑保持不变”的
+  迁移约束已由[编译期模板设计](report-html-template.md)取代；HTML 输出契约仍有效。

@@ -111,7 +111,8 @@ grep -q 'LLM KV 缓存结构诊断' "$test_dir/report.html"
 grep -q 'P1 公共前缀' "$test_dir/report.html"
 grep -q 'X 同一位置内容不同' "$test_dir/report.html"
 grep -q 'P2 恢复稳定' "$test_dir/report.html"
-grep -q '&lt;script&gt;alert(1)&lt;/script&gt;' "$test_dir/report.html"
+grep -Eq '(&lt;|&#60;)script(&gt;|&#62;)alert\(1\)(&lt;|&#60;)/script(&gt;|&#62;)' \
+  "$test_dir/report.html"
 if grep -q '<script>' "$test_dir/report.html"; then
   echo "unsafe script content found in report" >&2
   exit 1

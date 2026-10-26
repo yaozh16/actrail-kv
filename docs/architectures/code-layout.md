@@ -117,9 +117,18 @@ actrail-kv/
 │
 ├── reporter/src/                                # 只消费统一 analysis.json；不重新分析
 │   ├── result_loader.rs                         # schema、引用、成员、P2、score、Top K 强校验
-│   ├── html_report_renderer.rs                  # 报告编排、缺陷、复用率、命中率与前缀树；全转义
 │   ├── html_report_renderer/
-│   │   └── session.rs                           # 会话上下文刷新 warning 与逐轮事件
+│   │   ├── mod.rs                               # Askama 根模板渲染入口
+│   │   ├── template.rs                          # 编译期嵌入的 HTML 根模板
+│   │   ├── format.rs                            # 字节、短 ID、摘要与位置格式化
+│   │   ├── tests.rs                             # HTML 区块、空态、锚点和会话回归
+│   │   └── view/                                # HTML 展示模型与各区块数据装配
+│   │       ├── mod.rs                           # HtmlReportView 根模型
+│   │       ├── defects.rs                       # Top K 与缺陷详情
+│   │       ├── prefix_reuse.rs                  # 复用率与真实命中对照
+│   │       ├── session.rs                       # 会话刷新、逐轮与事件
+│   │       ├── cache.rs                         # KV 缓存指标
+│   │       └── prefix_tree.rs                   # 前缀树、成员衰减与 SVG 坐标
 │   ├── locale/                                  # 全局 locale 工厂、快照与 namespace 子表
 │   │   ├── mod.rs                               # Locale、namespace 常量与公共 API
 │   │   ├── factory.rs                           # 初始化、切换和当前 locale 快照
@@ -136,6 +145,10 @@ actrail-kv/
 │   │   └── prefix_tree.rs                       # 模板前缀树
 │   ├── report_output.rs                         # 格式选择、路径派生与双产物原子发布
 │   └── lib.rs
+├── reporter/templates/report/                   # 编译期嵌入的 HTML、CSS 与区块 partial
+│   ├── layout.html                              # 文档头、CSP、全局编排
+│   ├── styles.css                               # 全部静态报告样式
+│   └── sections/                                # Top K、缺陷、会话、缓存与前缀树模板
 │
 ├── examples/
 │   ├── quickstart/
