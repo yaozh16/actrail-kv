@@ -228,3 +228,14 @@ fn first_refresh_pair_uses_lowest_sequence_and_supports_legacy_events() {
     legacy.events[0].prefix_reuse_outlier = false;
     assert_eq!(session::first_refresh_pair(&legacy), Some((1, 2)));
 }
+
+#[test]
+fn cyclic_prefix_view_returns_an_error_instead_of_hanging() {
+    let mut result = crate::result_loader::tests::fixture();
+    let mut view = prefix_view();
+    view.nodes[0].sequence_child = Some("seq-0".into());
+    result.templates[0].prefix_view = Some(view);
+
+    let error = render_html(&result).expect_err("cyclic prefix view must fail");
+    assert!(error.to_string().contains("cycle"));
+}

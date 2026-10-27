@@ -48,6 +48,9 @@ fn validate(result: &AnalysisResult) -> Result<()> {
         if !members.contains(&template.medoid_request_id) {
             bail!("template medoid is not one of its members");
         }
+        if let Some(prefix_view) = &template.prefix_view {
+            validate_prefix_view(prefix_view)?;
+        }
     }
     let defects: BTreeMap<_, _> = result
         .defects
@@ -82,6 +85,44 @@ fn validate(result: &AnalysisResult) -> Result<()> {
         }
     }
     validate_sessions(&result.session_reports)?;
+    Ok(())
+}
+
+fn validate_prefix_view(view: &actrail_kv_artifacts::TemplatePrefixView) -> Result<()> {
+    if view.node_count != view.nodes.len() {
+        bail!("prefix view node_count does not match nodes");
+    }
+    let by_id: BTreeMap<_, _> = view
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect();
+    if by_id.len() != view.nodes.len() {
+        bail!("prefix view contains duplicate node IDs");
+    }
+    if view.nodes.is_empty() {
+        return Ok(());
+    }
+    let mut current = by_id
+        .get("seq-0")
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("prefix view is missing the seq-0 root node"))?;
+    let mut visited = BTreeSet::new();
+    loop {
+        if !visited.insert(current.id.as_str()) {
+            bail!("prefix view sequence contains a cycle at {}", current.id);
+        }
+        let Some(child) = current.sequence_child.as_deref() else {
+            break;
+        };
+        current = by_id
+            .get(child)
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("prefix view references unknown node {child}"))?;
+    }
+    if visited.len() != view.nodes.len() {
+        bail!("prefix view sequence does not include every node");
+    }
     Ok(())
 }
 
@@ -312,6 +353,70 @@ pub(crate) mod tests {
         defect.score.score = expected + f64::EPSILON * expected * 4.0;
         write(&path, &result);
         assert!(load_result(&path).is_ok());
+    }
+
+    #[test]
+    fn rejects_cyclic_and_dangling_prefix_views() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let path = directory.path().join("analysis.json");
+
+        let mut self_cycle = fixture();
+        self_cycle.templates[0].prefix_view = Some(prefix_view("seq-0", Some("seq-0")));
+        write(&path, &self_cycle);
+        let error = load_result(&path).expect_err("self cycle must fail");
+        assert!(error.to_string().contains("cycle"));
+
+        let mut multi_cycle = fixture();
+        multi_cycle.templates[0].prefix_view = Some(TemplatePrefixView {
+            node_count: 2,
+            truncated: false,
+            nodes: vec![
+                prefix_node("seq-0", Some("seq-1")),
+                prefix_node("seq-1", Some("seq-0")),
+            ],
+        });
+        write(&path, &multi_cycle);
+        let error = load_result(&path).expect_err("multi-node cycle must fail");
+        assert!(error.to_string().contains("cycle"));
+
+        let mut dangling = fixture();
+        dangling.templates[0].prefix_view = Some(prefix_view("seq-0", Some("missing")));
+        write(&path, &dangling);
+        let error = load_result(&path).expect_err("dangling child must fail");
+        assert!(error.to_string().contains("unknown node"));
+    }
+
+    fn prefix_view(id: &str, sequence_child: Option<&str>) -> TemplatePrefixView {
+        TemplatePrefixView {
+            node_count: 1,
+            truncated: false,
+            nodes: vec![prefix_node(id, sequence_child)],
+        }
+    }
+
+    fn prefix_node(id: &str, sequence_child: Option<&str>) -> PrefixNode {
+        PrefixNode {
+            id: id.into(),
+            kind: PrefixNodeKind::Stable,
+            source: SourceLocation {
+                json_path: "$.messages[0].content".into(),
+                logical_scope: vec![],
+                unit_index: Some(0),
+                byte_start: Some(0),
+                byte_end: Some(0),
+                role: None,
+            },
+            utf8_bytes: 0,
+            support_count: 4,
+            support_ratio: 1.0,
+            excerpt: String::new(),
+            member_request_ids: vec![],
+            content_sample: None,
+            sequence_child: sequence_child.map(str::to_owned),
+            internal_children: vec![],
+            variants: None,
+            defect_ids: vec![],
+        }
     }
 
     fn write(path: &Path, result: &AnalysisResult) {

@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use actrail_kv_artifacts::{
     AnalysisResult, PrefixNode, PrefixNodeKind, RequestTemplate, TemplatePrefixView,
@@ -257,7 +257,11 @@ fn build_template(
         .collect();
     let mut chain = Vec::new();
     if let Some(mut current) = by_id.get("seq-0").copied() {
+        let mut visited = BTreeSet::new();
         loop {
+            if !visited.insert(current.id.as_str()) {
+                bail!("prefix view sequence contains a cycle at {}", current.id);
+            }
             chain.push(current);
             match current
                 .sequence_child
