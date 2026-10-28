@@ -11,7 +11,7 @@
 ## 当前文档树
 
 ```text
-README.md                                      # 构建、三二进制启动方式与用户入口
+README.md                                      # 项目定位、核心能力、快速试用与文档入口
 docs/
 ├── configuration.md                            # 实际 CLI 参数、固定阈值、资源预算与部署参数
 ├── concepts/                                   # 面向新手的稳定业务概念
@@ -44,6 +44,7 @@ dev/
 
 | 内容 | 落点 |
 |---|---|
+| 项目定位、核心能力和首次试用入口 | `README.md`；首页要求见 [Root README](../../dev/requirements/v0.1.0/root-readme.md) |
 | 用户可操作的参数、默认值、部署设置 | `docs/configuration.md` |
 | 面向新手的稳定业务概念 | `docs/concepts/` |
 | 当前模块依赖、目录或二进制调用关系 | `docs/architectures/` |

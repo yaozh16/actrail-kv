@@ -20,7 +20,7 @@ actrail-kv-report --input ./data/analysis.json --output ./data/report.html
 # 默认生成 report.html 与 report.md；可用 --format html|md 只生成一种
 ```
 
-运行参数见[配置参考](../configuration.md)，三个二进制的输入输出协议见[架构入口](index.md)。
+项目定位、核心能力与快速试用见[项目首页](../../README.md)，运行参数见[配置参考](../configuration.md)，三个二进制的输入输出协议见[架构入口](index.md)。
 
 ## 当前源码树
 

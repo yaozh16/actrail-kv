@@ -1,7 +1,26 @@
 <!-- 本文件帮助第一次接触项目的人理解价值、完成试用并找到后续文档。 -->
+<div align="center">
+
 # actrail-kv
 
-从一段时间内的真实 LLM 请求中寻找 KV 缓存优化启示：哪些易变内容放得太早，哪些生成方式不够稳定，以及它们阻断了多少本可复用的后续上下文。
+**面向 LLM 应用与 AI Agent 的 KV 缓存优化诊断工具**
+
+分析真实 LLM 请求，找出提示词、工具定义和消息排列中阻断上下文前缀复用的问题，生成附带证据与优化建议的报告。
+
+[快速开始](#快速开始) · [核心能力](#核心能力) · [报告能回答什么](#报告能回答什么) · [文档导航](#继续阅读)
+
+</div>
+
+---
+
+## 核心能力
+
+| 能力 | 帮你解决什么 |
+|---|---|
+| **定位复用障碍** | 找出过早出现的动态内容、模板版本漂移、等价数据表示差异和消息或工具顺序变化 |
+| **确定排查优先级** | 综合被阻断的稳定内容大小、受影响请求数和证据置信度，优先展示值得处理的问题 |
+| **查看证据与建议** | 生成 HTML / Markdown 报告，展示具体差异、后续稳定内容和对应的调整方向 |
+| **独立接入与分析** | 通过 Receiver 收集请求，或直接分析已有语料；可对接 AcTrail、网关或插桩组件 |
 
 ## 为什么需要
 
@@ -27,7 +46,7 @@ P2：Read the repository before editing. Run tests after every change.
 
 ![actrail-kv 部署交互视图](docs/architectures/assets/deployment-view.png)
 
-AcTrail项目在[AcTrail](gitcode.com/openeuler/AcTrail)
+可通过 [AcTrail](https://gitcode.com/openeuler/AcTrail) 采集请求，也可使用网关或插桩组件接入。
 
 `actrail-kv` 自身由三个可以独立运行的二进制组成：
 
@@ -39,10 +58,9 @@ AcTrail项目在[AcTrail](gitcode.com/openeuler/AcTrail)
 
 Receiver 可以持续运行；Analyze 和 Report 可以按需执行，也可以放进定时任务。已有符合输入协议的语料时，可以从 Analyze 直接开始。
 
-## Quick Start Example
-用示例语料生成第一份报告
+## 快速开始
 
-仓库内置了一组最小请求，能够稳定复现开头的 Workspace 缺陷：
+用仓库内置的最小请求语料生成第一份报告，复现上面的 Workspace 缺陷：
 
 ```bash
 cargo build --release --workspace --bins
