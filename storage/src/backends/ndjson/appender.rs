@@ -3,8 +3,8 @@
 use std::{
     fs::{File, OpenOptions},
     io::{self, Write},
-    path::Path,
-    sync::Mutex,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 use actrail_kv_artifacts::CapturedRequest;
@@ -32,8 +32,10 @@ pub enum AppendError {
     Io(#[from] io::Error),
 }
 
+#[derive(Clone)]
 pub struct NdjsonAppender {
-    state: Mutex<AppendState>,
+    state: Arc<Mutex<AppendState>>,
+    path: Option<PathBuf>,
 }
 
 struct AppendState {
@@ -58,15 +60,19 @@ impl AppendFile for File {
 
 impl NdjsonAppender {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, AppendError> {
-        let output = open_private_append_file(path.as_ref()).map_err(classify_open_error)?;
+        let path = path.as_ref();
+        let output = open_private_append_file(path).map_err(classify_open_error)?;
         try_lock_output_exclusive(&output).map_err(AppendError::AlreadyLocked)?;
-        Ok(Self::from_output(Box::new(output)))
+        let mut appender = Self::from_output(Box::new(output));
+        appender.path = Some(path.to_owned());
+        Ok(appender)
     }
 
     pub fn append(&self, record: &CapturedRequest) -> Result<(), AppendError> {
-        let mut line = serde_json::to_vec(record)?;
-        line.push(b'\n');
+        self.append_line(&encode_line(record)?)
+    }
 
+    pub(super) fn append_line(&self, line: &[u8]) -> Result<(), AppendError> {
         let mut state = self.state.lock().map_err(|_| AppendError::LockPoisoned)?;
         if state.failed {
             return Err(AppendError::Failed);
@@ -80,7 +86,7 @@ impl NdjsonAppender {
         };
         let result = state
             .output
-            .write_all(&line)
+            .write_all(line)
             .and_then(|()| state.output.flush());
         if let Err(write) = result {
             let rollback = state.output.truncate(original_length);
@@ -93,14 +99,32 @@ impl NdjsonAppender {
         Ok(())
     }
 
+    pub(super) fn snapshot_file(&self) -> Result<(File, u64), AppendError> {
+        let _boundary = self.state.lock().map_err(|_| AppendError::LockPoisoned)?;
+        let path = self
+            .path
+            .as_ref()
+            .ok_or_else(|| io::Error::other("NDJSON appender has no readable path"))?;
+        let mut file = File::open(path)?;
+        let end = super::segments::committed_length(&mut file)?;
+        Ok((file, end))
+    }
+
     fn from_output(output: Box<dyn AppendFile>) -> Self {
         Self {
-            state: Mutex::new(AppendState {
+            state: Arc::new(Mutex::new(AppendState {
                 output,
                 failed: false,
-            }),
+            })),
+            path: None,
         }
     }
+}
+
+pub(super) fn encode_line(record: &CapturedRequest) -> Result<Vec<u8>, serde_json::Error> {
+    let mut line = serde_json::to_vec(record)?;
+    line.push(b'\n');
+    Ok(line)
 }
 
 #[cfg(unix)]

@@ -65,4 +65,4 @@ CLI 参数改为 `Option`，显式传入时覆盖文件；未传时回退文件�
 
 - 不传 `--config` 时 analyze 的 `run.options` 快照与旧版逐字段一致。
 - receiver 无配置文件时监听地址与请求体上限保持旧值。
-- 已失效决策索引：无。
+- Receiver `--output` 必填约定已由[采集存储设计](storage-backends.md)更新。

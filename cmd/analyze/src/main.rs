@@ -3,7 +3,8 @@
 use std::path::PathBuf;
 
 use actrail_kv_analyzer::config::AnalyzeConfig;
-use actrail_kv_analyzer::run::analyze_file;
+use actrail_kv_analyzer::run::{analyze_captures, analyze_file};
+use actrail_kv_storage::{open_store, CaptureFilter, StorageConfig, StoreAccess};
 use anyhow::{Context, Result};
 use clap::Parser;
 
@@ -13,8 +14,20 @@ use clap::Parser;
     about = "Analyze captured LLM requests for structural KV cache disruption"
 )]
 struct Cli {
+    #[arg(
+        long,
+        required_unless_present = "storage_config",
+        conflicts_with = "storage_config"
+    )]
+    input: Option<PathBuf>,
     #[arg(long)]
-    input: PathBuf,
+    storage_config: Option<PathBuf>,
+    #[arg(long, requires = "storage_config")]
+    session_key: Option<String>,
+    #[arg(long, requires = "storage_config")]
+    from: Option<String>,
+    #[arg(long, requires = "storage_config")]
+    until: Option<String>,
     #[arg(long)]
     output: PathBuf,
     #[arg(long)]
@@ -45,7 +58,8 @@ fn parse_positive_u64(value: &str) -> Result<u64, String> {
     Ok(parsed)
 }
 
-fn main() -> Result<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
     let mut config = match &cli.config {
         Some(path) => {
@@ -63,6 +77,17 @@ fn main() -> Result<()> {
         config.comparison_window_seconds = window;
     }
     let options = config.into_options()?;
-    analyze_file(&cli.input, &cli.output, options)?;
+    if let Some(path) = cli.storage_config {
+        let filter =
+            CaptureFilter::parse(cli.session_key, cli.from.as_deref(), cli.until.as_deref())?;
+        let storage = StorageConfig::from_file(&path)
+            .with_context(|| format!("failed to load storage config {}", path.display()))?;
+        storage.validate_output(&path, &cli.output)?;
+        let store = open_store(storage, StoreAccess::ReadOnly).await?;
+        analyze_captures(store.scan(filter).await?, &cli.output, options).await?;
+    } else {
+        let input = cli.input.context("missing analysis input")?;
+        analyze_file(&input, &cli.output, options)?;
+    }
     Ok(())
 }

@@ -19,12 +19,14 @@ docs/
 │   ├── context_defect.md                        # 上下文结构缺陷、正例及非缺陷边界
 │   └── prefix_reuse.md                          # 结构复用率、可恢复上界及其口径边界
 └── architectures/
-    ├── code-layout.md                          # 源码模块、三个二进制与调用关系
-    ├── deployment.md                           # 外部采集入口、三个二进制与报告产物流向
+    ├── code-layout.md                          # 源码模块、命令与调用关系
+    ├── deployment.md                           # 外部采集入口与报告产物流向
     ├── assets/                                 # 架构图源文件及渲染图片
     ├── doc-layout.md                           # 本文档：文档树及职责边界
-    ├── index.md                                # 三个二进制的架构入口
+    ├── index.md                                # 二进制及共有架构入口
     ├── constraints.md                          # 跨 receiver/analyze/report 的运行与数据处理约束
+    ├── storage/                                # Receiver、Analyzer 和 Export 的共享存储
+    │   └── index.md                            # 接口、工厂、读取边界和保留期
     ├── receiver/                               # actrail-kv-receiver 专属设计
     │   ├── input.md                            # HTTP 接收协议
     │   └── output.md                           # requests.ndjson 行级协议

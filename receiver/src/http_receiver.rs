@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use actrail_kv_artifacts::{CapturedRequest, ComparisonMetadata};
+use actrail_kv_storage::CaptureStore;
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, State},
@@ -30,14 +31,18 @@ pub fn router(appender: Arc<NdjsonAppender>) -> Router {
 
 /// 使用自定义请求体上限构建路由，供配置文件覆盖默认 8 MiB 限制。
 pub fn router_with_limit(appender: Arc<NdjsonAppender>, max_payload_bytes: usize) -> Router {
+    router_with_storage(appender, max_payload_bytes)
+}
+
+pub fn router_with_storage(store: Arc<dyn CaptureStore>, max_payload_bytes: usize) -> Router {
     Router::new()
         .route("/requests", post(receive_request))
         .layer(DefaultBodyLimit::max(max_payload_bytes))
-        .with_state(appender)
+        .with_state(store)
 }
 
 async fn receive_request(
-    State(appender): State<Arc<NdjsonAppender>>,
+    State(store): State<Arc<dyn CaptureStore>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -90,14 +95,10 @@ async fn receive_request(
         payload,
     };
 
-    match tokio::task::spawn_blocking(move || appender.append(&record)).await {
-        Ok(Ok(())) => StatusCode::ACCEPTED.into_response(),
-        Ok(Err(error)) => {
-            eprintln!("failed to append captured request: {error}");
-            server_error()
-        }
+    match store.append(record).await {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(error) => {
-            eprintln!("captured request writer task failed: {error}");
+            eprintln!("failed to append captured request: {error}");
             server_error()
         }
     }

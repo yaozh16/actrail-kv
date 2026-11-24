@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 actrail-kv-artifacts.workspace = true
+actrail-kv-storage.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 serde.workspace = true
@@ -14,9 +15,6 @@ thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
 tower.workspace = true
-
-[target.'cfg(unix)'.dependencies]
-fs2 = "0.4"
 
 [dev-dependencies]
 tempfile.workspace = true

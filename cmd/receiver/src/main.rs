@@ -1,19 +1,26 @@
 //! 本二进制加载 receiver 配置、解析参数覆盖、绑定监听并处理优雅关闭。
 
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, path::PathBuf};
 
-use actrail_kv_receiver::{router_with_limit, NdjsonAppender, ReceiverConfig};
+use actrail_kv_receiver::{router_with_storage, ReceiverConfig};
+use actrail_kv_storage::{open_legacy_ndjson, open_store, StorageConfig, StoreAccess};
 use anyhow::{Context, Result};
 use clap::Parser;
 
 #[derive(Debug, Parser)]
 #[command(name = "actrail-kv-receiver")]
-#[command(about = "Receive complete model request payloads as NDJSON")]
+#[command(about = "Receive and store complete model requests")]
 struct Arguments {
     #[arg(long)]
     listen: Option<SocketAddr>,
+    #[arg(
+        long,
+        required_unless_present = "storage_config",
+        conflicts_with = "storage_config"
+    )]
+    output: Option<PathBuf>,
     #[arg(long)]
-    output: PathBuf,
+    storage_config: Option<PathBuf>,
     #[arg(long)]
     config: Option<PathBuf>,
     #[arg(long, value_parser = parse_positive_usize)]
@@ -53,20 +60,24 @@ async fn main() -> Result<()> {
         .listen
         .parse()
         .with_context(|| format!("invalid listen address {}", config.listen))?;
-    let appender = NdjsonAppender::open(&arguments.output).with_context(|| {
-        format!(
-            "failed to open receiver output {}",
-            arguments.output.display()
-        )
-    })?;
     let listener = tokio::net::TcpListener::bind(listen)
         .await
         .with_context(|| format!("failed to bind receiver to {}", listen))?;
+    let store = if let Some(path) = arguments.storage_config {
+        let storage = StorageConfig::from_file(&path)
+            .with_context(|| format!("failed to load storage config {}", path.display()))?;
+        open_store(storage, StoreAccess::ReadWrite).await?
+    } else {
+        let output = arguments.output.context("missing receiver output")?;
+        open_legacy_ndjson(output.clone())
+            .await
+            .with_context(|| format!("failed to open receiver output {}", output.display()))?
+    };
     eprintln!("listening on {}", listener.local_addr()?);
 
     axum::serve(
         listener,
-        router_with_limit(Arc::new(appender), config.max_payload_bytes),
+        router_with_storage(store, config.max_payload_bytes),
     )
     .with_graceful_shutdown(shutdown_signal())
     .await

@@ -48,12 +48,13 @@ P2：Read the repository before editing. Run tests after every change.
 
 可通过 [AcTrail](https://gitcode.com/openeuler/AcTrail) 采集请求，也可使用网关或插桩组件接入。
 
-`actrail-kv` 自身由三个可以独立运行的二进制组成：
+`actrail-kv` 提供独立运行的采集、分析、导出与报告命令。
 
 | 二进制 | 做什么 | 产物 |
 |---|---|---|
-| `actrail-kv-receiver` | 接收上游导出的完整 LLM HTTP JSON 请求 | `requests.ndjson` |
+| `actrail-kv-receiver` | 接收上游导出的完整 LLM HTTP JSON 请求 | SQLite 或 NDJSON 采集存储 |
 | `actrail-kv-analyze` | 抽取模板，定位并聚合上下文结构缺陷 | `analysis.json` |
+| `actrail-kv-export` | 按会话和日期范围导出采集记录 | NDJSON |
 | `actrail-kv-report` | 把分析结果转换成可以直接阅读的 HTML 与 GFM Markdown | `report.html`、`report.md` |
 
 Receiver 可以持续运行；Analyze 和 Report 可以按需执行，也可以放进定时任务。已有符合输入协议的语料时，可以从 Analyze 直接开始。
@@ -94,6 +95,8 @@ target/release/actrail-kv-receiver \
   --listen 127.0.0.1:8080 \
   --output requests.ndjson
 ```
+
+使用 SQLite 或自动按时间与大小轮转的 NDJSON 时，改传 `--storage-config <path>`。同一配置可交给 Analyzer 和 Export。配置示例、会话和日期筛选、按时间清理见[采集存储配置](docs/configuration.md#采集存储)。
 
 上游组件把实际发往模型 API 的完整 JSON body 原样提交到 `/requests`。下面只展示最小调用方式；生产环境通常由 Actrail Plugin、网关或插桩组件完成这一步。
 
@@ -146,7 +149,7 @@ MVP 面向 OpenAI-compatible chat payload：请求需要包含字符串 `model` 
 
 ## 继续阅读
 
-- [部署交互视图](docs/architectures/deployment.md)：两种采集链路和三个二进制如何协作。
+- [部署交互视图](docs/architectures/deployment.md)展示两种采集链路及单文件报告流程。
 - [什么是请求模板](docs/concepts/template.md)：模板、稳定片段、槽位和请求实例之间的关系。
 - [什么是上下文结构缺陷](docs/concepts/context_defect.md)：`P1 / X / P2` 的判定方式和反例。
 - [分析流水线](docs/architectures/analyze/pipeline.md)：从语料分组到 Top K 的完整过程。

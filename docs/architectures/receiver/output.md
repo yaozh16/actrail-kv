@@ -1,4 +1,4 @@
-<!-- 本文件定义 actrail-kv-receiver 产物 requests.ndjson 的行级协议。 -->
+<!-- 本文件定义采集记录及 NDJSON 的行级协议。 -->
 # Receiver 输出
 
 `requests.ndjson` 为 UTF-8 NDJSON：每一物理行恰好是一条成功接收的请求记录。字段路径以 `[]` 表示数组成员，`?` 表示可省略字段。
@@ -19,4 +19,4 @@
 {"captured_at":"2026-09-02T08:09:10Z","source":"agent-hook","comparison":{"endpoint_key":"llm-primary","agent_key":"coding-agent"},"payload":{"model":"example","messages":[{"role":"user","content":"你好"}]}}
 ```
 
-该文件是 analyzer 的唯一输入格式。它由一个 receiver 进程独占；并发成功请求仍保证一请求一整行。
+`--output` 模式由一个 Receiver 进程独占文件。托管 NDJSON 模式按时间和大小轮转，一条记录始终完整写入一个分片。Analyzer 和导出器通过同一存储接口遍历已配置的后端。见[采集存储架构](../storage/index.md)。

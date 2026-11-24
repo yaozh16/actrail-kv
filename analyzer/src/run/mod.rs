@@ -4,4 +4,4 @@ mod options;
 mod pipeline;
 
 pub use options::AnalysisOptions;
-pub use pipeline::{analyze_file, analyze_reader};
+pub use pipeline::{analyze_captures, analyze_file, analyze_reader};

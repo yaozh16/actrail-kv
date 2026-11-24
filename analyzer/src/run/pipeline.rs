@@ -7,12 +7,13 @@ use std::{
 };
 
 use actrail_kv_artifacts::{
-    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, ComparisonGroup,
+    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, CapturedRequest, ComparisonGroup,
     ContextDefect as ArtifactContextDefect, RequestTemplate as ArtifactTemplate, SkipRecord,
     SourceLocation as ArtifactSource, StableSpan as ArtifactStableSpan,
     TemplateSlot as ArtifactSlot, ANALYSIS_SCHEMA_VERSION,
 };
 use anyhow::{Context, Result};
+use futures_util::stream::Stream;
 
 use crate::{
     cache_metrics::compute_cache_metrics,
@@ -22,7 +23,7 @@ use crate::{
         template::{RequestTemplate, TemplateExtractor, TemplateOptions},
     },
     model::{
-        corpus::{CorpusLoadLimits, CorpusLoader, CorpusSkip},
+        corpus::{CorpusLoadLimits, CorpusLoadResult, CorpusLoader, CorpusSkip},
         projection::{ProjectionLimits, ProjectionSkip, RequestProjector},
     },
     ranking::rank_defects,
@@ -46,12 +47,39 @@ pub fn analyze_file(
 
 pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result<AnalysisResult> {
     options.validate()?;
-    let loaded = CorpusLoader::new(CorpusLoadLimits {
+    let loaded = corpus_loader(&options)
+        .load(reader)
+        .context("failed to read captured requests")?;
+    analyze_loaded(loaded, options)
+}
+
+pub async fn analyze_captures<S, E>(
+    records: S,
+    output: &Path,
+    options: AnalysisOptions,
+) -> Result<AnalysisResult>
+where
+    S: Stream<Item = Result<CapturedRequest, E>>,
+    E: std::error::Error + Send + Sync + 'static,
+{
+    options.validate()?;
+    let loaded = corpus_loader(&options)
+        .load_captures(records)
+        .await
+        .context("failed to scan captured requests")?;
+    let result = analyze_loaded(loaded, options)?;
+    write_atomic_json(output, &result)?;
+    Ok(result)
+}
+
+fn corpus_loader(options: &AnalysisOptions) -> CorpusLoader {
+    CorpusLoader::new(CorpusLoadLimits {
         max_record_bytes: options.max_payload_bytes,
         max_records: options.max_records,
     })
-    .load(reader)
-    .context("failed to read captured requests")?;
+}
+
+fn analyze_loaded(loaded: CorpusLoadResult, options: AnalysisOptions) -> Result<AnalysisResult> {
     let input_records = loaded.corpus.records.len() + loaded.skipped.len();
     let cache_metrics = compute_cache_metrics(&loaded.corpus.records);
     let mut skips: Vec<SkipRecord> = loaded.skipped.iter().map(corpus_skip).collect();
@@ -315,7 +343,7 @@ fn abbreviate(value: &str, max_chars: usize) -> String {
 }
 
 fn write_atomic_json(path: &Path, result: &AnalysisResult) -> Result<()> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let parent = output_directory(path);
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     serde_json::to_writer_pretty(&mut temporary, result)?;
     temporary.write_all(b"\n")?;
@@ -331,10 +359,7 @@ fn ensure_distinct_paths(input: &Path, output: &Path) -> Result<()> {
     }
     if !output.exists() {
         let input = input.canonicalize()?;
-        let parent = output
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .canonicalize()?;
+        let parent = output_directory(output).canonicalize()?;
         let destination = match output.file_name() {
             Some(name) => parent.join(name),
             None => parent,
@@ -344,6 +369,13 @@ fn ensure_distinct_paths(input: &Path, output: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn output_directory(output: &Path) -> &Path {
+    output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
 }
 
 #[cfg(unix)]

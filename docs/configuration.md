@@ -3,12 +3,12 @@
 
 ## 配置方式
 
-三个二进制都接受命令行参数；analyze 与 receiver 额外支持 JSON 配置文件。
+各命令都接受命令行参数。Analyzer 与 Receiver 支持独立的运行配置和采集存储配置。
 
 - 配置优先级：编译默认值 < JSON 配置文件 < 显式 CLI 参数。
 - JSON 配置通过 `--config <path>` 传入；未提供时使用编译默认值，行为与旧版本一致。
 - 配置包含未知字段或非法数值时拒绝启动。
-- 每次分析仍会把实际生效参数完整写入 `analysis.json` 的 `run.options`，保证可追溯。
+- 每次分析会把实际生效的算法参数写入 `analysis.json` 的 `run.options`。
 
 ## Receiver
 
@@ -22,7 +22,8 @@ actrail-kv-receiver \
 | CLI 参数 | 默认值 | 说明 |
 |---|---:|---|
 | `--listen` | `127.0.0.1:8080` | HTTP 监听地址。默认仅 loopback；跨主机接入应在内网反向代理后显式配置。 |
-| `--output` | 无，必填 | 接收语料的 NDJSON 路径。进程独占该文件，文件权限收紧为仅属主可读写。 |
+| `--output` | 与 `--storage-config` 二选一 | 兼容模式的 NDJSON 单文件路径。进程独占该文件，Unix 文件权限为 `0600`。 |
+| `--storage-config` | 与 `--output` 二选一 | SQLite 或托管 NDJSON 的配置文件路径。 |
 | `--config` | 无 | 可选 JSON 配置；CLI 显式参数覆盖文件。 |
 | `--max-payload-bytes` | 来自配置 | 请求体上限覆盖；默认 `8 MiB`。 |
 
@@ -43,8 +44,10 @@ actrail-kv-analyze \
 
 | CLI 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `--input` | 无，必填 | receiver 产出的 NDJSON 语料。 |
-| `--output` | 无，必填 | 分析 JSON 的新路径；不得与 input 为同一文件或同一硬链接。 |
+| `--input` | 与 `--storage-config` 二选一 | 兼容模式的 NDJSON 语料文件。 |
+| `--storage-config` | 与 `--input` 二选一 | 采集存储配置文件路径。 |
+| `--session-key`、`--from`、`--until` | 无 | 托管存储的筛选参数，见[采集存储](#采集存储)。 |
+| `--output` | 无，必填 | 分析 JSON 的目标路径，必须位于采集存储之外。 |
 | `--config` | 无 | 可选 JSON 配置；显式 CLI 参数覆盖文件。 |
 | `--top-k` | `20` | 最终报告保留的聚合 defect 数，必须大于零。 |
 | `--comparison-window-seconds` | `3600` | 固定 UTC 时间窗口宽度；只有同一窗口内的请求才相互比较。 |
@@ -79,6 +82,46 @@ analyze 的全部算法阈值与资源预算均可通过 `--config` 的 JSON 覆
 超限、坏行与未知 payload dialect 均在 `analysis.json` 中以 skipped 原因呈现；系统不会截断请求后输出高置信结论。
 
 放开 `max_alignment_cells` / `max_total_alignment_cells` 时，单次 LCS 内存约为 cells × 8 字节，请按机器内存设置。
+
+## 采集存储
+
+Receiver、Analyzer 与 Export 可以读取同一份 `--storage-config` 配置。存储路径相对于配置文件所在目录解析。
+
+SQLite 配置可保存为 `sqlite.json`。
+
+```json
+{
+  "backend": "sqlite",
+  "path": "captures.sqlite"
+}
+```
+
+NDJSON 配置可保存为 `ndjson.json`。
+
+```json
+{
+  "backend": "ndjson",
+  "directory": "captures",
+  "segment_seconds": 3600,
+  "max_segment_bytes": 67108864
+}
+```
+
+`segment_seconds` 和 `max_segment_bytes` 可省略，默认值如上。托管后端自行创建 NDJSON 目录，按 UTC 时间窗口及大小轮转。单条记录大于大小上限时独占一个分片。应用通过存储配置读取所有分片。
+
+两个后端都可额外设置 `"retention": { "max_age_seconds": 604800, "cleanup_interval_seconds": 60 }`。`max_age_seconds` 是记录按采集时间计算的最长可读时间。读者立即排除已到期记录，写入端也拒绝已到期的记录。Receiver 按周期执行清理，默认每 60 秒检查。SQLite 分批删除到期记录，NDJSON 在分片整个时间窗口到期后删除文件。省略 `retention` 时保留全量。
+
+```bash
+actrail-kv-receiver --storage-config sqlite.json
+actrail-kv-analyze --storage-config sqlite.json --output analysis.json \
+  --session-key session-a --from 2026-11-23 --until 2026-11-24
+actrail-kv-export --storage-config sqlite.json --output exported.ndjson \
+  --session-key session-a --from 2026-11-23 --until 2026-11-24
+```
+
+`--session-key` 精确匹配现有采集记录的 session ID。`--from` 包含起点，`--until` 排除终点。两者支持 `YYYY-MM-DD`（UTC 午夜）或 RFC 3339 时间戳。筛选条件可独立使用，也可组合。Export 以 `--output` 指定的路径发布标准 NDJSON，可交给原有 `--input` 入口分析。
+
+托管存储的 Analyzer 在扫描超过 `max_records` 时结束并报错。旧文件入口沿用既有的跳过记录报告。
 
 ## Report
 

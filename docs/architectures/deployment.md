@@ -5,6 +5,6 @@
 
 ![actrail-kv 部署交互视图](assets/deployment-view.png)
 
-图中的 `requests.ndjson` 和 `analysis.json` 是三个二进制之间的显式文件边界。因此，接收可以持续运行，分析和报告生成则可以按需或定时离线执行。
+图展示单文件 NDJSON 部署。采用托管存储时，Receiver 与 Analyzer 通过同一套[存储配置](storage/index.md)访问 SQLite 或分片 NDJSON。Export 也可读取该存储。接收可以持续运行，分析和报告生成可以按需或定时执行。
 
 可编辑源文件：[deployment-view.puml](assets/deployment-view.puml)。

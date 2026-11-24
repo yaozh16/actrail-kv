@@ -11,7 +11,7 @@
 ## 目标
 
 1. analyze 的全部 17 项参数可通过 JSON 配置文件覆盖，CLI 显式参数仍可继续覆盖文件。
-2. receiver 的监听地址与请求体上限可通过 JSON 配置文件覆盖，`--output` 保持 CLI 必填。
+2. receiver 的监听地址与请求体上限可通过 JSON 配置文件覆盖。原 `--output` 必填约定已由[采集存储后端要求](storage-backends/target.md)更新。
 3. 提供 `Config` 结构体与 `to_json` / `from_json`（含格式校验），字段未知时拒绝加载。
 4. 不提供配置文件时，行为与旧版本一致（默认值保持同一来源）。
 5. `analysis.json` 的 `run.options` 快照继续记录本次实际生效参数，保证可追溯。

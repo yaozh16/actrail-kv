@@ -5,6 +5,8 @@ use std::{
     io::{self, BufRead},
 };
 
+use actrail_kv_artifacts::CapturedRequest;
+use futures_util::stream::{Stream, StreamExt};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -48,8 +50,7 @@ impl CorpusLoader {
     }
 
     pub fn load<R: BufRead>(&self, reader: R) -> Result<CorpusLoadResult, CorpusReadError> {
-        let mut result = CorpusLoadResult::default();
-        let mut occurrences = BTreeMap::<String, usize>::new();
+        let mut loaded = CorpusAccumulator::new(&self.limits);
         for (zero_based, line_result) in reader.split(b'\n').enumerate() {
             let input_line = zero_based + 1;
             let line = match line_result {
@@ -66,43 +67,71 @@ impl CorpusLoader {
                     });
                 }
             };
-            if line.iter().all(u8::is_ascii_whitespace) {
-                result.skipped.push(CorpusSkip {
-                    input_line,
-                    reason: CorpusSkipReason::EmptyLine,
-                });
-                continue;
+            loaded.push(&line, input_line);
+        }
+        Ok(loaded.result)
+    }
+
+    pub(crate) async fn load_captures<S, E>(&self, records: S) -> anyhow::Result<CorpusLoadResult>
+    where
+        S: Stream<Item = Result<CapturedRequest, E>>,
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        let mut loaded = CorpusAccumulator::new(&self.limits);
+        let mut records = std::pin::pin!(records.enumerate());
+        while let Some((position, record)) = records.next().await {
+            if loaded.result.corpus.records.len() >= self.limits.max_records {
+                anyhow::bail!(
+                    "capture scan exceeds max_records ({})",
+                    self.limits.max_records
+                );
             }
-            if line.len() > self.limits.max_record_bytes {
-                result.skipped.push(CorpusSkip {
-                    input_line,
-                    reason: CorpusSkipReason::RecordTooLarge {
-                        bytes: line.len(),
-                        limit: self.limits.max_record_bytes,
-                    },
-                });
-                continue;
+            loaded.push(&serde_json::to_vec(&record?)?, position + 1);
+        }
+        Ok(loaded.result)
+    }
+}
+
+struct CorpusAccumulator<'a> {
+    limits: &'a CorpusLoadLimits,
+    result: CorpusLoadResult,
+    occurrences: BTreeMap<String, usize>,
+}
+
+impl<'a> CorpusAccumulator<'a> {
+    fn new(limits: &'a CorpusLoadLimits) -> Self {
+        Self {
+            limits,
+            result: CorpusLoadResult::default(),
+            occurrences: BTreeMap::new(),
+        }
+    }
+
+    fn push(&mut self, line: &[u8], input_line: usize) {
+        let reason = if line.iter().all(u8::is_ascii_whitespace) {
+            CorpusSkipReason::EmptyLine
+        } else if line.len() > self.limits.max_record_bytes {
+            CorpusSkipReason::RecordTooLarge {
+                bytes: line.len(),
+                limit: self.limits.max_record_bytes,
             }
-            if result.corpus.records.len() >= self.limits.max_records {
-                result.skipped.push(CorpusSkip {
-                    input_line,
-                    reason: CorpusSkipReason::RecordBudgetExceeded {
-                        limit: self.limits.max_records,
-                    },
-                });
-                continue;
+        } else if self.result.corpus.records.len() >= self.limits.max_records {
+            CorpusSkipReason::RecordBudgetExceeded {
+                limit: self.limits.max_records,
             }
-            match parse_record(&line, input_line) {
+        } else {
+            match parse_record(line, input_line) {
                 Ok(mut record) => {
-                    let occurrence = occurrences.entry(record.id.clone()).or_default();
+                    let occurrence = self.occurrences.entry(record.id.clone()).or_default();
                     record.id = format!("{}:{occurrence}", record.id);
                     *occurrence += 1;
-                    result.corpus.records.push(record);
+                    self.result.corpus.records.push(record);
+                    return;
                 }
-                Err(reason) => result.skipped.push(CorpusSkip { input_line, reason }),
+                Err(reason) => reason,
             }
-        }
-        Ok(result)
+        };
+        self.result.skipped.push(CorpusSkip { input_line, reason });
     }
 }
 

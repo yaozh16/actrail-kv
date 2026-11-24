@@ -1,9 +1,8 @@
-//! 本 crate 提供最小 HTTP 接收器，将完整请求 payload 安全追加为 NDJSON。
+//! 本 crate 提供 HTTP 接收器并将完整请求提交给采集存储。
 
 pub mod config;
 mod http_receiver;
-mod ndjson_appender;
 
+pub use actrail_kv_storage::{AppendError, NdjsonAppender};
 pub use config::ReceiverConfig;
-pub use http_receiver::{router, router_with_limit};
-pub use ndjson_appender::{AppendError, NdjsonAppender};
+pub use http_receiver::{router, router_with_limit, router_with_storage};

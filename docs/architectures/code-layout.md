@@ -1,16 +1,13 @@
-<!-- 本文件用当前真实源码树说明三个二进制、统一 P1/X/P2 分析核心及模块职责。 -->
+<!-- 本文件用当前源码树说明存储、分析核心和各命令职责。 -->
 # Code Layout
 
-## 三个二进制
+## 采集与分析命令
 
 ```text
-采集源
-  → actrail-kv-receiver
-  → requests.ndjson
-  → actrail-kv-analyze
-  → analysis.json
-  → actrail-kv-report
-  → report.html + report.md
+采集源 → actrail-kv-receiver → 采集存储
+                               ├─ actrail-kv-export → NDJSON
+                               └─ actrail-kv-analyze → analysis.json
+                                   → actrail-kv-report → report.html + report.md
 ```
 
 ```bash
@@ -20,7 +17,7 @@ actrail-kv-report --input ./data/analysis.json --output ./data/report.html
 # 默认生成 report.html 与 report.md；可用 --format html|md 只生成一种
 ```
 
-项目定位、核心能力与快速试用见[项目首页](../../README.md)，运行参数见[配置参考](../configuration.md)，三个二进制的输入输出协议见[架构入口](index.md)。
+项目定位、核心能力与快速试用见[项目首页](../../README.md)，运行参数见[配置参考](../configuration.md)，组件输入输出见[架构入口](index.md)。
 
 ## 当前源码树
 
@@ -29,9 +26,10 @@ actrail-kv/
 ├── cmd/                                           # 二进制入口；只解析 CLI 并调用对应 library
 │   ├── receiver/src/main.rs                       # 启动 HTTP receiver
 │   ├── analyze/src/main.rs                        # 执行离线分析；载入 JSON 配置，CLI 覆盖 Top K/时间窗口
+│   ├── export/src/main.rs                         # 扫描已配置存储并导出 NDJSON
 │   └── report/src/main.rs                         # 将 analysis.json 渲染为 HTML
 │
-├── artifacts/src/                                 # 三个二进制共享的磁盘协议
+├── artifacts/src/                                 # 命令共享的采集记录和分析产物协议
 │   ├── captured_request.rs                        # CapturedRequest、显式 ComparisonMetadata
 │   ├── analysis_result.rs                         # AnalysisResult、template、统一 ContextDefect、Top K ID
 │   ├── analysis_result/
@@ -44,8 +42,20 @@ actrail-kv/
 ├── receiver/src/                                  # 最小接收端；不依赖 analyzer
 │   ├── config.rs                                  # ReceiverConfig：listen/max_payload_bytes JSON 读写
 │   ├── http_receiver.rs                           # POST /requests、metadata headers、captured_at
-│   ├── ndjson_appender.rs                         # 并发安全、原子行追加、文件独占与权限
 │   └── lib.rs                                     # receiver library API
+│
+├── storage/src/                                   # 采集存储接口、后端配置和扫描筛选
+│   ├── lib.rs                                     # CaptureStore、CaptureStream 和 StorageError
+│   ├── config.rs                                  # 后端配置、保留期和输出位置保护
+│   ├── filter.rs                                  # session 等值和 UTC 半开区间
+│   ├── runtime.rs                                 # 有背压流式扫描与周期清理
+│   └── backends/
+│       ├── mod.rs                                 # 工厂与只读、可写入口
+│       ├── sqlite.rs                              # WAL、索引查询和到期清理
+│       └── ndjson/
+│           ├── mod.rs                             # 写入、轮转、读取与回收
+│           ├── segments.rs                        # 分片名称、崩溃尾部修复和有界读取
+│           └── appender.rs                        # 并发安全、整行追加、独占与权限
 │
 ├── analyzer/src/                                  # 模板抽取与结构诊断核心
 │   ├── cache_metrics.rs                           # 每请求 KV 命中率：上游 usage 优先，缺失时按公共前缀估算
