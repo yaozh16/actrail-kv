@@ -100,7 +100,7 @@ ContextDefect
 ## 模块职责
 
 ```text
-analyzer/src/
+crates/analyzer/src/
 ├─ model/
 │  ├─ corpus/             envelope 加载与 comparison group
 │  └─ projection/         模型可见层级投影

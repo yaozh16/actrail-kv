@@ -3,7 +3,7 @@
 
 ## 现状与设计约束
 
-当前会话分析位于 `analyzer/src/session/lineage.rs`，已经能对相邻请求分类并输出
+当前会话分析位于 `crates/analyzer/src/session/lineage.rs`，已经能对相邻请求分类并输出
 `append / fork / reorder / reset`、公共前缀、重算字节和 `prefix_cut_bytes`。
 
 现有实现不能直接满足新需求：
@@ -164,21 +164,21 @@ context_refresh_count DESC
 
 ## 模块落点
 
-`analyzer/src/session/lineage.rs` 承载时间线、分类和会话聚合；结构复用率汇总拆到：
+`crates/analyzer/src/session/lineage.rs` 承载时间线、分类和会话聚合；结构复用率汇总拆到：
 
 ```text
-analyzer/src/session/
+crates/analyzer/src/session/
 ├── mod.rs          # session API re-export
 ├── lineage.rs      # 时间排序、相邻对分类、刷新事件与 SessionReport 聚合
 └── reuse.rs        # prefix_reuse 汇总与缺陷可恢复上界
 ```
 
-`artifacts/src/analysis_result.rs` 拆分出 session、cache metric、运行摘要和 prefix reuse 子模块；
-`artifacts/src/lib.rs` 的公共 API 与磁盘字段路径保持不变。
+`crates/artifacts/src/analysis_result.rs` 拆分出 session、cache metric、运行摘要和 prefix reuse 子模块；
+`crates/artifacts/src/lib.rs` 的公共 API 与磁盘字段路径保持不变。
 
 HTML 报告的后继模板化将 session 视图拆到
-`reporter/src/html_report_renderer/view/session.rs`，通用字节格式化、摘要和短 ID
-位于 `reporter/src/html_report_renderer/format.rs`。
+`crates/reporter/src/html_report_renderer/view/session.rs`，通用字节格式化、摘要和短 ID
+位于 `crates/reporter/src/html_report_renderer/format.rs`。
 
 ## 报告实现
 

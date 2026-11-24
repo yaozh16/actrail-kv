@@ -4,7 +4,7 @@
 ## 模块结构
 
 ```text
-reporter/src/locale/
+crates/reporter/src/locale/
 ├── mod.rs          # Locale、namespace 常量与公共 API
 ├── factory.rs      # 全局当前 locale、初始化、切换、快照
 ├── registry.rs     # locale/namespace/key 注册与完整校验

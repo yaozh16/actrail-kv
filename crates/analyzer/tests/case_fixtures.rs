@@ -9,7 +9,7 @@ use actrail_kv_artifacts::{AnalysisResult, DefectFactKind};
 
 fn fixture(name: &str) -> AnalysisResult {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../examples/cases")
+        .join("../../examples/cases")
         .join(format!("{name}.ndjson"));
     analyze_reader(
         BufReader::new(File::open(path).expect("fixture exists")),

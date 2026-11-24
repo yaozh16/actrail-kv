@@ -33,7 +33,7 @@ release 二进制不依赖运行时模板目录。
 ## 代码布局
 
 ```text
-reporter/
+crates/reporter/
 ├── templates/report/
 │   ├── layout.html
 │   ├── styles.css

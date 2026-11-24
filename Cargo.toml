@@ -1,15 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
-    "artifacts",
-    "storage",
-    "receiver",
-    "analyzer",
-    "reporter",
-    "cmd/receiver",
-    "cmd/analyze",
-    "cmd/export",
-    "cmd/report",
+    "crates/artifacts",
+    "crates/storage",
+    "crates/receiver",
+    "crates/analyzer",
+    "crates/reporter",
+    "crates/cmd/receiver",
+    "crates/cmd/analyze",
+    "crates/cmd/export",
+    "crates/cmd/report",
 ]
 
 [workspace.package]
@@ -18,11 +18,11 @@ edition = "2021"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-actrail-kv-artifacts = { path = "artifacts" }
-actrail-kv-storage = { path = "storage" }
-actrail-kv-receiver = { path = "receiver" }
-actrail-kv-analyzer = { path = "analyzer" }
-actrail-kv-reporter = { path = "reporter" }
+actrail-kv-artifacts = { path = "crates/artifacts" }
+actrail-kv-storage = { path = "crates/storage" }
+actrail-kv-receiver = { path = "crates/receiver" }
+actrail-kv-analyzer = { path = "crates/analyzer" }
+actrail-kv-reporter = { path = "crates/reporter" }
 anyhow = "1.0"
 axum = "0.8"
 clap = { version = "4.5", features = ["derive"] }

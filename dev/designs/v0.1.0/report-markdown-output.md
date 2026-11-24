@@ -44,7 +44,7 @@ CLI 的可选 `--format` 映射为 `ReportSelection`。`write_report` 增加可�
 新增目录：
 
 ```text
-reporter/src/markdown_report_renderer/
+crates/reporter/src/markdown_report_renderer/
 ├── mod.rs          # render_markdown 与总章节编排
 ├── format.rs       # GFM 转义、短 ID、百分比、字节和表格辅助
 ├── prefix_reuse.rs # 结构复用率与结构/真实命中对照

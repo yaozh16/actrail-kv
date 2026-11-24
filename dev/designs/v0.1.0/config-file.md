@@ -4,10 +4,10 @@
 ## 模块落点
 
 ```text
-analyzer/src/config.rs          # AnalyzeConfig：17 项分析参数，JSON 读写与校验
-receiver/src/config.rs          # ReceiverConfig：监听地址与请求体上限
-cmd/analyze/src/main.rs         # --config <path>，显式 CLI 参数覆盖文件
-cmd/receiver/src/main.rs        # --config <path>、--listen、--max-payload-bytes
+crates/analyzer/src/config.rs          # AnalyzeConfig：17 项分析参数，JSON 读写与校验
+crates/receiver/src/config.rs          # ReceiverConfig：监听地址与请求体上限
+crates/cmd/analyze/src/main.rs         # --config <path>，显式 CLI 参数覆盖文件
+crates/cmd/receiver/src/main.rs        # --config <path>、--listen、--max-payload-bytes
 docs/configuration.md           # 参数表与 JSON 示例
 ```
 
