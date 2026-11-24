@@ -8,6 +8,7 @@
 **/*.rs.bk
 
 # Local storage configuration and runtime output
+/storage.json
 /sqlite.json
 /ndjson.json
 /captures/

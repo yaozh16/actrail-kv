@@ -47,30 +47,6 @@ pub(crate) fn write_reports(
     write_atomic_set(&rendered)
 }
 
-#[cfg(test)]
-pub(crate) fn write_reports_with_locale(
-    input: &Path,
-    output: &Path,
-    format: Option<ReportFormat>,
-    locale: crate::Locale,
-) -> Result<()> {
-    let snapshot = crate::LocaleSnapshot::new(locale);
-    let targets = report_paths(output, format);
-    for (_, path) in &targets {
-        ensure_distinct_paths(input, path)?;
-    }
-    let result = load_result(input)?;
-    let mut rendered = Vec::with_capacity(targets.len());
-    for (format, path) in targets {
-        let content = match format {
-            ReportFormat::Html => render_html_with_locale(&result, snapshot)?,
-            ReportFormat::Markdown => render_markdown_with_locale(&result, snapshot)?,
-        };
-        rendered.push((path, content.into_bytes()));
-    }
-    write_atomic_set(&rendered)
-}
-
 fn report_paths(output: &Path, format: Option<ReportFormat>) -> Vec<(ReportFormat, PathBuf)> {
     if let Some(format) = format {
         return vec![(format, output.to_path_buf())];
@@ -160,4 +136,5 @@ fn sync_parent(_parent: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/reporter/report_output.rs"]
 mod tests;

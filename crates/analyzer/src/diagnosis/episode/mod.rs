@@ -8,4 +8,5 @@ pub use locator::diagnose_template;
 pub use model::{DefectCandidate, DiagnosisOptions, EpisodeVariant};
 
 #[cfg(test)]
+#[path = "../../../../../tests/unit/analyzer/diagnosis/episode/tests.rs"]
 mod tests;

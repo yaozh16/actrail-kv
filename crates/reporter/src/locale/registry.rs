@@ -92,9 +92,5 @@ pub(super) fn validate_catalogs() -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn all_locales_have_identical_namespace_and_key_sets() {
-        super::validate_catalogs().expect("valid locale catalogs");
-    }
-}
+#[path = "../../../../tests/unit/reporter/locale/registry.rs"]
+mod tests;

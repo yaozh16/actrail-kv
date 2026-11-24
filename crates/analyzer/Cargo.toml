@@ -20,5 +20,25 @@ time.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 
+[[test]]
+name = "acceptance"
+path = "../../tests/integration/analyzer/acceptance/main.rs"
+
+[[test]]
+name = "case_fixtures"
+path = "../../tests/integration/analyzer/case_fixtures.rs"
+
+[[test]]
+name = "files"
+path = "../../tests/integration/analyzer/files.rs"
+
+[[test]]
+name = "properties"
+path = "../../tests/integration/analyzer/properties.rs"
+
+[[test]]
+name = "scale"
+path = "../../tests/integration/analyzer/scale.rs"
+
 [lints]
 workspace = true

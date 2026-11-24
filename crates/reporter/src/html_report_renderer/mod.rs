@@ -5,6 +5,7 @@ mod template;
 mod view;
 
 #[cfg(test)]
+#[path = "../../../../tests/unit/reporter/html_report_renderer/tests.rs"]
 mod tests;
 
 use anyhow::Result;

@@ -15,4 +15,5 @@ pub use sequence::{SymbolicAtom, SymbolicMemberSequence};
 pub(crate) use build::build_symbolic_template;
 
 #[cfg(test)]
+#[path = "../../../../../../tests/unit/analyzer/discovery/template/symbolic/tests.rs"]
 mod tests;

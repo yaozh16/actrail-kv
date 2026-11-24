@@ -13,10 +13,54 @@ use time::{Duration, OffsetDateTime};
 use crate::StorageError;
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "backend", rename_all = "snake_case")]
+#[serde(try_from = "StorageFile")]
 pub enum StorageConfig {
     Sqlite(SqliteConfig),
     Ndjson(NdjsonConfig),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StorageFile {
+    storage: StorageSelection,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StorageSelection {
+    backend: Backend,
+    backends: BackendConfigs,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Backend {
+    Sqlite,
+    Ndjson,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BackendConfigs {
+    sqlite: Option<SqliteConfig>,
+    ndjson: Option<NdjsonConfig>,
+}
+
+impl TryFrom<StorageFile> for StorageConfig {
+    type Error = StorageError;
+
+    fn try_from(file: StorageFile) -> Result<Self, Self::Error> {
+        let StorageSelection { backend, backends } = file.storage;
+        let (config, name) = match backend {
+            Backend::Sqlite => (backends.sqlite.map(Self::Sqlite), "sqlite"),
+            Backend::Ndjson => (backends.ndjson.map(Self::Ndjson), "ndjson"),
+        };
+        config.ok_or_else(|| {
+            StorageError::InvalidConfig(format!(
+                "missing storage.backends.{name} for selected backend"
+            ))
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]

@@ -50,7 +50,7 @@ dev/
 | 用户可操作的参数、默认值、部署设置 | `docs/configuration.md` |
 | 面向新手的稳定业务概念 | `docs/concepts/` |
 | 当前模块依赖、目录或二进制调用关系 | `docs/architectures/` |
-| `crates/` 源码布局与迁移记录 | [源码布局](code-layout.md)和 [Rust workspace 设计索引](../../dev/designs/v0.1.0/workspace-layout.md) |
+| `crates/` 源码布局、根目录 `tests/` 与迁移记录 | [源码布局](code-layout.md)和 [Rust workspace 设计索引](../../dev/designs/v0.1.0/workspace-layout.md) |
 | 某二进制的内部架构 | `docs/architectures/<binary>/` |
 | 跨二进制的不可违反运行/数据约束 | `docs/architectures/constraints.md` |
 | 对外或落盘产物的字段契约 | 产出该产物的二进制目录中的 `output.md` |

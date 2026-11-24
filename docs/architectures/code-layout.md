@@ -48,7 +48,7 @@ actrail-kv/
 │   │
 │   ├── storage/src/                                   # 采集存储接口、后端配置和扫描筛选
 │   │   ├── lib.rs                                     # CaptureStore、CaptureStream 和 StorageError
-│   │   ├── config.rs                                  # 后端配置、保留期和输出位置保护
+│   │   ├── config.rs                                  # 后端选择、专属配置、保留期和输出位置保护
 │   │   ├── filter.rs                                  # session 等值和 UTC 半开区间
 │   │   ├── runtime.rs                                 # 有背压流式扫描与周期清理
 │   │   └── backends/
@@ -73,7 +73,6 @@ actrail-kv/
 │   │   │   │   └── mod.rs
 │   │   │   ├── projection/
 │   │   │   │   ├── projector.rs                      # 投影 tools/messages/content blocks 的模型可见顺序
-│   │   │   │   ├── projector/tests.rs                # 层级、顺序、预算与非上下文字段测试
 │   │   │   │   ├── types.rs                          # CacheSequence、CacheUnit、HierarchyLocation、source
 │   │   │   │   └── mod.rs
 │   │   │   └── mod.rs
@@ -86,7 +85,6 @@ actrail-kv/
 │   │   │   ├── template/
 │   │   │   │   ├── align.rs                          # 有界 unit sequence alignment
 │   │   │   │   ├── extractor.rs                      # stable span、slot、模板坐标与成员映射
-│   │   │   │   ├── extractor/tests.rs                # Unicode、支持率、预算、插入/缺失和置换测试
 │   │   │   │   ├── types.rs                          # RequestTemplate 及抽取结果
 │   │   │   │   ├── symbolic/
 │   │   │   │   │   ├── coordinate.rs                # TemplateCoordinate、逻辑单元 key
@@ -94,7 +92,6 @@ actrail-kv/
 │   │   │   │   │   ├── sequence.rs                  # 一等 SymbolicMemberSequence 与 SymbolicAtom
 │   │   │   │   │   ├── build.rs                     # 从 alignment 构造成员坐标与符号序列
 │   │   │   │   │   ├── identity.rs                  # 不依赖成员/绝对 unit index 的坐标 ID
-│   │   │   │   │   ├── tests.rs                     # 成员顺序与公共 prelude 身份不变量
 │   │   │   │   │   └── mod.rs
 │   │   │   │   └── mod.rs
 │   │   │   └── mod.rs
@@ -104,7 +101,6 @@ actrail-kv/
 │   │   │   │   ├── locator.rs                       # 从全部符号成员定位唯一 P1/X/P2 region
 │   │   │   │   ├── variant.rs                       # 每成员一次的 X 变体和 P2 证据构造
 │   │   │   │   ├── model.rs                         # DiagnosisOptions、DefectCandidate、EpisodeVariant
-│   │   │   │   ├── tests.rs                         # P2 门槛、聚合一次性、等价事实和身份稳定
 │   │   │   │   └── mod.rs
 │   │   │   ├── facts/
 │   │   │   │   ├── content.rs                       # 内容变化和少数固定变体事实
@@ -115,8 +111,7 @@ actrail-kv/
 │   │   │   └── mod.rs
 │   │   │
 │   │   ├── ranking/
-│   │   │   ├── mod.rs                               # 已唯一化 candidate 的评分、稳定全排序、Top K
-│   │   │   └── tests.rs                             # 去重、tie-break 和 Top K 前缀测试
+│   │   │   └── mod.rs                               # 已唯一化 candidate 的评分、稳定全排序、Top K
 │   │   ├── session/
 │   │   │   ├── mod.rs                               # 会话 prefix-switch 与结构复用率模块入口
 │   │   │   ├── lineage.rs                           # 会话时间线、上下文刷新与相邻对分类
@@ -134,7 +129,6 @@ actrail-kv/
 │       │   │   ├── mod.rs                               # Askama 根模板渲染入口
 │       │   │   ├── template.rs                          # 编译期嵌入的 HTML 根模板
 │       │   │   ├── format.rs                            # 字节、短 ID、摘要与位置格式化
-│       │   │   ├── tests.rs                             # HTML 区块、空态、锚点和会话回归
 │       │   │   └── view/                                # HTML 展示模型与各区块数据装配
 │       │   │       ├── mod.rs                           # HtmlReportView 根模型
 │       │   │       ├── defects.rs                       # Top K 与缺陷详情
@@ -170,9 +164,16 @@ actrail-kv/
 │   ├── analyze.config.example.json              # analyze 全字段 JSON 配置示例
 │   └── receiver.config.example.json             # receiver JSON 配置示例
 │
-└── tests/end_to_end/
-    └── three_binaries.sh                        # 真实 receiver→analyze→report、确定性与 XSS 验收
+└── tests/
+    ├── unit/                                    # 按 crate 和模块归档的单元测试
+    ├── integration/                             # 由所属 crate 清单注册的集成测试
+    │   ├── analyzer/                            # 语料回归、验收、属性和规模测试
+    │   └── storage/                             # 后端选择、轮转、筛选和清理
+    └── end_to_end/
+        └── three_binaries.sh                    # 真实 receiver→analyze→report、确定性与 XSS 验收
 ```
+
+单元测试通过 `#[cfg(test)]` 和 `#[path]` 从原模块加载。集成测试通过各 crate 中的 `[[test]]` 注册，支持按所属 package 运行。
 
 ## 核心调用链
 

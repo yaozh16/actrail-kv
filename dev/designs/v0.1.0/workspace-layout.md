@@ -4,4 +4,4 @@
 - [源码与命令目录](../../../docs/architectures/code-layout.md)
 - [目录迁移验收范围](../../requirements/v0.1.0/workspace-layout/target.md)
 
-库路径采用 `crates/<crate>`，命令路径采用 `crates/cmd/<command>`。此布局取代原有的根级 crate 目录。跨命令测试和公共示例以仓库根目录为相对路径起点。
+库路径采用 `crates/<crate>`，命令路径采用 `crates/cmd/<command>`。此布局取代原有的根级 crate 目录。测试源码归档在根目录 `tests/`，集成测试由 package 清单声明，单元测试通过受 `cfg(test)` 控制的模块入口加载。此约定取代 crate 内的测试源码目录。跨命令测试和公共示例以仓库根目录为相对路径起点。

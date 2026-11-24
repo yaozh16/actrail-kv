@@ -61,20 +61,8 @@ pub mod namespace {
 }
 
 #[cfg(test)]
-pub(crate) static LOCALE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) use self::tests::LOCALE_TEST_LOCK;
 
 #[cfg(test)]
-mod tests {
-    use super::Locale;
-
-    #[test]
-    fn parses_canonical_and_alias_locale_names() {
-        for value in ["zh-CN", "zh_cn", "ZH-cn", "zh"] {
-            assert_eq!(Locale::parse(value), Some(Locale::ZhCn));
-        }
-        for value in ["en-US", "en_us", "EN-us", "en"] {
-            assert_eq!(Locale::parse(value), Some(Locale::EnUs));
-        }
-        assert_eq!(Locale::parse("fr-FR"), None);
-    }
-}
+#[path = "../../../../tests/unit/reporter/locale/tests.rs"]
+mod tests;

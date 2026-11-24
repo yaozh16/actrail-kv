@@ -96,4 +96,5 @@ fn candidate_order(left: &DefectCandidate, right: &DefectCandidate) -> std::cmp:
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/unit/analyzer/ranking/tests.rs"]
 mod tests;

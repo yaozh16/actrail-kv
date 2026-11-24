@@ -85,37 +85,35 @@ analyze 的全部算法阈值与资源预算均可通过 `--config` 的 JSON 覆
 
 ## 采集存储
 
-Receiver、Analyzer 与 Export 可以读取同一份 `--storage-config` 配置。存储路径相对于配置文件所在目录解析。
-
-SQLite 配置可保存为 `sqlite.json`。
+Receiver、Analyzer 与 Export 通过 `--storage-config storage.json` 读取同一份配置。`storage.backend` 选择后端，`storage.backends` 保存各后端的参数。存储路径相对于配置文件所在目录解析。
 
 ```json
 {
-  "backend": "sqlite",
-  "path": "captures.sqlite"
+  "storage": {
+    "backend": "sqlite",
+    "backends": {
+      "sqlite": {
+        "path": "captures.sqlite"
+      },
+      "ndjson": {
+        "directory": "captures",
+        "segment_seconds": 3600,
+        "max_segment_bytes": 67108864
+      }
+    }
+  }
 }
 ```
 
-NDJSON 配置可保存为 `ndjson.json`。
+切换到 NDJSON 时，将 `storage.backend` 改为 `ndjson` 并重启 Receiver。`storage.backends.ndjson` 下的 `segment_seconds` 和 `max_segment_bytes` 可以省略，默认值如上。托管后端自行创建 NDJSON 目录，按 UTC 时间窗口及大小轮转。单条记录大于大小上限时独占一个分片。
 
-```json
-{
-  "backend": "ndjson",
-  "directory": "captures",
-  "segment_seconds": 3600,
-  "max_segment_bytes": 67108864
-}
-```
-
-`segment_seconds` 和 `max_segment_bytes` 可省略，默认值如上。托管后端自行创建 NDJSON 目录，按 UTC 时间窗口及大小轮转。单条记录大于大小上限时独占一个分片。应用通过存储配置读取所有分片。
-
-两个后端都可额外设置 `"retention": { "max_age_seconds": 604800, "cleanup_interval_seconds": 60 }`。`max_age_seconds` 是记录按采集时间计算的最长可读时间。读者立即排除已到期记录，写入端也拒绝已到期的记录。Receiver 按周期执行清理，默认每 60 秒检查。SQLite 分批删除到期记录，NDJSON 在分片整个时间窗口到期后删除文件。省略 `retention` 时保留全量。
+可在 `storage.backends.sqlite.retention` 和 `storage.backends.ndjson.retention` 分别设置保留期，例如 `{ "max_age_seconds": 604800, "cleanup_interval_seconds": 60 }`。`max_age_seconds` 是记录按采集时间计算的最长可读时间。读者立即排除已到期记录，写入端也拒绝已到期的记录。Receiver 按周期执行清理，默认每 60 秒检查。SQLite 分批删除到期记录，NDJSON 在分片整个时间窗口到期后删除文件。省略 `retention` 时保留全量。
 
 ```bash
-actrail-kv-receiver --storage-config sqlite.json
-actrail-kv-analyze --storage-config sqlite.json --output analysis.json \
+actrail-kv-receiver --storage-config storage.json
+actrail-kv-analyze --storage-config storage.json --output analysis.json \
   --session-key session-a --from 2026-11-23 --until 2026-11-24
-actrail-kv-export --storage-config sqlite.json --output exported.ndjson \
+actrail-kv-export --storage-config storage.json --output exported.ndjson \
   --session-key session-a --from 2026-11-23 --until 2026-11-24
 ```
 

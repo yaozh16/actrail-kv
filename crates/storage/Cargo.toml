@@ -20,5 +20,9 @@ tokio.workspace = true
 [target.'cfg(not(unix))'.dependencies]
 same-file.workspace = true
 
+[[test]]
+name = "backends"
+path = "../../tests/integration/storage/backends.rs"
+
 [lints]
 workspace = true

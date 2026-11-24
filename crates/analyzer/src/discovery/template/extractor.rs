@@ -485,4 +485,5 @@ fn template_id(cohort: &CandidateCohort) -> String {
 }
 
 #[cfg(test)]
+#[path = "../../../../../tests/unit/analyzer/discovery/template/extractor.rs"]
 mod tests;

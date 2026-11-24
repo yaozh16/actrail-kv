@@ -10,4 +10,4 @@
 
 ## 测试
 
-`crates/analyzer/tests/case_fixtures.rs` 用放开对齐预算的 `AnalysisOptions` 读取 fixture，按 fixture 断言模板缺陷事实或会话证据存在；语料同时作为 examples 供手动复现。
+`tests/integration/analyzer/case_fixtures.rs` 用放开对齐预算的 `AnalysisOptions` 读取 fixture，按 fixture 断言模板缺陷事实或会话证据存在；语料同时作为 examples 供手动复现。

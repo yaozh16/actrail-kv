@@ -1,4 +1,4 @@
-//! 验证两种存储的筛选、快照、保留期及 NDJSON 轮转恢复。
+//! 验证后端选择、筛选、快照、保留期及 NDJSON 轮转恢复。
 
 use std::{
     fs,
@@ -12,6 +12,65 @@ use actrail_kv_storage::{open_store, CaptureFilter, StorageConfig, StorageError,
 use futures_util::TryStreamExt;
 use serde_json::{json, Value};
 use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
+
+#[test]
+fn switches_backend_and_retention_by_changing_only_the_selector() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("storage.json");
+    let mut document = json!({
+        "storage": {
+            "backend": "sqlite",
+            "backends": {
+                "sqlite": {
+                    "path": "captures.sqlite",
+                    "retention": {"max_age_seconds": 86400}
+                },
+                "ndjson": {
+                    "directory": "segments",
+                    "retention": {"max_age_seconds": 604800}
+                }
+            }
+        }
+    });
+    fs::write(&path, document.to_string()).unwrap();
+    let StorageConfig::Sqlite(sqlite) = StorageConfig::from_file(&path).unwrap() else {
+        panic!("expected SQLite");
+    };
+    assert_eq!(sqlite.path, directory.path().join("captures.sqlite"));
+    assert_eq!(sqlite.retention.unwrap().max_age_seconds.get(), 86400);
+
+    document["storage"]["backend"] = json!("ndjson");
+    fs::write(&path, document.to_string()).unwrap();
+    let StorageConfig::Ndjson(ndjson) = StorageConfig::from_file(&path).unwrap() else {
+        panic!("expected NDJSON");
+    };
+    assert_eq!(ndjson.directory, directory.path().join("segments"));
+    assert_eq!(ndjson.retention.unwrap().max_age_seconds.get(), 604800);
+}
+
+#[test]
+fn rejects_backend_settings_outside_the_selected_backend_node() {
+    let missing = serde_json::from_value::<StorageConfig>(json!({
+        "storage": {
+            "backend": "sqlite",
+            "backends": {"ndjson": {"directory": "segments"}}
+        }
+    }))
+    .unwrap_err();
+    assert!(missing
+        .to_string()
+        .contains("missing storage.backends.sqlite"));
+
+    let flat = serde_json::from_value::<StorageConfig>(json!({
+        "storage": {
+            "backend": "sqlite",
+            "path": "captures.sqlite",
+            "backends": {"sqlite": {"path": "captures.sqlite"}}
+        }
+    }))
+    .unwrap_err();
+    assert!(flat.to_string().contains("unknown field `path`"));
+}
 
 #[tokio::test]
 async fn both_backends_filter_a_bounded_live_snapshot() {
@@ -208,16 +267,17 @@ fn configure(
 ) -> StorageConfig {
     let mut config = match backend {
         "ndjson" => {
-            json!({"backend": "ndjson", "directory": "segments", "segment_seconds": period, "max_segment_bytes": size})
+            json!({"directory": "segments", "segment_seconds": period, "max_segment_bytes": size})
         }
-        "sqlite" => json!({"backend": "sqlite", "path": "captures.sqlite"}),
+        "sqlite" => json!({"path": "captures.sqlite"}),
         _ => unreachable!(),
     };
     if let Some(retention) = retention {
         config["retention"] = retention;
     }
     let path = directory.join("storage.json");
-    fs::write(&path, config.to_string()).unwrap();
+    let document = json!({"storage": {"backend": backend, "backends": {(backend): config}}});
+    fs::write(&path, document.to_string()).unwrap();
     StorageConfig::from_file(path).unwrap()
 }
 

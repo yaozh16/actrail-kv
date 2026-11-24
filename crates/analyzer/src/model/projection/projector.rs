@@ -388,4 +388,5 @@ fn canonical_object(object: &Map<String, Value>) -> String {
 }
 
 #[cfg(test)]
+#[path = "../../../../../tests/unit/analyzer/model/projection/projector.rs"]
 mod tests;
