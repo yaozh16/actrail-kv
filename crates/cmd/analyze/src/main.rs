@@ -1,12 +1,16 @@
 //! 本文件提供 actrail-kv-analyze 的离线 CLI 入口：JSON 配置文件 + 显式参数覆盖。
 
+mod selection;
+
 use std::path::PathBuf;
 
 use actrail_kv_analyzer::config::AnalyzeConfig;
-use actrail_kv_analyzer::run::{analyze_captures, analyze_file};
-use actrail_kv_storage::{open_store, CaptureFilter, StorageConfig, StoreAccess};
+use actrail_kv_analyzer::run::{analyze_captures_with_selection, analyze_file_with_selection};
+use actrail_kv_storage::{open_store, StorageConfig, StoreAccess};
 use anyhow::{Context, Result};
 use clap::Parser;
+
+use selection::SelectionArgs;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -22,12 +26,8 @@ struct Cli {
     input: Option<PathBuf>,
     #[arg(long)]
     storage_config: Option<PathBuf>,
-    #[arg(long, requires = "storage_config")]
-    session_key: Option<String>,
-    #[arg(long, requires = "storage_config")]
-    from: Option<String>,
-    #[arg(long, requires = "storage_config")]
-    until: Option<String>,
+    #[command(flatten)]
+    selection: SelectionArgs,
     #[arg(long)]
     output: PathBuf,
     #[arg(long)]
@@ -77,17 +77,22 @@ async fn main() -> Result<()> {
         config.comparison_window_seconds = window;
     }
     let options = config.into_options()?;
+    let (selection, scan_filter) = cli.selection.into_filters()?;
     if let Some(path) = cli.storage_config {
-        let filter =
-            CaptureFilter::parse(cli.session_key, cli.from.as_deref(), cli.until.as_deref())?;
         let storage = StorageConfig::from_file(&path)
             .with_context(|| format!("failed to load storage config {}", path.display()))?;
         storage.validate_output(&path, &cli.output)?;
         let store = open_store(storage, StoreAccess::ReadOnly).await?;
-        analyze_captures(store.scan(filter).await?, &cli.output, options).await?;
+        analyze_captures_with_selection(
+            store.scan(scan_filter).await?,
+            &cli.output,
+            options,
+            &selection,
+        )
+        .await?;
     } else {
         let input = cli.input.context("missing analysis input")?;
-        analyze_file(&input, &cli.output, options)?;
+        analyze_file_with_selection(&input, &cli.output, options, &selection)?;
     }
     Ok(())
 }

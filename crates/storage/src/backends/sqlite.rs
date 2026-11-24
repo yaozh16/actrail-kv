@@ -32,6 +32,7 @@ pub(super) struct SqliteStore {
     path: PathBuf,
     writer: Option<Arc<Mutex<Connection>>>,
     retention: Option<RetentionConfig>,
+    delete_batch_size: u32,
 }
 
 impl SqliteStore {
@@ -83,6 +84,7 @@ impl SqliteStore {
             path: config.path,
             writer,
             retention: config.retention,
+            delete_batch_size: config.delete_batch_size.get(),
         };
         if access == StoreAccess::ReadWrite {
             store.prune()?;
@@ -96,15 +98,14 @@ impl SqliteStore {
         };
         let writer = self.writer.as_ref().ok_or(StorageError::ReadOnly)?;
         let cutoff = time_key(config.cutoff())?;
-        const BATCH: u32 = 256;
         loop {
             let count = lock_writer(writer)?.execute(
                 "DELETE FROM captures WHERE id IN (
                     SELECT id FROM captures WHERE captured_at < ? ORDER BY captured_at LIMIT ?
                 )",
-                params![cutoff, BATCH],
+                params![cutoff, self.delete_batch_size],
             )?;
-            if count < BATCH as usize {
+            if count < self.delete_batch_size as usize {
                 return Ok(());
             }
         }

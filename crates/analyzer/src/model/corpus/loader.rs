@@ -11,7 +11,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::{
-    CaptureComparison, CorpusLoadResult, CorpusRecord, CorpusSkip, CorpusSkipReason, ResponseUsage,
+    selection::SelectionCollector, CaptureComparison, CorpusLoadResult, CorpusRecord, CorpusSkip,
+    CorpusSkipReason, ReportSelection, ResponseUsage,
 };
 
 #[derive(Clone, Debug)]
@@ -90,6 +91,67 @@ impl CorpusLoader {
         }
         Ok(loaded.result)
     }
+
+    pub(crate) fn load_selected<R: BufRead>(
+        &self,
+        reader: R,
+        selection: &ReportSelection,
+    ) -> anyhow::Result<CorpusLoadResult> {
+        let mut loaded = CorpusAccumulator::new(&self.limits);
+        let mut selected = SelectionCollector::new(self.limits.max_records);
+        for (position, line) in reader.split(b'\n').enumerate() {
+            let input_line = position + 1;
+            let line = line.map_err(|source| CorpusReadError { input_line, source })?;
+            let Ok(document) = decode_record(&line) else {
+                continue;
+            };
+            let Some(matched) = selection.matches(
+                document.get("session_key").and_then(Value::as_str),
+                document.get("captured_at").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            if let Some((bytes, document)) =
+                selected.accept(matched, input_line, (line.len(), document))?
+            {
+                loaded.push_with(bytes, input_line, || Ok(document));
+            }
+        }
+        for (input_line, (bytes, document)) in selected.into_latest() {
+            loaded.push_with(bytes, input_line, || Ok(document));
+        }
+        Ok(loaded.result)
+    }
+
+    pub(crate) async fn load_selected_captures<S, E>(
+        &self,
+        records: S,
+        selection: &ReportSelection,
+    ) -> anyhow::Result<CorpusLoadResult>
+    where
+        S: Stream<Item = Result<CapturedRequest, E>>,
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        let mut loaded = CorpusAccumulator::new(&self.limits);
+        let mut selected = SelectionCollector::new(self.limits.max_records);
+        let mut records = std::pin::pin!(records.enumerate());
+        while let Some((position, record)) = records.next().await {
+            let record = record?;
+            let input_line = position + 1;
+            let Some(matched) =
+                selection.matches(record.session_key.as_deref(), Some(&record.captured_at))
+            else {
+                continue;
+            };
+            if let Some(record) = selected.accept(matched, input_line, record)? {
+                loaded.push(&serde_json::to_vec(&record)?, input_line);
+            }
+        }
+        for (input_line, record) in selected.into_latest() {
+            loaded.push(&serde_json::to_vec(&record)?, input_line);
+        }
+        Ok(loaded.result)
+    }
 }
 
 struct CorpusAccumulator<'a> {
@@ -108,11 +170,25 @@ impl<'a> CorpusAccumulator<'a> {
     }
 
     fn push(&mut self, line: &[u8], input_line: usize) {
-        let reason = if line.iter().all(u8::is_ascii_whitespace) {
-            CorpusSkipReason::EmptyLine
-        } else if line.len() > self.limits.max_record_bytes {
+        if line.iter().all(u8::is_ascii_whitespace) {
+            self.result.skipped.push(CorpusSkip {
+                input_line,
+                reason: CorpusSkipReason::EmptyLine,
+            });
+            return;
+        }
+        self.push_with(line.len(), input_line, || decode_record(line));
+    }
+
+    fn push_with(
+        &mut self,
+        bytes: usize,
+        input_line: usize,
+        decode: impl FnOnce() -> Result<Value, CorpusSkipReason>,
+    ) {
+        let reason = if bytes > self.limits.max_record_bytes {
             CorpusSkipReason::RecordTooLarge {
-                bytes: line.len(),
+                bytes,
                 limit: self.limits.max_record_bytes,
             }
         } else if self.result.corpus.records.len() >= self.limits.max_records {
@@ -120,7 +196,7 @@ impl<'a> CorpusAccumulator<'a> {
                 limit: self.limits.max_records,
             }
         } else {
-            match parse_record(line, input_line) {
+            match decode().and_then(|document| parse_record(document, input_line)) {
                 Ok(mut record) => {
                     let occurrence = self.occurrences.entry(record.id.clone()).or_default();
                     record.id = format!("{}:{occurrence}", record.id);
@@ -135,9 +211,11 @@ impl<'a> CorpusAccumulator<'a> {
     }
 }
 
-fn parse_record(line: &[u8], input_line: usize) -> Result<CorpusRecord, CorpusSkipReason> {
-    let record: Value = serde_json::from_slice(line)
-        .map_err(|error| CorpusSkipReason::InvalidJson(error.to_string()))?;
+fn decode_record(line: &[u8]) -> Result<Value, CorpusSkipReason> {
+    serde_json::from_slice(line).map_err(|error| CorpusSkipReason::InvalidJson(error.to_string()))
+}
+
+fn parse_record(record: Value, input_line: usize) -> Result<CorpusRecord, CorpusSkipReason> {
     let object = record
         .as_object()
         .ok_or(CorpusSkipReason::RecordNotObject)?;

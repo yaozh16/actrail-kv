@@ -18,7 +18,7 @@ pub struct CorpusRecord {
     pub session_key: Option<String>,
     pub comparison: CaptureComparison,
     pub payload: Value,
-    /// agent-cassette 直推时附带的响应 usage（prompt/缓存命中/输出 token）。
+    /// 采集方上报的响应 usage（prompt/缓存命中/输出 token）。
     pub response_usage: Option<ResponseUsage>,
     pub input_line: usize,
 }

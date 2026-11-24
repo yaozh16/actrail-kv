@@ -1,7 +1,7 @@
 <!-- 本文件描述 actrail-kv 与外部采集组件的部署和数据交互关系。 -->
 # 部署交互视图
 
-`actrail-kv` 不限定请求必须由哪一种组件采集。上游只要能够导出完整的 LLM 请求，并转换成 Receiver 接受的 HTTP JSON，就可以接入。下图同时展示了 Actrail 插件链路和网关、Hook 等通用链路；它们是可选入口，不要求同时部署。
+观测组件、代理网关和其他数据供给方可以独立接入。它们负责将完整的 LLM 请求转换成 [Receiver HTTP 协议](receiver/input.md)。本仓库提供[自身的部署和接收验证步骤](../deployment/fullchain-deployment-guide.md)，供给方的配置按各自项目文档执行。
 
 ![actrail-kv 部署交互视图](assets/deployment-view.png)
 

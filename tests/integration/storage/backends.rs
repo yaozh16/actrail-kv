@@ -20,14 +20,15 @@ fn switches_backend_and_retention_by_changing_only_the_selector() {
     let mut document = json!({
         "storage": {
             "backend": "sqlite",
+            "retention": {"max_age_seconds": 604800},
             "backends": {
                 "sqlite": {
                     "path": "captures.sqlite",
-                    "retention": {"max_age_seconds": 86400}
+                    "retention": {"max_age_seconds": 86400, "delete_batch_size": 128}
                 },
                 "ndjson": {
                     "directory": "segments",
-                    "retention": {"max_age_seconds": 604800}
+                    "retention": {"cleanup_interval_seconds": 30, "max_segments_per_cleanup": 3}
                 }
             }
         }
@@ -38,6 +39,7 @@ fn switches_backend_and_retention_by_changing_only_the_selector() {
     };
     assert_eq!(sqlite.path, directory.path().join("captures.sqlite"));
     assert_eq!(sqlite.retention.unwrap().max_age_seconds.get(), 86400);
+    assert_eq!(sqlite.delete_batch_size.get(), 128);
 
     document["storage"]["backend"] = json!("ndjson");
     fs::write(&path, document.to_string()).unwrap();
@@ -46,6 +48,63 @@ fn switches_backend_and_retention_by_changing_only_the_selector() {
     };
     assert_eq!(ndjson.directory, directory.path().join("segments"));
     assert_eq!(ndjson.retention.unwrap().max_age_seconds.get(), 604800);
+    assert_eq!(ndjson.retention.unwrap().cleanup_interval_seconds.get(), 30);
+    assert_eq!(ndjson.max_segments_per_cleanup.unwrap().get(), 3);
+}
+
+#[test]
+fn retention_execution_options_belong_to_their_backend() {
+    let mut document = json!({"storage": {
+        "backend": "sqlite",
+        "retention": {"max_age_seconds": 60, "cleanup_interval_seconds": 1},
+        "backends": {"sqlite": {"path": "captures.sqlite"}}
+    }});
+    assert!(serde_json::from_value::<StorageConfig>(document.clone())
+        .unwrap_err()
+        .to_string()
+        .contains("unknown field `cleanup_interval_seconds`"));
+    document["storage"]["retention"] = json!({"max_age_seconds": 60});
+    document["storage"]["backends"]["sqlite"]["retention"] = json!({"max_segments_per_cleanup": 1});
+    assert!(serde_json::from_value::<StorageConfig>(document)
+        .unwrap_err()
+        .to_string()
+        .contains("unknown field `max_segments_per_cleanup`"));
+}
+
+#[tokio::test]
+async fn ndjson_inherits_the_default_age_and_limits_files_removed_per_cleanup() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = configure(directory.path(), "ndjson", 1, 4096, None);
+    let writer = open_store(config, StoreAccess::ReadWrite).await.unwrap();
+    for days in [3, 2, 1] {
+        let timestamp = (OffsetDateTime::now_utc() - Duration::days(days))
+            .format(&Rfc3339)
+            .unwrap();
+        writer
+            .append(request("expired", &timestamp, "a", 0))
+            .await
+            .unwrap();
+    }
+    drop(writer);
+    assert_eq!(segments(directory.path()).len(), 3);
+
+    let path = directory.path().join("storage.json");
+    let mut document: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    document["storage"]["retention"] = json!({"max_age_seconds": 60});
+    document["storage"]["backends"]["ndjson"]["retention"] =
+        json!({"cleanup_interval_seconds": 3600, "max_segments_per_cleanup": 1});
+    fs::write(&path, document.to_string()).unwrap();
+    let config = StorageConfig::from_file(path).unwrap();
+    let writer = open_store(config, StoreAccess::ReadWrite).await.unwrap();
+    assert_eq!(segments(directory.path()).len(), 2);
+    assert!(writer
+        .scan(CaptureFilter::default())
+        .await
+        .unwrap()
+        .try_collect::<Vec<_>>()
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

@@ -46,11 +46,26 @@ actrail-kv-analyze \
 |---|---:|---|
 | `--input` | 与 `--storage-config` 二选一 | 兼容模式的 NDJSON 语料文件。 |
 | `--storage-config` | 与 `--input` 二选一 | 采集存储配置文件路径。 |
-| `--session-key`、`--from`、`--until` | 无 | 托管存储的筛选参数，见[采集存储](#采集存储)。 |
+| `--session-key <key>` | 所有 session | 可重复传入，精确匹配任一指定的 session ID。 |
+| `--time-range <FROM..UNTIL>` | 所有时间 | 可重复传入，取各时间段的并集。 |
+| `--from`、`--until` | 对应方向无界 | 指定一个时间段，可只给一侧。与 `--time-range` 二选一。 |
+| `--last-n <N>` | 所有匹配记录 | 在 session 和时间条件匹配后，保留采集时间最新的 N 条记录。 |
 | `--output` | 无，必填 | 分析 JSON 的目标路径，必须位于采集存储之外。 |
 | `--config` | 无 | 可选 JSON 配置；显式 CLI 参数覆盖文件。 |
 | `--top-k` | `20` | 最终报告保留的聚合 defect 数，必须大于零。 |
 | `--comparison-window-seconds` | `3600` | 固定 UTC 时间窗口宽度；只有同一窗口内的请求才相互比较。 |
+
+下面的命令将指定 session 和时间段内最新的 100 条记录送入分析，再生成报告。筛选可用于 `--storage-config` 或 `--input`。
+
+```bash
+actrail-kv-analyze --storage-config storage.json --output analysis.json \
+  --session-key session-a --session-key session-b \
+  --time-range 2026-11-20..2026-11-21 --time-range 2026-11-23..2026-11-25 \
+  --last-n 100
+actrail-kv-report --input ./analysis.json --output ./report.html
+```
+
+时间段包含起点并排除终点。时间边界支持 `YYYY-MM-DD`（UTC 午夜）和 RFC 3339 时间戳。省略 `--session-key`、时间段或 `--last-n` 时，各自匹配所有 session、所有时间或全部匹配记录。
 
 ### JSON 配置参数
 
@@ -91,14 +106,25 @@ Receiver、Analyzer 与 Export 通过 `--storage-config storage.json` 读取同�
 {
   "storage": {
     "backend": "sqlite",
+    "retention": {
+      "max_age_seconds": 604800
+    },
     "backends": {
       "sqlite": {
-        "path": "captures.sqlite"
+        "path": "captures.sqlite",
+        "retention": {
+          "max_age_seconds": 1209600,
+          "delete_batch_size": 256
+        }
       },
       "ndjson": {
         "directory": "captures",
         "segment_seconds": 3600,
-        "max_segment_bytes": 67108864
+        "max_segment_bytes": 67108864,
+        "retention": {
+          "cleanup_interval_seconds": 60,
+          "max_segments_per_cleanup": 128
+        }
       }
     }
   }
@@ -107,17 +133,17 @@ Receiver、Analyzer 与 Export 通过 `--storage-config storage.json` 读取同�
 
 切换到 NDJSON 时，将 `storage.backend` 改为 `ndjson` 并重启 Receiver。`storage.backends.ndjson` 下的 `segment_seconds` 和 `max_segment_bytes` 可以省略，默认值如上。托管后端自行创建 NDJSON 目录，按 UTC 时间窗口及大小轮转。单条记录大于大小上限时独占一个分片。
 
-可在 `storage.backends.sqlite.retention` 和 `storage.backends.ndjson.retention` 分别设置保留期，例如 `{ "max_age_seconds": 604800, "cleanup_interval_seconds": 60 }`。`max_age_seconds` 是记录按采集时间计算的最长可读时间。读者立即排除已到期记录，写入端也拒绝已到期的记录。Receiver 按周期执行清理，默认每 60 秒检查。SQLite 分批删除到期记录，NDJSON 在分片整个时间窗口到期后删除文件。省略 `retention` 时保留全量。
+`storage.retention.max_age_seconds` 定义公共的默认保留期限。每个后端可通过自己的 `retention.max_age_seconds` 覆盖。上例中 SQLite 保留 14 天，NDJSON 继承外层的 7 天。两层都省略期限时保留全量。
+
+执行参数属于各后端的 `retention`。`cleanup_interval_seconds` 设置该后端的清理周期，默认 60 秒。SQLite 的 `delete_batch_size` 设置每批删除的行数，默认 256。NDJSON 的 `max_segments_per_cleanup` 限制每次检查回收的分片数，省略时回收全部到期分片。NDJSON 在分片的整个时间窗口到期后回收文件。两种后端的新读操作都会立即排除已到期的记录，写入端也会拒绝已到期的记录。
 
 ```bash
 actrail-kv-receiver --storage-config storage.json
-actrail-kv-analyze --storage-config storage.json --output analysis.json \
-  --session-key session-a --from 2026-11-23 --until 2026-11-24
 actrail-kv-export --storage-config storage.json --output exported.ndjson \
   --session-key session-a --from 2026-11-23 --until 2026-11-24
 ```
 
-`--session-key` 精确匹配现有采集记录的 session ID。`--from` 包含起点，`--until` 排除终点。两者支持 `YYYY-MM-DD`（UTC 午夜）或 RFC 3339 时间戳。筛选条件可独立使用，也可组合。Export 以 `--output` 指定的路径发布标准 NDJSON，可交给原有 `--input` 入口分析。
+Export 以 `--output` 指定的路径发布标准 NDJSON，可交给 `--input` 分析。Export 支持单个 `--session-key` 与单个 `--from`、`--until` 时间段。
 
 托管存储的 Analyzer 在扫描超过 `max_records` 时结束并报错。旧文件入口沿用既有的跳过记录报告。
 

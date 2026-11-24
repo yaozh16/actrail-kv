@@ -23,7 +23,7 @@ use crate::{
         template::{RequestTemplate, TemplateExtractor, TemplateOptions},
     },
     model::{
-        corpus::{CorpusLoadLimits, CorpusLoadResult, CorpusLoader, CorpusSkip},
+        corpus::{CorpusLoadLimits, CorpusLoadResult, CorpusLoader, CorpusSkip, ReportSelection},
         projection::{ProjectionLimits, ProjectionSkip, RequestProjector},
     },
     ranking::rank_defects,
@@ -37,10 +37,28 @@ pub fn analyze_file(
     output: &Path,
     options: AnalysisOptions,
 ) -> Result<AnalysisResult> {
+    analyze_file_with_selection(input, output, options, &ReportSelection::default())
+}
+
+pub fn analyze_file_with_selection(
+    input: &Path,
+    output: &Path,
+    options: AnalysisOptions,
+    selection: &ReportSelection,
+) -> Result<AnalysisResult> {
     ensure_distinct_paths(input, output)?;
     let file = File::open(input)
         .with_context(|| format!("failed to open captured requests {}", input.display()))?;
-    let result = analyze_reader(BufReader::new(file), options)?;
+    let reader = BufReader::new(file);
+    let result = if selection.is_all() {
+        analyze_reader(reader, options)?
+    } else {
+        options.validate()?;
+        let loaded = corpus_loader(&options)
+            .load_selected(reader, selection)
+            .context("failed to select captured requests")?;
+        analyze_loaded(loaded, options)?
+    };
     write_atomic_json(output, &result)?;
     Ok(result)
 }
@@ -62,11 +80,27 @@ where
     S: Stream<Item = Result<CapturedRequest, E>>,
     E: std::error::Error + Send + Sync + 'static,
 {
+    analyze_captures_with_selection(records, output, options, &ReportSelection::default()).await
+}
+
+pub async fn analyze_captures_with_selection<S, E>(
+    records: S,
+    output: &Path,
+    options: AnalysisOptions,
+    selection: &ReportSelection,
+) -> Result<AnalysisResult>
+where
+    S: Stream<Item = Result<CapturedRequest, E>>,
+    E: std::error::Error + Send + Sync + 'static,
+{
     options.validate()?;
-    let loaded = corpus_loader(&options)
-        .load_captures(records)
-        .await
-        .context("failed to scan captured requests")?;
+    let loader = corpus_loader(&options);
+    let loaded = if selection.is_all() {
+        loader.load_captures(records).await
+    } else {
+        loader.load_selected_captures(records, selection).await
+    }
+    .context("failed to scan captured requests")?;
     let result = analyze_loaded(loaded, options)?;
     write_atomic_json(output, &result)?;
     Ok(result)

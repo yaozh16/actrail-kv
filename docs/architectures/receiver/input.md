@@ -10,7 +10,7 @@
 | Body | 一个完整 JSON object，即采集方实际发往模型 API 的 request payload。 |
 | 最大 body | `8 MiB` |
 
-请求可来自网关、插桩组件或 Agent hook；receiver 不要求采集方类型，也不解析业务字段。
+观测组件、代理网关和其他供给方各自把采集结果转换成上述 HTTP 请求。Receiver 按统一协议接收，供给方可以通过 `X-Actrail-Source` 标注来源。
 
 | 请求字段/头 | 类型 | 含义 |
 |---|---|---|

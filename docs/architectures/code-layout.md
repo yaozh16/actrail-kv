@@ -27,7 +27,9 @@ actrail-kv/
 ├── crates/                                         # Rust 库及命令 crate
 │   ├── cmd/                                           # 二进制入口；只解析 CLI 并调用对应 library
 │   │   ├── receiver/src/main.rs                       # 启动 HTTP receiver
-│   │   ├── analyze/src/main.rs                        # 执行离线分析；载入 JSON 配置，CLI 覆盖 Top K/时间窗口
+│   │   ├── analyze/src/
+│   │   │   ├── main.rs                               # 执行离线分析并解析运行配置
+│   │   │   └── selection.rs                          # 解析报告筛选条件与存储扫描范围
 │   │   ├── export/src/main.rs                         # 扫描已配置存储并导出 NDJSON
 │   │   └── report/src/main.rs                         # 将 analysis.json 渲染为 HTML
 │   │
@@ -69,6 +71,7 @@ actrail-kv/
 │   │   │   │   └── mod.rs
 │   │   │   ├── corpus/
 │   │   │   │   ├── loader.rs                         # 有界读取 NDJSON、坏记录 skip、稳定请求 ID
+│   │   │   │   ├── selection.rs                      # session、时间并集和最近记录选择
 │   │   │   │   ├── types.rs                          # CorpusRecord、CaptureComparison、skip 类型
 │   │   │   │   └── mod.rs
 │   │   │   ├── projection/

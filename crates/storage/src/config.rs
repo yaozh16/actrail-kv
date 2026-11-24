@@ -29,7 +29,14 @@ struct StorageFile {
 #[serde(deny_unknown_fields)]
 struct StorageSelection {
     backend: Backend,
+    retention: Option<SharedRetention>,
     backends: BackendConfigs,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SharedRetention {
+    max_age_seconds: NonZeroU32,
 }
 
 #[derive(Deserialize)]
@@ -42,43 +49,119 @@ enum Backend {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BackendConfigs {
-    sqlite: Option<SqliteConfig>,
-    ndjson: Option<NdjsonConfig>,
+    sqlite: Option<SqliteFile>,
+    ndjson: Option<NdjsonFile>,
 }
 
 impl TryFrom<StorageFile> for StorageConfig {
     type Error = StorageError;
 
     fn try_from(file: StorageFile) -> Result<Self, Self::Error> {
-        let StorageSelection { backend, backends } = file.storage;
-        let (config, name) = match backend {
-            Backend::Sqlite => (backends.sqlite.map(Self::Sqlite), "sqlite"),
-            Backend::Ndjson => (backends.ndjson.map(Self::Ndjson), "ndjson"),
-        };
-        config.ok_or_else(|| {
-            StorageError::InvalidConfig(format!(
-                "missing storage.backends.{name} for selected backend"
-            ))
-        })
+        let StorageSelection {
+            backend,
+            retention,
+            backends,
+        } = file.storage;
+        let default_age = retention.map(|retention| retention.max_age_seconds);
+        match backend {
+            Backend::Sqlite => backends
+                .sqlite
+                .map(|file| Self::Sqlite(file.resolve(default_age)))
+                .ok_or_else(|| missing_backend("sqlite")),
+            Backend::Ndjson => backends
+                .ndjson
+                .map(|file| Self::Ndjson(file.resolve(default_age)))
+                .ok_or_else(|| missing_backend("ndjson")),
+        }
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+fn missing_backend(name: &str) -> StorageError {
+    StorageError::InvalidConfig(format!(
+        "missing storage.backends.{name} for selected backend"
+    ))
+}
+
+#[derive(Clone, Debug)]
 pub struct SqliteConfig {
     pub path: PathBuf,
     pub retention: Option<RetentionConfig>,
+    pub delete_batch_size: NonZeroU32,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SqliteFile {
+    path: PathBuf,
+    retention: Option<SqliteRetention>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SqliteRetention {
+    max_age_seconds: Option<NonZeroU32>,
+    cleanup_interval_seconds: Option<NonZeroU32>,
+    delete_batch_size: Option<NonZeroU32>,
+}
+
+impl SqliteFile {
+    fn resolve(self, default_age: Option<NonZeroU32>) -> SqliteConfig {
+        let settings = self.retention.unwrap_or_default();
+        SqliteConfig {
+            path: self.path,
+            retention: RetentionConfig::resolve(
+                settings.max_age_seconds.or(default_age),
+                settings.cleanup_interval_seconds,
+            ),
+            delete_batch_size: settings
+                .delete_batch_size
+                .unwrap_or_else(|| NonZeroU32::new(256).unwrap()),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct NdjsonConfig {
     pub directory: PathBuf,
-    #[serde(default = "default_segment_seconds")]
     pub segment_seconds: NonZeroU32,
-    #[serde(default = "default_segment_bytes")]
     pub max_segment_bytes: NonZeroU64,
     pub retention: Option<RetentionConfig>,
+    pub max_segments_per_cleanup: Option<NonZeroU32>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NdjsonFile {
+    directory: PathBuf,
+    #[serde(default = "default_segment_seconds")]
+    segment_seconds: NonZeroU32,
+    #[serde(default = "default_segment_bytes")]
+    max_segment_bytes: NonZeroU64,
+    retention: Option<NdjsonRetention>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NdjsonRetention {
+    max_age_seconds: Option<NonZeroU32>,
+    cleanup_interval_seconds: Option<NonZeroU32>,
+    max_segments_per_cleanup: Option<NonZeroU32>,
+}
+
+impl NdjsonFile {
+    fn resolve(self, default_age: Option<NonZeroU32>) -> NdjsonConfig {
+        let settings = self.retention.unwrap_or_default();
+        NdjsonConfig {
+            directory: self.directory,
+            segment_seconds: self.segment_seconds,
+            max_segment_bytes: self.max_segment_bytes,
+            retention: RetentionConfig::resolve(
+                settings.max_age_seconds.or(default_age),
+                settings.cleanup_interval_seconds,
+            ),
+            max_segments_per_cleanup: settings.max_segments_per_cleanup,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -90,6 +173,13 @@ pub struct RetentionConfig {
 }
 
 impl RetentionConfig {
+    fn resolve(max_age: Option<NonZeroU32>, interval: Option<NonZeroU32>) -> Option<Self> {
+        max_age.map(|max_age_seconds| Self {
+            max_age_seconds,
+            cleanup_interval_seconds: interval.unwrap_or_else(default_cleanup_seconds),
+        })
+    }
+
     pub(crate) fn cutoff(self) -> OffsetDateTime {
         OffsetDateTime::now_utc() - Duration::seconds(self.max_age_seconds.get().into())
     }

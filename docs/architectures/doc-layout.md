@@ -14,6 +14,8 @@
 README.md                                      # 项目定位、核心能力、快速试用与文档入口
 docs/
 ├── configuration.md                            # 实际 CLI 参数、固定阈值、资源预算与部署参数
+├── deployment/
+│   └── fullchain-deployment-guide.md            # actrail-kv 自身部署和统一接收协议的验证
 ├── concepts/                                   # 面向新手的稳定业务概念
 │   ├── template.md                              # 请求模板、稳定片段、槽位及其分析产物映射
 │   ├── context_defect.md                        # 上下文结构缺陷、正例及非缺陷边界
@@ -31,7 +33,7 @@ docs/
     │   ├── input.md                            # HTTP 接收协议
     │   └── output.md                           # requests.ndjson 行级协议
     ├── analyze/                                # actrail-kv-analyze 专属设计
-    │   ├── input.md                            # requests.ndjson 及 payload 可分析边界
+    │   ├── input.md                            # 采集语料、报告输入筛选和 payload 可分析边界
     │   ├── pipeline.md                         # 输入投影、模板抽取与诊断流水线
     │   └── output.md                           # analysis.json 协议、字段、示例与排序
     └── report/                                 # actrail-kv-report 专属设计
@@ -46,11 +48,11 @@ dev/
 
 | 内容 | 落点 |
 |---|---|
-| 项目定位、核心能力和首次试用入口 | `README.md`；首页要求见 [Root README](../../dev/requirements/v0.1.0/root-readme.md) |
+| 项目定位、核心能力和首次试用入口 | [项目首页](../../README.md) |
 | 用户可操作的参数、默认值、部署设置 | `docs/configuration.md` |
 | 面向新手的稳定业务概念 | `docs/concepts/` |
 | 当前模块依赖、目录或二进制调用关系 | `docs/architectures/` |
-| `crates/` 源码布局、根目录 `tests/` 与迁移记录 | [源码布局](code-layout.md)和 [Rust workspace 设计索引](../../dev/designs/v0.1.0/workspace-layout.md) |
+| `crates/` 源码布局与根目录 `tests/` | [源码布局](code-layout.md) |
 | 某二进制的内部架构 | `docs/architectures/<binary>/` |
 | 跨二进制的不可违反运行/数据约束 | `docs/architectures/constraints.md` |
 | 对外或落盘产物的字段契约 | 产出该产物的二进制目录中的 `output.md` |

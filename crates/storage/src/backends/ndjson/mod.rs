@@ -65,10 +65,16 @@ impl NdjsonStore {
         };
         let _boundary = exclusive_boundary(&self.config.directory)?;
         let cutoff = retention.cutoff().unix_timestamp();
-        for segment in list_segments(&self.config.directory)? {
-            if segment.key.end <= cutoff {
-                fs::remove_file(segment.path)?;
-            }
+        let max_segments = self
+            .config
+            .max_segments_per_cleanup
+            .map_or(usize::MAX, |limit| limit.get() as usize);
+        for segment in list_segments(&self.config.directory)?
+            .into_iter()
+            .filter(|segment| segment.key.end <= cutoff)
+            .take(max_segments)
+        {
+            fs::remove_file(segment.path)?;
         }
         Ok(())
     }
