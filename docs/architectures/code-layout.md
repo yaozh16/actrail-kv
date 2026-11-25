@@ -4,7 +4,7 @@ actrail-kv/
 ├── crates/ # Rust 库及命令 crate
 │   ├── cmd/ # 二进制入口；只解析 CLI 并调用对应 library
 │   │   ├── receiver/
-│   │   │   ├── src/main.rs # 启动 HTTP receiver
+│   │   │   ├── src/main.rs # HTTP 接收命令与版本输出
 │   │   │   └── examples/generate_config.rs # 从配置类型生成带注释的 TOML 示例
 │   │   ├── analyze/
 │   │   │   ├── src/

@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 #[derive(Debug, Parser)]
-#[command(name = "actrail-kv-receiver")]
+#[command(name = "actrail-kv-receiver", version)]
 #[command(about = "Receive and store complete model requests")]
 struct Arguments {
     #[arg(long)]

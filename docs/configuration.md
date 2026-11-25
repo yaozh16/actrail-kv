@@ -203,3 +203,7 @@ cargo run -q -p actrail-kv-receiver-bin --example generate_config \
 ## 未知配置字段
 
 配置中出现当前版本不认识的字段时，命令输出包含字段路径的 warning，并继续读取已知字段。检查范围仅限本次读取的业务配置段。补齐默认值时，已有字段和注释会保留，包括未知字段。字段类型错误或 TOML 语法错误仍会导致加载失败。
+
+## 查询命令版本
+
+Receiver、Analyze、Report、Export 均支持 `--version` 和 `-V`。版本号直接来自根 `Cargo.toml` 的 `[workspace.package].version`，各命令通过 `version.workspace = true` 继承。
