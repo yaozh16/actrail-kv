@@ -3,18 +3,17 @@
 use std::fs;
 use std::path::Path;
 
-use config_contract::{
-    toml_edit::DocumentMut, Config, ConfigError, ConfigState, RootConfig,
-};
+use config_contract::{toml_edit::DocumentMut, Config, ConfigError, ConfigState, RootConfig};
 use serde::Serialize;
 use tempfile::tempdir;
 
 #[derive(Debug, PartialEq, Serialize, Config)]
 struct A {
     /// Nested configuration
-    #[serde(rename = "B")]
+    #[serde(rename = "B", alias = "legacy_b")]
     b: B,
     /// Root setting declared after the nested configuration
+    #[serde(alias = "legacy_message")]
     message: String,
     /// Optional setting
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -83,7 +82,7 @@ fn reads_nested_tables_and_writes_comments_at_the_serialized_keys() {
 fn writes_nested_defaults_once_and_reports_invalid_input_without_writing() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("settings.toml");
-    let original = b"[A]\nmessage = \"host\"\n[A.B]\n\n[other] # keep\nvalue = true\n";
+    let original = b"[A]\nmessage = \"host\"\nfuture = true # keep future\n[A.B]\nfuture_inner = 7\n\n[other] # keep\nvalue = true\n";
     fs::write(&path, original).unwrap();
 
     assert_eq!(A::load(&path, &["A"]).unwrap().b.c, 456);
@@ -91,6 +90,8 @@ fn writes_nested_defaults_once_and_reports_invalid_input_without_writing() {
     assert_eq!(A::load_and_save(&path, &["A"]).unwrap().b.c, 456);
     let written = fs::read_to_string(&path).unwrap();
     assert!(written.contains("C = 456"));
+    assert!(written.contains("future = true # keep future"));
+    assert!(written.contains("future_inner = 7"));
     assert!(written.contains("[other] # keep\nvalue = true\n"));
     A::load_and_save(&path, &["A"]).unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), written);
@@ -170,4 +171,23 @@ fn backups(directory: &Path) -> Vec<Vec<u8>> {
         .filter(|path| path.extension().is_some_and(|extension| extension == "bak"))
         .map(|path| fs::read(path).unwrap())
         .collect()
+}
+
+#[test]
+fn completes_inline_configuration_without_losing_aliases_or_future_fields() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("settings.toml");
+    fs::write(
+        &path,
+        "[A]\nlegacy_message = \"host\"\nlegacy_b = { future_inner = 7 }\nfuture = true # keep\n",
+    )
+    .unwrap();
+    let first = A::load_and_save(&path, &["A"]).unwrap();
+    let written = fs::read_to_string(&path).unwrap();
+    assert!(written.contains("legacy_message"));
+    assert!(written.contains("legacy_b"));
+    assert!(written.contains("future_inner = 7"));
+    assert!(written.contains("future = true # keep"));
+    assert_eq!(A::load_and_save(&path, &["A"]).unwrap(), first);
+    assert_eq!(fs::read_to_string(&path).unwrap(), written);
 }

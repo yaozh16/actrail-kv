@@ -1,6 +1,5 @@
 | 配置项 | 外部数据类型 | 内部类型 | 默认值 | 必填 | 所属模块 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `$` | `table` | `Settings` | 各字段默认值 | 否 | settings | 统一 TOML 配置，相对路径以配置文件所在目录为基准 |
 | `receiver` | `table` | `ReceiverSettings` | 各字段默认值 | 否 | receiver | HTTP 接收器设置 |
 | `receiver.listen` | `string` | `String` | `"127.0.0.1:8080"` | 否 | receiver | HTTP 监听地址，必须为有效套接字地址，可由 --listen 覆盖 |
 | `receiver.max_payload_bytes` | `integer` | `usize` | `8388608` | 否 | receiver | 单次请求体字节上限，须大于零，可由 --max-payload-bytes 覆盖 |
@@ -27,27 +26,33 @@
 | `analyzer` | `table` | `AnalyzerSettings` | 各字段默认值 | 否 | analyzer | 分析输入、输出、算法参数与筛选设置 |
 | `analyzer.input` | `string` | `Option<PathBuf>` | 无 | 否 | analyzer | NDJSON 输入路径，为空时依次使用 receiver.output、共享 storage，--input 可覆盖 |
 | `analyzer.output` | `string` | `PathBuf` | `"analysis.json"` | 否 | analyzer | 分析结果 JSON 输出路径，可由 --output 覆盖 |
-| `analyzer.options` | `table` | `AnalyzeConfig` | 各字段默认值 | 否 | analyzer | 分析算法阈值和资源预算 |
+| `analyzer.options` | `table` | `AnalyzeConfig` | 各字段默认值 | 否 | analyzer | 分析算法阈值和资源上限 |
 | `analyzer.options.top_k` | `integer` | `usize` | `20` | 否 | analyzer | 排名输出条数，须大于零，可由 --top-k 覆盖 |
-| `analyzer.options.comparison_window_seconds` | `integer` | `u64` | `3600` | 否 | analyzer | 比较时间窗的秒数，须大于零，可由 --comparison-window-seconds 覆盖 |
-| `analyzer.options.min_template_members` | `integer` | `usize` | `3` | 否 | analyzer | 模板最少成员数，至少为 2 |
-| `analyzer.options.stable_span_support_ratio` | `float` | `f64` | `0.80` | 否 | analyzer | 稳定片段支持率，范围 0 到 1 |
-| `analyzer.options.min_stable_support` | `integer` | `usize` | `3` | 否 | analyzer | 稳定片段最少支持记录数，至少为 2 |
-| `analyzer.options.fixed_variant_max` | `integer` | `usize` | `3` | 否 | analyzer | 固定变体数量上限，须大于零 |
-| `analyzer.options.min_blocked_stable_bytes` | `integer` | `usize` | `64` | 否 | analyzer | 纳入阻断分析的稳定内容最少字节数，须大于零 |
-| `analyzer.options.min_exact_anchor_bytes` | `integer` | `usize` | `24` | 否 | analyzer | 精确匹配锚点最少字节数，须大于零 |
-| `analyzer.options.text_similarity_threshold` | `float` | `f64` | `0.80` | 否 | analyzer | 文本相似度阈值，范围 0 到 1 |
-| `analyzer.options.template_compatibility_threshold` | `float` | `f64` | `0.68` | 否 | analyzer | 模板兼容度阈值，范围 0 到 1 |
-| `analyzer.options.max_dynamic_coverage_ratio` | `float` | `f64` | `0.35` | 否 | analyzer | 动态内容覆盖比例上限，范围 0 到 1 |
-| `analyzer.options.max_candidates_per_request` | `integer` | `usize` | `128` | 否 | analyzer | 每条请求的候选数量上限，须大于零 |
-| `analyzer.options.max_projection_units` | `integer` | `usize` | `512` | 否 | analyzer | 每条请求的投影单元数量上限，须大于零 |
-| `analyzer.options.max_text_unit_bytes` | `integer` | `usize` | `1048576` | 否 | analyzer | 单个文本投影单元的字节上限，须大于零 |
-| `analyzer.options.max_payload_bytes` | `integer` | `usize` | `8388608` | 否 | analyzer | 输入记录的字节预算，须大于零 |
-| `analyzer.options.max_alignment_cells` | `integer` | `usize` | `2000000` | 否 | analyzer | 单次对齐单元格预算，须大于零 |
-| `analyzer.options.max_total_alignment_cells` | `integer` | `usize` | `64000000` | 否 | analyzer | 总对齐单元格预算，须大于零 |
-| `analyzer.options.max_records` | `integer` | `usize` | `1000000` | 否 | analyzer | 载入记录数量上限，须大于零 |
-| `analyzer.options.prefix_view_max_nodes` | `integer` | `usize` | `5000` | 否 | analyzer | 模板前缀树视图的节点数量上限，0 关闭前缀树视图输出 |
-| `analyzer.options.prefix_view_excerpt_bytes` | `integer` | `usize` | `96` | 否 | analyzer | 前缀树节点文本摘录上限，按字符计数，须大于零 |
+| `analyzer.options.corpus` | `table` | `CorpusConfig` | 各字段默认值 | 否 | analyzer | 语料加载 |
+| `analyzer.options.corpus.max_record_bytes` | `integer` | `usize` | `8388608` | 否 | analyzer | 输入记录的字节上限，须大于零 |
+| `analyzer.options.corpus.max_records` | `integer` | `usize` | `1000000` | 否 | analyzer | 载入记录数量上限，须大于零 |
+| `analyzer.options.projection` | `table` | `ProjectionConfig` | 各字段默认值 | 否 | analyzer | 请求投影 |
+| `analyzer.options.projection.comparison_window_seconds` | `integer` | `u64` | `3600` | 否 | analyzer | 比较时间窗的秒数，须大于零，可由 --comparison-window-seconds 覆盖 |
+| `analyzer.options.projection.max_units` | `integer` | `usize` | `512` | 否 | analyzer | 每条请求的投影单元数量上限，须大于零 |
+| `analyzer.options.projection.max_text_unit_bytes` | `integer` | `usize` | `1048576` | 否 | analyzer | 单个文本投影单元的字节上限，须大于零 |
+| `analyzer.options.candidate` | `table` | `CandidateConfig` | 各字段默认值 | 否 | analyzer | 候选构造 |
+| `analyzer.options.candidate.min_members` | `integer` | `usize` | `3` | 否 | analyzer | 模板最少成员数，至少为 2 |
+| `analyzer.options.candidate.compatibility_threshold` | `float` | `f64` | `0.68` | 否 | analyzer | 模板兼容度阈值，范围 0 到 1 |
+| `analyzer.options.candidate.max_dynamic_coverage_ratio` | `float` | `f64` | `0.35` | 否 | analyzer | 动态内容覆盖比例上限，范围 0 到 1 |
+| `analyzer.options.candidate.max_candidates_per_request` | `integer` | `usize` | `128` | 否 | analyzer | 每条请求的候选数量上限，须大于零 |
+| `analyzer.options.stability` | `table` | `StabilityConfig` | 各字段默认值 | 否 | analyzer | 模板与诊断共享的稳定性条件 |
+| `analyzer.options.stability.stable_support_ratio` | `float` | `f64` | `0.80` | 否 | analyzer | 稳定片段支持率，范围 0 到 1 |
+| `analyzer.options.stability.min_stable_support` | `integer` | `usize` | `3` | 否 | analyzer | 稳定片段最少支持记录数，至少为 2 |
+| `analyzer.options.stability.min_anchor_bytes` | `integer` | `usize` | `24` | 否 | analyzer | 精确匹配锚点最少字节数，须大于零 |
+| `analyzer.options.template` | `table` | `TemplateConfig` | 各字段默认值 | 否 | analyzer | 模板提取 |
+| `analyzer.options.template.max_alignment_cells` | `integer` | `usize` | `2000000` | 否 | analyzer | 单次对齐单元格上限，须大于零 |
+| `analyzer.options.template.max_total_alignment_cells` | `integer` | `usize` | `64000000` | 否 | analyzer | 总对齐单元格上限，须大于零 |
+| `analyzer.options.diagnosis` | `table` | `DiagnosisConfig` | 各字段默认值 | 否 | analyzer | 缺陷诊断 |
+| `analyzer.options.diagnosis.fixed_variant_max` | `integer` | `usize` | `3` | 否 | analyzer | 固定变体数量上限，须大于零 |
+| `analyzer.options.diagnosis.min_blocked_bytes` | `integer` | `usize` | `64` | 否 | analyzer | 纳入阻断分析的稳定内容最少字节数，须大于零 |
+| `analyzer.options.prefix_view` | `table` | `PrefixViewConfig` | 各字段默认值 | 否 | analyzer | 前缀树视图 |
+| `analyzer.options.prefix_view.max_nodes` | `integer` | `usize` | `5000` | 否 | analyzer | 模板前缀树视图的节点数量上限，0 关闭前缀树视图输出 |
+| `analyzer.options.prefix_view.excerpt_bytes` | `integer` | `usize` | `96` | 否 | analyzer | 前缀树节点文本摘录上限，按字符计数，须大于零 |
 | `analyzer.selection` | `table` | `SelectionSettings` | 各字段默认值 | 否 | analyzer | 会话、时间区间和最近记录筛选 |
 | `analyzer.selection.session_keys` | `array<string>` | `Vec<String>` | `[]` | 否 | analyzer | 允许的会话键集合，空列表匹配全部会话，重复 --session-key 可覆盖 |
 | `analyzer.selection.session_keys[]` | `string` | `String` | 无 | 是 | analyzer | 单个会话键，重复值合并 |

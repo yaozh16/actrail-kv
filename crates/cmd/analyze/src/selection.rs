@@ -2,26 +2,11 @@
 
 use std::num::NonZeroUsize;
 
+use actrail_kv_analyzer::config::settings::SelectionSettings;
 use actrail_kv_analyzer::run::{CaptureTimeRange, ReportSelection};
 use actrail_kv_storage::CaptureFilter;
 use anyhow::Result;
 use clap::Args;
-use serde::{Deserialize, Serialize};
-
-#[derive(Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SelectionSettings {
-    session_keys: Vec<String>,
-    time_ranges: Vec<TimeRangeSettings>,
-    last_n: Option<NonZeroUsize>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct TimeRangeSettings {
-    from: Option<String>,
-    until: Option<String>,
-}
 
 #[derive(Debug, Args)]
 pub(crate) struct SelectionArgs {

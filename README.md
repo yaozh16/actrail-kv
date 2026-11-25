@@ -71,10 +71,10 @@ cargo build --release --workspace --bins
 demo_output="$(mktemp -d)"
 
 target/release/actrail-kv-analyze \
-  --config "$demo_output/settings.json" \
+  --config "$demo_output/settings.toml" \
   --input examples/quickstart/requests.ndjson
 
-target/release/actrail-kv-report --config "$demo_output/settings.json"
+target/release/actrail-kv-report --config "$demo_output/settings.toml"
 
 echo "$demo_output/report.html"
 echo "$demo_output/report.md"
@@ -93,7 +93,7 @@ echo "$demo_output/report.md"
 target/release/actrail-kv-receiver
 ```
 
-四个命令默认共用 `~/.actrail/actrail-kv/settings.json`，缺少的默认值会写回文件。可通过 `--config <path>` 共用另一份设置。默认监听 `127.0.0.1:8080` 并写入 SQLite，后续 Analyzer、Export 和 Report 可直接使用同一份设置。 [配置参考](docs/configuration.md#统一设置)
+四个命令默认共用 `~/.actrail/actrail-kv/settings.toml`，缺少的默认值会写回文件。可通过 `--config <path>` 共用另一份设置。默认监听 `127.0.0.1:8080` 并写入 SQLite，后续 Analyzer、Export 和 Report 可直接使用同一份设置。 [配置参考](docs/configuration.md#统一设置)
 
 供给方把实际发往模型 API 的完整 JSON body 原样提交到 `/requests`。最小上报命令如下。
 

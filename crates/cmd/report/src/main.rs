@@ -2,11 +2,12 @@
 
 use std::path::{self, PathBuf};
 
-use actrail_kv_reporter::{report_paths, write_reports, LocaleFactory, ReportFormat};
-use actrail_kv_settings::Settings;
+use actrail_kv_reporter::{report_paths, write_reports, LocaleFactory};
+use actrail_kv_settings::ConfigFile;
+use analysis_contract::settings::AnalyzerSettings;
 use anyhow::Result;
 use clap::Parser;
-use serde::{Deserialize, Serialize};
+use report_contract::{ReportFormat, ReportSettings};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -21,58 +22,29 @@ struct Cli {
     #[arg(long)]
     output: Option<PathBuf>,
     /// Output format. Omit to generate both HTML and Markdown.
-    #[arg(long, value_enum)]
-    format: Option<FormatArg>,
+    #[arg(long)]
+    format: Option<ReportFormat>,
     /// Report locale. Omit to use zh-CN.
     #[arg(long)]
     locale: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum FormatArg {
-    Html,
-    Md,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ReportSettings {
-    input: Option<PathBuf>,
-    output: Option<PathBuf>,
-    format: Option<FormatArg>,
-    locale: String,
-}
-
-impl Default for ReportSettings {
-    fn default() -> Self {
-        Self {
-            input: None,
-            output: None,
-            format: None,
-            locale: "zh-CN".into(),
-        }
-    }
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let mut settings = Settings::load(cli.config.as_deref(), false)?;
-    let file = settings.section("report", ReportSettings::default())?;
+    let mut settings = ConfigFile::open(cli.config.as_deref())?;
+    let file: ReportSettings = settings.read(&["report"])?;
     LocaleFactory::init_from_code(&cli.locale.unwrap_or(file.locale))?;
-    let format = cli.format.or(file.format).map(|format| match format {
-        FormatArg::Html => ReportFormat::Html,
-        FormatArg::Md => ReportFormat::Markdown,
-    });
+    let format = cli.format.or(file.format);
 
     let input = cli
         .input
         .or_else(|| file.input.map(|path| settings.resolve(path)));
     let input = match input {
         Some(path) => path,
-        None => settings
-            .configured_path("analyzer", "output")?
-            .unwrap_or_else(|| settings.resolve("analysis.json")),
+        None => {
+            let analyzer: AnalyzerSettings = settings.read(&["analyzer"])?;
+            settings.resolve(analyzer.output)
+        }
     };
     let output = match cli.output {
         Some(path) => path::absolute(path)?,

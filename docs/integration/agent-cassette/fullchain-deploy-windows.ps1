@@ -337,7 +337,7 @@ function Invoke-CmdReport {
     }
     $budget = Get-EnvOrDefault 'BUDGET_CONF' ''
     if (-not $budget) {
-        $example = Join-Path $ActrailRepo 'examples\analyze.config.example.json'
+        $example = Join-Path $ActrailRepo 'examples\analyze.config.example.toml'
         if (Test-Path $example) { $budget = $example }
     }
     if (-not $budget) { Fail 'analyze config not found (set BUDGET_CONF)' }

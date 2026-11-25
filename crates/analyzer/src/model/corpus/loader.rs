@@ -15,24 +15,11 @@ use super::{
     CorpusSkipReason, ReportSelection, ResponseUsage,
 };
 
-#[derive(Clone, Debug)]
-pub struct CorpusLoadLimits {
-    pub max_record_bytes: usize,
-    pub max_records: usize,
-}
-
-impl Default for CorpusLoadLimits {
-    fn default() -> Self {
-        Self {
-            max_record_bytes: 8 * 1024 * 1024,
-            max_records: 1_000_000,
-        }
-    }
-}
+pub use analysis_contract::config::CorpusConfig;
 
 #[derive(Clone, Debug, Default)]
 pub struct CorpusLoader {
-    limits: CorpusLoadLimits,
+    limits: CorpusConfig,
 }
 
 /// Reading the corpus failed: the caller must treat the load as failed instead
@@ -46,7 +33,7 @@ pub struct CorpusReadError {
 }
 
 impl CorpusLoader {
-    pub fn new(limits: CorpusLoadLimits) -> Self {
+    pub fn new(limits: CorpusConfig) -> Self {
         Self { limits }
     }
 
@@ -155,13 +142,13 @@ impl CorpusLoader {
 }
 
 struct CorpusAccumulator<'a> {
-    limits: &'a CorpusLoadLimits,
+    limits: &'a CorpusConfig,
     result: CorpusLoadResult,
     occurrences: BTreeMap<String, usize>,
 }
 
 impl<'a> CorpusAccumulator<'a> {
-    fn new(limits: &'a CorpusLoadLimits) -> Self {
+    fn new(limits: &'a CorpusConfig) -> Self {
         Self {
             limits,
             result: CorpusLoadResult::default(),

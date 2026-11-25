@@ -4,7 +4,7 @@ set -euo pipefail
 
 repo_dir=$(cd "$(dirname "$0")/../.." && pwd)
 test_dir=$(mktemp -d)
-settings_file="$test_dir/settings.json"
+settings_file="$test_dir/settings.toml"
 receiver_pid=""
 
 cleanup() {
@@ -17,7 +17,7 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$repo_dir"
-cargo build --workspace --bins
+cargo build -q --workspace --bins >"$test_dir/build.log" 2>&1 || { tail -n 30 "$test_dir/build.log" >&2; exit 1; }
 
 target/debug/actrail-kv-receiver --config "$settings_file" \
   --listen 127.0.0.1:0 \

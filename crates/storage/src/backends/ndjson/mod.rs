@@ -60,14 +60,16 @@ impl NdjsonStore {
     }
 
     pub(super) fn prune(&self) -> Result<(), StorageError> {
-        let Some(retention) = self.config.retention else {
+        let Some(retention) = self.config.retention_policy() else {
             return Ok(());
         };
         let _boundary = exclusive_boundary(&self.config.directory)?;
         let cutoff = retention.cutoff().unix_timestamp();
         let max_segments = self
             .config
-            .max_segments_per_cleanup
+            .retention
+            .as_ref()
+            .and_then(|settings| settings.max_segments_per_cleanup)
             .map_or(usize::MAX, |limit| limit.get() as usize);
         for segment in list_segments(&self.config.directory)?
             .into_iter()
@@ -94,7 +96,7 @@ impl Writer {
             .lock()
             .map_err(|_| io::Error::other("NDJSON writer lock is poisoned"))?;
         let _boundary = exclusive_boundary(&config.directory)?;
-        if let Some(retention) = config.retention {
+        if let Some(retention) = config.retention_policy() {
             retention.check(captured_at)?;
         }
         let previous = match current.as_ref() {
@@ -148,7 +150,7 @@ fn scan_store(
     let segments = {
         let boundary = File::open(snapshot_lock_path(&config.directory))?;
         FileExt::lock_shared(&boundary)?;
-        let start = filter.start(config.retention.map(RetentionConfig::cutoff));
+        let start = filter.start(config.retention_policy().map(RetentionConfig::cutoff));
         let mut segments = Vec::new();
         for segment in list_segments(&config.directory)? {
             if writer.is_closed() {

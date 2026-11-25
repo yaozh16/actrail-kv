@@ -1,33 +1,27 @@
-//! 本 crate 按需读取统一设置，并以原子更新补齐缺失默认值。
-
+//! 按业务 locator 加载 TOML 配置，并在业务校验后补齐文件。
+mod document;
+use anyhow::{Context, Result};
+use config_contract::RootConfig;
+use document::{ConfigDocument, PendingConfig};
+use fs2::FileExt;
 use std::{
     ffi::OsString,
     fs::{self, OpenOptions},
-    io::{ErrorKind, Write},
+    io::ErrorKind,
     path::{self, Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
-use fs2::FileExt;
-use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{Map, Value};
-
-const SECTIONS: [&str; 5] = ["receiver", "storage", "analyzer", "export", "report"];
-
-pub struct Settings {
+pub struct ConfigFile {
     path: PathBuf,
-    sections: Map<String, Value>,
-    pending: Map<String, Value>,
-    legacy: bool,
+    pending: Vec<PendingConfig>,
 }
-
-impl Settings {
-    pub fn load(explicit: Option<&Path>, allow_legacy: bool) -> Result<Self> {
+impl ConfigFile {
+    pub fn open(explicit: Option<&Path>) -> Result<Self> {
         let requested = match explicit {
             Some(path) => path::absolute(path)?,
             None => std::env::home_dir()
                 .context("could not locate home directory; pass --config <path>")?
-                .join(".actrail/actrail-kv/settings.json"),
+                .join(".actrail/actrail-kv/settings.toml"),
         };
         let path = match requested.canonicalize() {
             Ok(path) => path,
@@ -38,73 +32,32 @@ impl Settings {
             path.file_name().is_some(),
             "settings path needs a file name"
         );
-        let sections = read_settings(&path)?;
-        let legacy = explicit.is_some()
-            && allow_legacy
-            && !sections.is_empty()
-            && !sections.keys().any(|key| SECTIONS.contains(&key.as_str()));
-        if !legacy {
-            validate_sections(&sections)
-                .with_context(|| format!("invalid settings {}", path.display()))?;
-        }
         Ok(Self {
             path,
-            sections,
-            pending: Map::new(),
-            legacy,
+            pending: Vec::new(),
         })
     }
 
-    pub fn section<T: Serialize + DeserializeOwned>(
-        &mut self,
-        name: &str,
-        defaults: T,
-    ) -> Result<T> {
-        if self.legacy {
-            return Ok(defaults);
-        }
-        let defaults = serde_json::to_value(defaults)?;
-        let changed = fill_section(&mut self.sections, name, &defaults);
-        let value = serde_json::from_value(self.sections[name].clone())
-            .with_context(|| format!("invalid settings.{name} in {}", self.path.display()))?;
-        if changed {
-            self.pending.insert(name.to_owned(), defaults);
-        }
-        Ok(value)
+    pub fn read<C: RootConfig>(&mut self, locator: &[&str]) -> Result<C> {
+        let config = C::load(&self.path, locator)
+            .with_context(|| format!("invalid configuration {}", self.path.display()))?;
+        self.pending.push(PendingConfig::new::<C>(
+            locator,
+            config.try_to_toml_table()?,
+        ));
+        Ok(config)
     }
-
-    pub fn legacy<T: DeserializeOwned>(&self) -> Result<Option<T>> {
-        self.legacy
-            .then(|| {
-                serde_json::from_value(Value::Object(self.sections.clone()))
-                    .with_context(|| format!("invalid legacy config {}", self.path.display()))
-            })
-            .transpose()
+    pub fn path(&self) -> &Path {
+        &self.path
     }
-
-    pub fn configured_path(&self, section: &str, field: &str) -> Result<Option<PathBuf>> {
-        let value = self
-            .sections
-            .get(section)
-            .and_then(|value| value.get(field));
-        let path = match value {
-            Some(value) => serde_json::from_value::<Option<PathBuf>>(value.clone())
-                .with_context(|| format!("invalid settings.{section}.{field}"))?,
-            None => None,
-        };
-        Ok(path.map(|path| self.resolve(path)))
-    }
-
     pub fn directory(&self) -> &Path {
         self.path
             .parent()
-            .expect("absolute settings file path has a parent")
+            .expect("absolute configuration path has a parent")
     }
-
     pub fn resolve(&self, path: impl AsRef<Path>) -> PathBuf {
         self.directory().join(path)
     }
-
     pub fn check_output(&self, path: &Path) -> Result<()> {
         let output = path::absolute(path)?;
         let same_file = match same_file::is_same_file(&self.path, &output) {
@@ -130,12 +83,9 @@ impl Settings {
         if self.pending.is_empty() {
             return Ok(self.path);
         }
-
-        let directory = self.directory();
-        fs::create_dir_all(directory)
-            .with_context(|| format!("failed to create {}", directory.display()))?;
+        fs::create_dir_all(self.directory())?;
         let mut lock_name = OsString::from(".");
-        lock_name.push(self.path.file_name().expect("validated settings path"));
+        lock_name.push(self.path.file_name().expect("validated configuration path"));
         lock_name.push(".lock");
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
@@ -144,70 +94,17 @@ impl Settings {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let lock = options
-            .open(directory.join(lock_name))
-            .context("failed to open settings lock")?;
-        FileExt::lock_exclusive(&lock).context("failed to lock settings")?;
-
-        // Re-read after taking the lock so concurrent commands contribute their own defaults.
-        let mut current = read_settings(&self.path)?;
-        validate_sections(&current)
-            .with_context(|| format!("invalid settings {}", self.path.display()))?;
+        let lock = options.open(self.directory().join(lock_name))?;
+        FileExt::lock_exclusive(&lock)?;
+        // 拿锁后重读，保留其他进程已写入的配置值。
+        let mut document = ConfigDocument::load(&self.path, &[])?;
         let mut changed = false;
-        for (name, defaults) in &self.pending {
-            changed |= fill_section(&mut current, name, defaults);
+        for pending in self.pending {
+            changed |= document.complete(pending)?;
         }
         if changed {
-            let mut output = tempfile::NamedTempFile::new_in(directory)?;
-            serde_json::to_writer_pretty(&mut output, &current)?;
-            output.write_all(b"\n")?;
-            output.as_file().sync_all()?;
-            output
-                .persist(&self.path)
-                .with_context(|| format!("failed to save settings {}", self.path.display()))?;
+            document.update(&self.path, &[])?;
         }
         Ok(self.path)
-    }
-}
-
-fn read_settings(path: &Path) -> Result<Map<String, Value>> {
-    let contents = match fs::read(path) {
-        Ok(contents) => contents,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Map::new()),
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("failed to read settings {}", path.display()))
-        }
-    };
-    serde_json::from_slice(&contents)
-        .with_context(|| format!("invalid settings {}", path.display()))
-}
-
-fn validate_sections(sections: &Map<String, Value>) -> Result<()> {
-    if let Some(key) = sections
-        .keys()
-        .find(|key| !SECTIONS.contains(&key.as_str()))
-    {
-        anyhow::bail!("unknown top-level settings field {key:?}");
-    }
-    Ok(())
-}
-
-fn fill_section(sections: &mut Map<String, Value>, name: &str, defaults: &Value) -> bool {
-    match sections.get_mut(name) {
-        Some(section) => match (section, defaults) {
-            (Value::Object(section), Value::Object(defaults)) => {
-                let mut changed = false;
-                for (key, value) in defaults {
-                    changed |= fill_section(section, key, value);
-                }
-                changed
-            }
-            _ => false,
-        },
-        None => {
-            sections.insert(name.to_owned(), defaults.clone());
-            true
-        }
     }
 }

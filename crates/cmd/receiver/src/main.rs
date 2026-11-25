@@ -2,12 +2,11 @@
 
 use std::{net::SocketAddr, path::PathBuf};
 
-use actrail_kv_receiver::{router_with_storage, ReceiverConfig};
-use actrail_kv_settings::Settings;
+use actrail_kv_receiver::{config::settings::ReceiverSettings, router_with_storage};
+use actrail_kv_settings::ConfigFile;
 use actrail_kv_storage::{open_legacy_ndjson, open_store, StorageConfig, StoreAccess};
 use anyhow::{Context, Result};
 use clap::Parser;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Parser)]
 #[command(name = "actrail-kv-receiver")]
@@ -23,25 +22,6 @@ struct Arguments {
     config: Option<PathBuf>,
     #[arg(long, value_parser = parse_positive_usize)]
     max_payload_bytes: Option<usize>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ReceiverSettings {
-    listen: String,
-    max_payload_bytes: usize,
-    output: Option<PathBuf>,
-}
-
-impl Default for ReceiverSettings {
-    fn default() -> Self {
-        let config = ReceiverConfig::default();
-        Self {
-            listen: config.listen,
-            max_payload_bytes: config.max_payload_bytes,
-            output: None,
-        }
-    }
 }
 
 enum CaptureTarget {
@@ -62,14 +42,9 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let arguments = Arguments::parse();
-    let mut settings = Settings::load(arguments.config.as_deref(), true)?;
-    let file = settings.section("receiver", ReceiverSettings::default())?;
-    let mut config = settings
-        .legacy::<ReceiverConfig>()?
-        .unwrap_or(ReceiverConfig {
-            listen: file.listen,
-            max_payload_bytes: file.max_payload_bytes,
-        });
+    let mut settings = ConfigFile::open(arguments.config.as_deref())?;
+    let file: ReceiverSettings = settings.read(&["receiver"])?;
+    let mut config = file.http;
     if let Some(listen) = arguments.listen {
         config.listen = listen.to_string();
     }
@@ -92,11 +67,8 @@ async fn main() -> Result<()> {
     {
         CaptureTarget::File(output)
     } else {
-        let storage = settings.section("storage", StorageConfig::settings_defaults())?;
-        CaptureTarget::Store(StorageConfig::from_settings_section(
-            storage,
-            settings.directory(),
-        )?)
+        let storage: StorageConfig = settings.read(&["storage"])?;
+        CaptureTarget::Store(storage.resolve(settings.directory())?)
     };
     if let CaptureTarget::File(output) = &target {
         settings.check_output(output)?;

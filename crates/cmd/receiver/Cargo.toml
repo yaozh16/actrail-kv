@@ -9,6 +9,7 @@ name = "actrail-kv-receiver"
 path = "src/main.rs"
 
 [dependencies]
+config-contract.workspace = true
 actrail-kv-settings.workspace = true
 actrail-kv-receiver.workspace = true
 actrail-kv-storage.workspace = true

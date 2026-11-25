@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/contracts/analysis",
+    "crates/contracts/report",
     "crates/contracts/config",
     "crates/contracts/config/derive",
     "crates/artifacts",
@@ -21,6 +23,8 @@ edition = "2021"
 license = "MulanPSL-2.0"
 
 [workspace.dependencies]
+report-contract = { path = "crates/contracts/report" }
+analysis-contract = { path = "crates/contracts/analysis" }
 config-contract = { path = "crates/contracts/config" }
 actrail-kv-artifacts = { path = "crates/artifacts" }
 actrail-kv-storage = { path = "crates/storage" }

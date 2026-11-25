@@ -9,6 +9,8 @@ name = "actrail-kv-analyze"
 path = "src/main.rs"
 
 [dependencies]
+actrail-kv-receiver.workspace = true
+config-contract.workspace = true
 actrail-kv-settings.workspace = true
 actrail-kv-analyzer.workspace = true
 actrail-kv-storage.workspace = true

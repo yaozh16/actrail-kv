@@ -11,11 +11,7 @@ use tempfile::NamedTempFile;
 
 use crate::{load_result, render_html_with_locale, render_markdown_with_locale, LocaleFactory};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ReportFormat {
-    Html,
-    Markdown,
-}
+use report_contract::ReportFormat;
 
 pub(crate) fn write_html_only(input: &Path, output: &Path) -> Result<()> {
     ensure_distinct_paths(input, output)?;

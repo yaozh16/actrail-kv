@@ -1,6 +1,8 @@
 //! Bridges the derive macro to Serde and the editable TOML document.
 
 mod comments;
+mod completion;
+mod fields;
 mod state;
 
 use serde::{de::DeserializeOwned, Serialize};
@@ -8,15 +10,18 @@ use toml_edit::visit_mut::{self, VisitMut};
 use toml_edit::{DocumentMut, Item, Table};
 
 pub use comments::{Field, FieldComments};
+pub use completion::fill_missing_fields;
+pub use fields::{FieldKeys, FieldSchema};
 
 use crate::{Config, ConfigError, ConfigState};
 
-pub fn parse<C: DeserializeOwned + Serialize>(
+pub fn parse<C: Config + DeserializeOwned + Serialize>(
     table: &Table,
 ) -> Result<(C, ConfigState), ConfigError> {
     let document = DocumentMut::from(table.clone());
-    let config = toml_edit::de::from_document(document).map_err(invalid_value)?;
-    let output = toml_edit::ser::to_document(&config).map_err(invalid_value)?;
+    let config: C = toml_edit::de::from_document(document).map_err(invalid_value)?;
+    let mut output = toml_edit::ser::to_document(&config).map_err(invalid_value)?;
+    C::prepare_defaults(table, output.as_table_mut());
     let state = if state::has_missing_keys(table, output.as_table()) {
         ConfigState::Dirty
     } else {

@@ -5,12 +5,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use actrail_kv_settings::Settings;
+mod config;
+use actrail_kv_settings::ConfigFile;
 use actrail_kv_storage::{open_store, CaptureFilter, StorageConfig, StoreAccess};
 use anyhow::{Context, Result};
 use clap::Parser;
+use config::ExportSettings;
 use futures_util::TryStreamExt;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Export captured model requests as NDJSON")]
@@ -29,31 +30,11 @@ struct Cli {
     until: Option<String>,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ExportSettings {
-    output: PathBuf,
-    session_key: Option<String>,
-    from: Option<String>,
-    until: Option<String>,
-}
-
-impl Default for ExportSettings {
-    fn default() -> Self {
-        Self {
-            output: "exported.ndjson".into(),
-            session_key: None,
-            from: None,
-            until: None,
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let mut settings = Settings::load(cli.config.as_deref(), false)?;
-    let file = settings.section("export", ExportSettings::default())?;
+    let mut settings = ConfigFile::open(cli.config.as_deref())?;
+    let file: ExportSettings = settings.read(&["export"])?;
     let from = cli.from.or(file.from);
     let until = cli.until.or(file.until);
     let filter = CaptureFilter::parse(
@@ -67,14 +48,14 @@ async fn main() -> Result<()> {
         StorageConfig::from_file(path)
             .with_context(|| format!("failed to load storage config {}", path.display()))?
     } else {
-        let storage = settings.section("storage", StorageConfig::settings_defaults())?;
-        StorageConfig::from_settings_section(storage, settings.directory())?
+        let storage: StorageConfig = settings.read(&["storage"])?;
+        storage.resolve(settings.directory())?
     };
-    let settings_path = settings.finish()?;
     config.validate_output(
-        cli.storage_config.as_deref().unwrap_or(&settings_path),
+        cli.storage_config.as_deref().unwrap_or(settings.path()),
         &output,
     )?;
+    settings.finish()?;
     let store = open_store(config, StoreAccess::ReadOnly).await?;
     let mut rows = store.scan(filter).await?;
 

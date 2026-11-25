@@ -42,8 +42,8 @@ PORT_CHECK="${PORT_CHECK:-false}"  # 默认不检查端口有效性（true 时�
 
 if [ -n "${BUDGET_CONF:-}" ]; then
   ANALYZE_CONF="$BUDGET_CONF"
-elif [ -f "$ACTRAIL_REPO/examples/analyze.config.example.json" ]; then
-  ANALYZE_CONF="$ACTRAIL_REPO/examples/analyze.config.example.json"
+elif [ -f "$ACTRAIL_REPO/examples/analyze.config.example.toml" ]; then
+  ANALYZE_CONF="$ACTRAIL_REPO/examples/analyze.config.example.toml"
 else
   ANALYZE_CONF=""
 fi
@@ -363,7 +363,7 @@ cmd_report() {
   fi
   [ -n "$input" ] && [ -f "$input" ] \
     || fail "找不到 ndjson（可用 RECEIVER_OUT=... 或 report --input <file> 指定）"
-  [ -n "${ANALYZE_CONF:-}" ] || ANALYZE_CONF="$ACTRAIL_REPO/examples/analyze.config.example.json"
+  [ -n "${ANALYZE_CONF:-}" ] || ANALYZE_CONF="$ACTRAIL_REPO/examples/analyze.config.example.toml"
   [ -f "$ANALYZE_CONF" ] || fail "analyze 配置不存在: $ANALYZE_CONF"
   mkdir -p "$OUT_DIR"
   log "分析 $input"

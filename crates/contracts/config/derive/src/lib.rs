@@ -1,6 +1,7 @@
 //! Derives the configuration contract and maps Rust documentation to serialized TOML fields.
 
 mod deserialize;
+mod fields;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
@@ -46,6 +47,7 @@ fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
         .cloned()
         .unwrap_or_else(|| parse_quote!(::serde));
     let deserialize = deserialize::expand(input, &serde, &attrs, &fields)?;
+    let field_metadata = fields::expand(&fields, &contract);
 
     let mut generics = input.generics.clone();
     generics
@@ -76,6 +78,8 @@ fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
 
         #[automatically_derived]
         impl #impl_generics #contract::Config for #ident #type_generics #where_clause {
+            #field_metadata
+
             fn parse_toml_table(
                 table: &#contract::Table,
             ) -> ::core::result::Result<(Self, #contract::ConfigState), #contract::ConfigError> {

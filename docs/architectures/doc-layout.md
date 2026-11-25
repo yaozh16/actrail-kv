@@ -2,8 +2,8 @@
 README.md # 项目定位、核心能力、快速试用与文档入口
 docs/ # 项目当前状态的文档
 ├── architecture/
-│   └── config-layout.md [x] # 迁移目标配置项、业务结构体、默认值和必填条件
-├── configuration.md # 统一设置、CLI 覆盖、资源预算与部署参数
+│   └── config-layout.md [x] # 递归业务配置、共享配置类型、默认值和必填条件
+├── configuration.md # 统一设置、未知字段兼容、示例生成与部署参数
 ├── deployment/
 │   └── fullchain-deployment-guide.md # actrail-kv 自身部署和统一接收协议的验证
 ├── concepts/ # 面向新手的稳定业务概念
@@ -14,11 +14,11 @@ docs/ # 项目当前状态的文档
 │   ├── index.md # 命令接口入口
 │   ├── receiver/ # HTTP 上报协议和采集记录格式
 │   ├── analyze/ # 分析语料、筛选和 analysis.json 格式
-│   └── report/ # 分析结果输入和双格式报告
+│   └── report/ # 分析结果输入、配置默认值与双格式报告
 ├── integration/ # 可独立选取的供给方接入材料
 │   └── <provider>/ # 某一个供给方的图、说明和联调脚本
 └── architectures/ # 内部设计和模块职责
-    ├── code-layout.md # 源码模块、命令与调用关系
+    ├── code-layout.md # 源码模块、独立配置契约与命令调用关系
     ├── deployment.md # 外部采集入口与报告产物流向
     ├── doc-layout.md # 文档树及职责边界
     ├── index.md # 二进制及共有架构入口

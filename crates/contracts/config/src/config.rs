@@ -46,6 +46,42 @@ pub trait Config: Sized {
     }
 
     #[doc(hidden)]
+    fn prepare_defaults(
+        _input: &dyn toml_edit::TableLike,
+        _defaults: &mut dyn toml_edit::TableLike,
+    ) {
+    }
+
+    #[doc(hidden)]
+    fn recognizes_field(_key: &str) -> bool {
+        true
+    }
+
+    #[doc(hidden)]
+    fn collect_unknown_in_field(_key: &str, _item: &Item, _path: &str, _unknown: &mut Vec<String>) {
+    }
+
+    #[doc(hidden)]
+    fn collect_unknown_fields(
+        table: &dyn toml_edit::TableLike,
+        prefix: &str,
+        unknown: &mut Vec<String>,
+    ) {
+        for (key, item) in table.iter() {
+            let path = if prefix.is_empty() {
+                key.to_owned()
+            } else {
+                format!("{prefix}.{key}")
+            };
+            if Self::recognizes_field(key) {
+                Self::collect_unknown_in_field(key, item, &path, unknown);
+            } else {
+                unknown.push(path);
+            }
+        }
+    }
+
+    #[doc(hidden)]
     fn add_toml_comments(&self, _table: &mut Table) {}
 }
 
@@ -67,7 +103,10 @@ pub trait RootConfig: Config {
         let mut document = document.unwrap_or_default();
         let (config, state) = parse_config_at::<Self>(document.as_table(), locator)?;
         if !exists || state == ConfigState::Dirty {
-            *navigate_mut(document.as_table_mut(), locator)? = config.try_to_toml_table()?;
+            let table = navigate_mut(document.as_table_mut(), locator)?;
+            let mut defaults = config.try_to_toml_table()?;
+            Self::prepare_defaults(table, &mut defaults);
+            crate::derive_support::fill_missing_fields(table, &defaults);
             write_document(path, &document, exists)?;
         }
         Ok(config)
@@ -97,7 +136,15 @@ fn parse_config_at<C: Config>(
     locator: &[&str],
 ) -> Result<(C, ConfigState), ConfigError> {
     match navigate(table, locator)? {
-        Some(table) => C::parse_toml_table(table),
+        Some(table) => {
+            let parsed = C::parse_toml_table(table)?;
+            let mut unknown = Vec::new();
+            C::collect_unknown_fields(table, &locator.join("."), &mut unknown);
+            for path in unknown {
+                eprintln!("warning: unknown configuration field `{path}` (ignored)");
+            }
+            Ok(parsed)
+        }
         None => {
             let (config, _) = C::parse_toml_table(&Table::new())?;
             Ok((config, ConfigState::Dirty))

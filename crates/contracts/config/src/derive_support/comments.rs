@@ -65,10 +65,10 @@ fn add_field_comment(table: &mut Table, name: &str, docs: &str) {
         return;
     }
     match table.get_mut(name) {
-        Some(Item::Table(child)) => child.decor_mut().set_prefix(docs),
+        Some(Item::Table(child)) => child.decor_mut().set_prefix(format!("\n{docs}")),
         Some(Item::ArrayOfTables(children)) => {
             if let Some(first) = children.get_mut(0) {
-                first.decor_mut().set_prefix(docs);
+                first.decor_mut().set_prefix(format!("\n{docs}"));
             }
         }
         Some(Item::Value(_)) => {

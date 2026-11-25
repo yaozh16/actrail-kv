@@ -2,7 +2,7 @@
 
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex, MutexGuard},
 };
 
@@ -29,10 +29,8 @@ const SCHEMA: &str = "
 ";
 
 pub(super) struct SqliteStore {
-    path: PathBuf,
+    config: SqliteConfig,
     writer: Option<Arc<Mutex<Connection>>>,
-    retention: Option<RetentionConfig>,
-    delete_batch_size: u32,
 }
 
 impl SqliteStore {
@@ -80,12 +78,7 @@ impl SqliteStore {
                 None
             }
         };
-        let store = Self {
-            path: config.path,
-            writer,
-            retention: config.retention,
-            delete_batch_size: config.delete_batch_size.get(),
-        };
+        let store = Self { config, writer };
         if access == StoreAccess::ReadWrite {
             store.prune()?;
         }
@@ -93,7 +86,7 @@ impl SqliteStore {
     }
 
     pub(super) fn prune(&self) -> Result<(), StorageError> {
-        let Some(config) = self.retention else {
+        let Some(config) = self.config.retention_policy() else {
             return Ok(());
         };
         let writer = self.writer.as_ref().ok_or(StorageError::ReadOnly)?;
@@ -103,9 +96,9 @@ impl SqliteStore {
                 "DELETE FROM captures WHERE id IN (
                     SELECT id FROM captures WHERE captured_at < ? ORDER BY captured_at LIMIT ?
                 )",
-                params![cutoff, self.delete_batch_size],
+                params![cutoff, self.config.delete_batch_size().get()],
             )?;
-            if count < self.delete_batch_size as usize {
+            if count < self.config.delete_batch_size().get() as usize {
                 return Ok(());
             }
         }
@@ -116,7 +109,7 @@ impl CaptureStore for SqliteStore {
     fn append(&self, record: CapturedRequest) -> BoxFuture<'_, Result<(), StorageError>> {
         Box::pin(async move {
             let writer = self.writer.as_ref().ok_or(StorageError::ReadOnly)?.clone();
-            let retention = self.retention;
+            let retention = self.config.retention_policy();
             tokio::task::spawn_blocking(move || {
                 let captured_at = capture_time(&record.captured_at)?;
                 let record_json = serde_json::to_string(&record)?;
@@ -135,8 +128,8 @@ impl CaptureStore for SqliteStore {
     }
 
     fn scan(&self, filter: CaptureFilter) -> BoxFuture<'_, Result<CaptureStream, StorageError>> {
-        let path = self.path.clone();
-        let retention = self.retention;
+        let path = self.config.path.clone();
+        let retention = self.config.retention_policy();
         Box::pin(scan_blocking(move |writer| {
             scan_rows(&path, filter, retention, writer)
         }))

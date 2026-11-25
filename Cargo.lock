@@ -7,10 +7,12 @@ name = "actrail-kv-analyze"
 version = "0.1.0"
 dependencies = [
  "actrail-kv-analyzer",
+ "actrail-kv-receiver",
  "actrail-kv-settings",
  "actrail-kv-storage",
  "anyhow",
  "clap",
+ "config-contract",
  "serde",
  "tokio",
 ]
@@ -20,7 +22,9 @@ name = "actrail-kv-analyzer"
 version = "0.1.0"
 dependencies = [
  "actrail-kv-artifacts",
+ "analysis-contract",
  "anyhow",
+ "config-contract",
  "futures-util",
  "hex",
  "proptest",
@@ -37,6 +41,7 @@ dependencies = [
 name = "actrail-kv-artifacts"
 version = "0.1.0"
 dependencies = [
+ "analysis-contract",
  "serde",
  "serde_json",
 ]
@@ -49,6 +54,7 @@ dependencies = [
  "actrail-kv-storage",
  "anyhow",
  "clap",
+ "config-contract",
  "futures-util",
  "serde",
  "serde_json",
@@ -64,6 +70,7 @@ dependencies = [
  "actrail-kv-storage",
  "anyhow",
  "axum",
+ "config-contract",
  "serde",
  "serde_json",
  "tempfile",
@@ -83,6 +90,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "config-contract",
  "serde",
  "tokio",
 ]
@@ -93,8 +101,10 @@ version = "0.1.0"
 dependencies = [
  "actrail-kv-reporter",
  "actrail-kv-settings",
+ "analysis-contract",
  "anyhow",
  "clap",
+ "report-contract",
  "serde",
 ]
 
@@ -103,8 +113,10 @@ name = "actrail-kv-reporter"
 version = "0.1.0"
 dependencies = [
  "actrail-kv-artifacts",
+ "analysis-contract",
  "anyhow",
  "askama",
+ "report-contract",
  "same-file",
  "serde_json",
  "tempfile",
@@ -115,10 +127,10 @@ name = "actrail-kv-settings"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "config-contract",
  "fs2",
  "same-file",
  "serde",
- "serde_json",
  "tempfile",
 ]
 
@@ -127,6 +139,7 @@ name = "actrail-kv-storage"
 version = "0.1.0"
 dependencies = [
  "actrail-kv-artifacts",
+ "config-contract",
  "fs2",
  "futures-util",
  "rusqlite",
@@ -137,6 +150,15 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
+]
+
+[[package]]
+name = "analysis-contract"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "config-contract",
+ "serde",
 ]
 
 [[package]]
@@ -952,6 +974,14 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "report-contract"
+version = "0.1.1"
+dependencies = [
+ "config-contract",
+ "serde",
+]
 
 [[package]]
 name = "rusqlite"

@@ -7,7 +7,7 @@ use std::{
 };
 
 use actrail_kv_artifacts::{
-    AnalysisOptionsSnapshot, AnalysisResult, AnalysisRunSummary, CapturedRequest, ComparisonGroup,
+    AnalysisResult, AnalysisRunSummary, CapturedRequest, ComparisonGroup,
     ContextDefect as ArtifactContextDefect, RequestTemplate as ArtifactTemplate, SkipRecord,
     SourceLocation as ArtifactSource, StableSpan as ArtifactStableSpan,
     TemplateSlot as ArtifactSlot, ANALYSIS_SCHEMA_VERSION,
@@ -17,33 +17,29 @@ use futures_util::stream::Stream;
 
 use crate::{
     cache_metrics::compute_cache_metrics,
-    diagnosis::{diagnose_template, DiagnosisOptions},
+    diagnosis::diagnose_template,
     discovery::{
-        candidate::{CandidateBuilder, CandidateOptions},
-        template::{RequestTemplate, TemplateExtractor, TemplateOptions},
+        candidate::CandidateBuilder,
+        template::{RequestTemplate, TemplateExtractor},
     },
     model::{
-        corpus::{CorpusLoadLimits, CorpusLoadResult, CorpusLoader, CorpusSkip, ReportSelection},
-        projection::{ProjectionLimits, ProjectionSkip, RequestProjector},
+        corpus::{CorpusLoadResult, CorpusLoader, CorpusSkip, ReportSelection},
+        projection::{ProjectionSkip, RequestProjector},
     },
     ranking::rank_defects,
     session::{analyze_reports, request_potential_by_request, summarize_prefix_reuse, SessionRow},
 };
 
-use super::AnalysisOptions;
+use super::AnalyzeConfig;
 
-pub fn analyze_file(
-    input: &Path,
-    output: &Path,
-    options: AnalysisOptions,
-) -> Result<AnalysisResult> {
+pub fn analyze_file(input: &Path, output: &Path, options: AnalyzeConfig) -> Result<AnalysisResult> {
     analyze_file_with_selection(input, output, options, &ReportSelection::default())
 }
 
 pub fn analyze_file_with_selection(
     input: &Path,
     output: &Path,
-    options: AnalysisOptions,
+    options: AnalyzeConfig,
     selection: &ReportSelection,
 ) -> Result<AnalysisResult> {
     ensure_distinct_paths(input, output)?;
@@ -63,7 +59,7 @@ pub fn analyze_file_with_selection(
     Ok(result)
 }
 
-pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result<AnalysisResult> {
+pub fn analyze_reader<R: BufRead>(reader: R, options: AnalyzeConfig) -> Result<AnalysisResult> {
     options.validate()?;
     let loaded = corpus_loader(&options)
         .load(reader)
@@ -74,7 +70,7 @@ pub fn analyze_reader<R: BufRead>(reader: R, options: AnalysisOptions) -> Result
 pub async fn analyze_captures<S, E>(
     records: S,
     output: &Path,
-    options: AnalysisOptions,
+    options: AnalyzeConfig,
 ) -> Result<AnalysisResult>
 where
     S: Stream<Item = Result<CapturedRequest, E>>,
@@ -86,7 +82,7 @@ where
 pub async fn analyze_captures_with_selection<S, E>(
     records: S,
     output: &Path,
-    options: AnalysisOptions,
+    options: AnalyzeConfig,
     selection: &ReportSelection,
 ) -> Result<AnalysisResult>
 where
@@ -106,24 +102,15 @@ where
     Ok(result)
 }
 
-fn corpus_loader(options: &AnalysisOptions) -> CorpusLoader {
-    CorpusLoader::new(CorpusLoadLimits {
-        max_record_bytes: options.max_payload_bytes,
-        max_records: options.max_records,
-    })
+fn corpus_loader(options: &AnalyzeConfig) -> CorpusLoader {
+    CorpusLoader::new(options.corpus.clone())
 }
 
-fn analyze_loaded(loaded: CorpusLoadResult, options: AnalysisOptions) -> Result<AnalysisResult> {
+fn analyze_loaded(loaded: CorpusLoadResult, options: AnalyzeConfig) -> Result<AnalysisResult> {
     let input_records = loaded.corpus.records.len() + loaded.skipped.len();
     let cache_metrics = compute_cache_metrics(&loaded.corpus.records);
     let mut skips: Vec<SkipRecord> = loaded.skipped.iter().map(corpus_skip).collect();
-    let projector = RequestProjector::new(
-        ProjectionLimits {
-            max_units: options.max_projection_units,
-            max_text_unit_bytes: options.max_text_unit_bytes,
-        },
-        options.comparison_window_seconds,
-    );
+    let projector = RequestProjector::new(options.projection.clone());
     let mut sequences = Vec::new();
     let mut sequence_records = Vec::new();
     for record in &loaded.corpus.records {
@@ -155,13 +142,7 @@ fn analyze_loaded(loaded: CorpusLoadResult, options: AnalysisOptions) -> Result<
         })
         .collect();
     let session_reports = analyze_reports(session_rows);
-    let candidate_result = CandidateBuilder::new(CandidateOptions {
-        compatibility_threshold: options.template_compatibility_threshold,
-        max_dynamic_coverage_ratio: options.max_dynamic_coverage_ratio,
-        min_members: options.min_template_members,
-        max_candidates_per_request: options.max_candidates_per_request,
-    })
-    .build(sequences);
+    let candidate_result = CandidateBuilder::new(options.candidate.clone()).build(sequences);
     let mut limitations =
         vec!["结构代理：未使用 tokenizer、模型内部 chat template 或真实 KV 命中数据".to_owned()];
     limitations.extend(candidate_result.skipped.iter().map(|skip| {
@@ -174,30 +155,22 @@ fn analyze_loaded(loaded: CorpusLoadResult, options: AnalysisOptions) -> Result<
             skip.reason
         )
     }));
-    let extraction = TemplateExtractor::new(TemplateOptions {
-        stable_support_ratio: options.stable_span_support_ratio,
-        min_stable_support: options.min_stable_support,
-        min_stable_span_bytes: options.min_exact_anchor_bytes,
-        max_alignment_cells: options.max_alignment_cells,
-        max_total_alignment_cells: options.max_total_alignment_cells,
-    })
-    .extract(candidate_result.cohorts);
+    let extraction = TemplateExtractor::new(options.template.clone(), options.stability.clone())
+        .extract(candidate_result.cohorts);
     limitations.extend(extraction.skipped.iter().map(|skip| {
         format!(
             "template cohort {} skipped: {}",
             skip.cohort_id, skip.reason
         )
     }));
-    let diagnosis_options = DiagnosisOptions {
-        min_stable_support: options.min_stable_support,
-        stable_support_rate: options.stable_span_support_ratio,
-        fixed_variant_max: options.fixed_variant_max,
-        min_blocked_bytes: options.min_blocked_stable_bytes,
-        min_anchor_bytes: options.min_exact_anchor_bytes,
-    };
+
     let mut candidates = Vec::new();
     for template in &extraction.templates {
-        candidates.extend(diagnose_template(template, &diagnosis_options));
+        candidates.extend(diagnose_template(
+            template,
+            &options.diagnosis,
+            &options.stability,
+        ));
     }
     let ranked = rank_defects(candidates, options.top_k);
     let prefix_reuse = summarize_prefix_reuse(
@@ -237,7 +210,7 @@ fn analyze_loaded(loaded: CorpusLoadResult, options: AnalysisOptions) -> Result<
             input_records,
             analyzed_records,
             skipped_records: skips,
-            options: options_snapshot(&options),
+            options: options.clone(),
             limitations,
         },
         templates,
@@ -252,7 +225,7 @@ fn analyze_loaded(loaded: CorpusLoadResult, options: AnalysisOptions) -> Result<
 fn template_to_artifact(
     template: &RequestTemplate,
     template_defects: &[&ArtifactContextDefect],
-    options: &AnalysisOptions,
+    options: &AnalyzeConfig,
 ) -> ArtifactTemplate {
     let mut member_request_ids: Vec<_> = template
         .members
@@ -299,8 +272,8 @@ fn template_to_artifact(
         prefix_view: crate::prefix_view::build_prefix_view(
             template,
             template_defects,
-            options.prefix_view_max_nodes,
-            options.prefix_view_excerpt_bytes,
+            options.prefix_view.max_nodes,
+            options.prefix_view.excerpt_bytes,
         ),
     }
 }
@@ -330,31 +303,6 @@ fn comparison_group(domain: &crate::model::projection::ComparisonDomain) -> Comp
         agent_key: domain.agent_key.clone(),
         model_deployment_key: domain.model_deployment_key.clone(),
         kv_namespace: domain.kv_namespace.clone(),
-    }
-}
-
-fn options_snapshot(options: &AnalysisOptions) -> AnalysisOptionsSnapshot {
-    AnalysisOptionsSnapshot {
-        top_k: options.top_k,
-        comparison_window_seconds: options.comparison_window_seconds,
-        min_template_members: options.min_template_members,
-        stable_span_support_ratio: options.stable_span_support_ratio,
-        min_stable_support: options.min_stable_support,
-        fixed_variant_max: options.fixed_variant_max,
-        min_blocked_stable_bytes: options.min_blocked_stable_bytes,
-        min_exact_anchor_bytes: options.min_exact_anchor_bytes,
-        text_similarity_threshold: options.text_similarity_threshold,
-        template_compatibility_threshold: options.template_compatibility_threshold,
-        max_dynamic_coverage_ratio: options.max_dynamic_coverage_ratio,
-        max_candidates_per_request: options.max_candidates_per_request,
-        max_projection_units: options.max_projection_units,
-        max_text_unit_bytes: options.max_text_unit_bytes,
-        max_payload_bytes: options.max_payload_bytes,
-        max_alignment_cells: options.max_alignment_cells,
-        max_total_alignment_cells: options.max_total_alignment_cells,
-        max_records: options.max_records,
-        prefix_view_max_nodes: options.prefix_view_max_nodes,
-        prefix_view_excerpt_bytes: options.prefix_view_excerpt_bytes,
     }
 }
 

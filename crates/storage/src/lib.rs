@@ -10,8 +10,13 @@ use futures_util::{future::BoxFuture, stream::BoxStream};
 use thiserror::Error;
 
 pub use backends::{open_legacy_ndjson, open_store, AppendError, NdjsonAppender, StoreAccess};
-pub use config::{NdjsonConfig, RetentionConfig, SqliteConfig, StorageConfig};
+pub use config::{
+    NdjsonConfig, NdjsonRetentionConfig, SqliteConfig, SqliteRetentionConfig,
+    StorageBackendConfigs, StorageBackendKind, StorageConfig, StorageRetentionConfig,
+};
 pub use filter::CaptureFilter;
+
+pub(crate) use config::RetentionConfig;
 
 pub type CaptureStream = BoxStream<'static, Result<CapturedRequest, StorageError>>;
 

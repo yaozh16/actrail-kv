@@ -60,11 +60,11 @@ run/
 conf/
 data/
 captures/
-settings.json
-.settings.json.lock
-storage.json
-sqlite.json
-ndjson.json
+settings.toml
+.settings.toml.lock
+storage.toml
+sqlite.toml
+ndjson.toml
 requests.ndjson
 exported.ndjson
 analysis.json
