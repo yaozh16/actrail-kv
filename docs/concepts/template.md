@@ -297,7 +297,7 @@ S1 不同会使公共前缀在此停止，后面的 T7 无法进入更长的共�
 | S1 挡住后续 T7 | `defects[].blocked_stable_bytes`、`defects[].insights[]` | 被阻断的稳定内容和优化启示。 |
 | 优先处理项 | `top_k[]` | 排序后的 defect ID。 |
 
-`templates[]` 回答“哪些请求和内容具有共同结构”；`defects[]` 回答“共同结构中哪里出现了 `P1 / X / P2`”；`top_k[]` 回答“先看哪个问题”。完整字段参考见 [Analyze 输出](../architectures/analyze/output.md)，抽取过程见 [Analyze 流水线](../architectures/analyze/pipeline.md)。
+`templates[]` 回答“哪些请求和内容具有共同结构”；`defects[]` 回答“共同结构中哪里出现了 `P1 / X / P2`”；`top_k[]` 回答“先看哪个问题”。完整字段参考见 [Analyze 输出](../reference/analyze/output.md)。
 
 ## 边界
 

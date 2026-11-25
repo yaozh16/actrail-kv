@@ -1,28 +1,41 @@
 [workspace]
 resolver = "2"
 members = [
-    "artifacts",
-    "receiver",
-    "analyzer",
-    "reporter",
-    "cmd/receiver",
-    "cmd/analyze",
-    "cmd/report",
+    "crates/contracts/analysis",
+    "crates/contracts/report",
+    "crates/contracts/config",
+    "crates/contracts/config/derive",
+    "crates/artifacts",
+    "crates/storage",
+    "crates/settings",
+    "crates/receiver",
+    "crates/analyzer",
+    "crates/reporter",
+    "crates/cmd/receiver",
+    "crates/cmd/analyze",
+    "crates/cmd/export",
+    "crates/cmd/report",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
-license = "Apache-2.0"
+license = "MulanPSL-2.0"
 
 [workspace.dependencies]
-actrail-kv-artifacts = { path = "artifacts" }
-actrail-kv-receiver = { path = "receiver" }
-actrail-kv-analyzer = { path = "analyzer" }
-actrail-kv-reporter = { path = "reporter" }
+report-contract = { path = "crates/contracts/report" }
+analysis-contract = { path = "crates/contracts/analysis" }
+config-contract = { path = "crates/contracts/config" }
+actrail-kv-artifacts = { path = "crates/artifacts" }
+actrail-kv-storage = { path = "crates/storage" }
+actrail-kv-settings = { path = "crates/settings" }
+actrail-kv-receiver = { path = "crates/receiver" }
+actrail-kv-analyzer = { path = "crates/analyzer" }
+actrail-kv-reporter = { path = "crates/reporter" }
 anyhow = "1.0"
 axum = "0.8"
 clap = { version = "4.5", features = ["derive"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 hex = "0.4"
 proptest = "1.7"
 serde = { version = "1.0", features = ["derive"] }
@@ -32,7 +45,7 @@ sha2 = "0.10"
 tempfile = "3.20"
 thiserror = "2.0"
 time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
-tokio = { version = "1.47", features = ["macros", "net", "rt-multi-thread", "signal", "sync"] }
+tokio = { version = "1.47", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tower = { version = "0.5", features = ["util"] }
 
 [workspace.lints.rust]

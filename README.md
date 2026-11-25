@@ -20,7 +20,7 @@
 | **定位复用障碍** | 找出过早出现的动态内容、模板版本漂移、等价数据表示差异和消息或工具顺序变化 |
 | **确定排查优先级** | 综合被阻断的稳定内容大小、受影响请求数和证据置信度，优先展示值得处理的问题 |
 | **查看证据与建议** | 生成 HTML / Markdown 报告，展示具体差异、后续稳定内容和对应的调整方向 |
-| **独立接入与分析** | 通过 Receiver 收集请求，或直接分析已有语料；可对接 AcTrail、网关或插桩组件 |
+| **独立接入与分析** | 通过 Receiver 接收供给方上报，或直接分析已有语料 |
 
 ## 为什么需要
 
@@ -44,16 +44,19 @@ P2：Read the repository before editing. Run tests after every change.
 
 ## 部署交互视图
 
-![actrail-kv 部署交互视图](docs/architectures/assets/deployment-view.png)
+```text
+数据供给方 → Receiver → 采集记录 → Analyze → analysis.json → Report
+```
 
-可通过 [AcTrail](https://gitcode.com/openeuler/AcTrail) 采集请求，也可使用网关或插桩组件接入。
+观测组件、代理网关和其他供给方均可通过同一 [HTTP 接收协议](docs/reference/receiver/input.md) 上报。
 
-`actrail-kv` 自身由三个可以独立运行的二进制组成：
+`actrail-kv` 提供独立运行的采集、分析、导出与报告命令。
 
 | 二进制 | 做什么 | 产物 |
 |---|---|---|
-| `actrail-kv-receiver` | 接收上游导出的完整 LLM HTTP JSON 请求 | `requests.ndjson` |
+| `actrail-kv-receiver` | 接收上游导出的完整 LLM HTTP JSON 请求 | SQLite 或 NDJSON 采集存储 |
 | `actrail-kv-analyze` | 抽取模板，定位并聚合上下文结构缺陷 | `analysis.json` |
+| `actrail-kv-export` | 按会话和日期范围导出采集记录 | NDJSON |
 | `actrail-kv-report` | 把分析结果转换成可以直接阅读的 HTML 与 GFM Markdown | `report.html`、`report.md` |
 
 Receiver 可以持续运行；Analyze 和 Report 可以按需执行，也可以放进定时任务。已有符合输入协议的语料时，可以从 Analyze 直接开始。
@@ -68,13 +71,10 @@ cargo build --release --workspace --bins
 demo_output="$(mktemp -d)"
 
 target/release/actrail-kv-analyze \
-  --input examples/quickstart/requests.ndjson \
-  --output "$demo_output/analysis.json" \
-  --top-k 20
+  --config "$demo_output/settings.toml" \
+  --input examples/quickstart/requests.ndjson
 
-target/release/actrail-kv-report \
-  --input "$demo_output/analysis.json" \
-  --output "$demo_output/report.html"
+target/release/actrail-kv-report --config "$demo_output/settings.toml"
 
 echo "$demo_output/report.html"
 echo "$demo_output/report.md"
@@ -87,15 +87,15 @@ echo "$demo_output/report.md"
 
 ## 接入自己的请求
 
-启动 Receiver：
+启动 Receiver。
 
 ```bash
-target/release/actrail-kv-receiver \
-  --listen 127.0.0.1:8080 \
-  --output requests.ndjson
+target/release/actrail-kv-receiver
 ```
 
-上游组件把实际发往模型 API 的完整 JSON body 原样提交到 `/requests`。下面只展示最小调用方式；生产环境通常由 Actrail Plugin、网关或插桩组件完成这一步。
+四个命令默认共用 `~/.actrail/actrail-kv/settings.toml`，缺少的默认值会写回文件。可通过 `--config <path>` 共用另一份设置。默认监听 `127.0.0.1:8080` 并写入 SQLite，后续 Analyzer、Export 和 Report 可直接使用同一份设置。 [配置参考](docs/configuration.md#统一设置)
+
+供给方把实际发往模型 API 的完整 JSON body 原样提交到 `/requests`。最小上报命令如下。
 
 ```bash
 curl --fail-with-body \
@@ -106,7 +106,7 @@ curl --fail-with-body \
   http://127.0.0.1:8080/requests
 ```
 
-`X-Actrail-Endpoint-Key` 告诉分析器哪些请求来自同一个逻辑入口。Agent、模型部署和真实 KV namespace 也可以作为可选分组维度，避免比较本来就不会共享缓存的请求。完整 Header 和落盘格式见 [Receiver 输入](docs/architectures/receiver/input.md)与 [Receiver 输出](docs/architectures/receiver/output.md)。
+`X-Actrail-Endpoint-Key` 告诉分析器哪些请求来自同一个逻辑入口。Agent、模型部署和真实 KV namespace 也可以作为可选分组维度，避免比较本来就不会共享缓存的请求。完整 Header 和落盘格式见 [Receiver 输入](docs/reference/receiver/input.md)与 [Receiver 输出](docs/reference/receiver/output.md)。
 
 积累一段时间的请求后，使用与示例相同的 Analyze、Report 命令生成报告即可。
 
@@ -146,13 +146,12 @@ MVP 面向 OpenAI-compatible chat payload：请求需要包含字符串 `model` 
 
 ## 继续阅读
 
-- [部署交互视图](docs/architectures/deployment.md)：两种采集链路和三个二进制如何协作。
+- [部署指南](docs/deployment/fullchain-deployment-guide.md)说明构建、接收验证、报告和复制布局。
 - [什么是请求模板](docs/concepts/template.md)：模板、稳定片段、槽位和请求实例之间的关系。
 - [什么是上下文结构缺陷](docs/concepts/context_defect.md)：`P1 / X / P2` 的判定方式和反例。
-- [分析流水线](docs/architectures/analyze/pipeline.md)：从语料分组到 Top K 的完整过程。
-- [报告数据结构](docs/architectures/analyze/output.md)：`analysis.json` 字段、引用关系和示例。
+- [报告数据结构](docs/reference/analyze/output.md)说明 `analysis.json` 字段、引用关系和示例。
 - [配置参考](docs/configuration.md)：CLI 参数、资源预算与部署设置。
-- [架构索引](docs/architectures/index.md)：Receiver、Analyze、Report 的全部输入输出契约。
+- [接口参考](docs/reference/index.md)汇总 Receiver、Analyze 和 Report 的输入输出契约。
 
 完整请求和报告都可能包含客户代码、对话、工具参数及其他敏感信息。请把 Receiver 限制在受控网络内，
 并让 `requests.ndjson`、`analysis.json`、`report.html` 和 `report.md` 遵循同一套内网数据分级、

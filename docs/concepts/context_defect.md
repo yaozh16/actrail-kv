@@ -48,4 +48,4 @@ request ID、trace ID、session ID、tenant、用户输入和其他高频变化�
 | 差异不进入模型上下文 | 只有 temperature、trace metadata 或 HTTP 外层 JSON 格式不同 | 模型可见内容没有变化 | 无 | 否 |
 | 内容看似相似，但无法可靠对应 | 重复工具身份、歧义 block 或只有文本相似度 | 无法证明同一位置、同一元素或稳定 `P2` | 不给出结构归因 | 否 |
 
-模板和槽位的详细说明见[请求模板](template.md)，具体分析步骤见 [Analyze 流水线](../architectures/analyze/pipeline.md)，报告字段见 [Analyze 输出](../architectures/analyze/output.md)。
+模板和槽位见[请求模板](template.md)，报告字段见 [Analyze 输出](../reference/analyze/output.md)。
