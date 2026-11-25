@@ -67,7 +67,7 @@ actrail-kv/
 │   │
 │   ├── storage/src/                                   # 采集存储接口、后端配置和扫描筛选
 │   │   ├── lib.rs                                     # CaptureStore、CaptureStream 和 StorageError
-│   │   ├── config.rs                                  # 后端选择、专属配置、保留期和输出位置保护
+│   │   ├── config.rs                                  # StorageBackendKind 类别选择、专属配置、保留期和输出位置保护
 │   │   ├── filter.rs                                  # session 等值和 UTC 半开区间
 │   │   ├── runtime.rs                                 # 有背压流式扫描与周期清理
 │   │   └── backends/

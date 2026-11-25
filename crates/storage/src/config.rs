@@ -29,7 +29,7 @@ struct StorageFile {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StorageSelection {
-    backend: Backend,
+    backend: StorageBackendKind,
     retention: Option<SharedRetention>,
     backends: BackendConfigs,
 }
@@ -40,9 +40,10 @@ struct SharedRetention {
     max_age_seconds: Option<NonZeroU32>,
 }
 
+/// 配置选择的存储后端类别。
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Backend {
+enum StorageBackendKind {
     Sqlite,
     Ndjson,
 }
@@ -65,11 +66,11 @@ impl TryFrom<StorageFile> for StorageConfig {
         } = file.storage;
         let default_age = retention.and_then(|retention| retention.max_age_seconds);
         match backend {
-            Backend::Sqlite => backends
+            StorageBackendKind::Sqlite => backends
                 .sqlite
                 .map(|file| Self::Sqlite(file.resolve(default_age)))
                 .ok_or_else(|| missing_backend("sqlite")),
-            Backend::Ndjson => backends
+            StorageBackendKind::Ndjson => backends
                 .ndjson
                 .map(|file| Self::Ndjson(file.resolve(default_age)))
                 .ok_or_else(|| missing_backend("ndjson")),

@@ -1,6 +1,8 @@
 ```text
 README.md # 项目定位、核心能力、快速试用与文档入口
 docs/ # 项目当前状态的文档
+├── architecture/
+│   └── config-layout.md [x] # 迁移目标配置项、业务结构体、默认值和必填条件
 ├── configuration.md # 统一设置、CLI 覆盖、资源预算与部署参数
 ├── deployment/
 │   └── fullchain-deployment-guide.md # actrail-kv 自身部署和统一接收协议的验证
