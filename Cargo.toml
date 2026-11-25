@@ -1,8 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/contracts/config",
+    "crates/contracts/config/derive",
     "crates/artifacts",
     "crates/storage",
+    "crates/settings",
     "crates/receiver",
     "crates/analyzer",
     "crates/reporter",
@@ -18,8 +21,10 @@ edition = "2021"
 license = "MulanPSL-2.0"
 
 [workspace.dependencies]
+config-contract = { path = "crates/contracts/config" }
 actrail-kv-artifacts = { path = "crates/artifacts" }
 actrail-kv-storage = { path = "crates/storage" }
+actrail-kv-settings = { path = "crates/settings" }
 actrail-kv-receiver = { path = "crates/receiver" }
 actrail-kv-analyzer = { path = "crates/analyzer" }
 actrail-kv-reporter = { path = "crates/reporter" }

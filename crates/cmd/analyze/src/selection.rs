@@ -6,6 +6,22 @@ use actrail_kv_analyzer::run::{CaptureTimeRange, ReportSelection};
 use actrail_kv_storage::CaptureFilter;
 use anyhow::Result;
 use clap::Args;
+use serde::{Deserialize, Serialize};
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SelectionSettings {
+    session_keys: Vec<String>,
+    time_ranges: Vec<TimeRangeSettings>,
+    last_n: Option<NonZeroUsize>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TimeRangeSettings {
+    from: Option<String>,
+    until: Option<String>,
+}
 
 #[derive(Debug, Args)]
 pub(crate) struct SelectionArgs {
@@ -27,12 +43,28 @@ pub(crate) struct SelectionArgs {
 }
 
 impl SelectionArgs {
-    pub(crate) fn into_filters(self) -> Result<(ReportSelection, CaptureFilter)> {
+    pub(crate) fn into_filters(
+        self,
+        settings: SelectionSettings,
+    ) -> Result<(ReportSelection, CaptureFilter)> {
+        let sessions = if self.session_key.is_empty() {
+            settings.session_keys
+        } else {
+            self.session_key
+        };
         let mut ranges = self.time_range;
         if self.from.is_some() || self.until.is_some() {
             ranges.push(bounds(self.from.as_deref(), self.until.as_deref())?);
+        } else if ranges.is_empty() {
+            for range in settings.time_ranges {
+                anyhow::ensure!(
+                    range.from.is_some() || range.until.is_some(),
+                    "analyzer.selection.time_ranges needs a from or until bound"
+                );
+                ranges.push(bounds(range.from.as_deref(), range.until.as_deref())?);
+            }
         }
-        let session = match self.session_key.as_slice() {
+        let session = match sessions.as_slice() {
             [session] => Some(session.clone()),
             _ => None,
         };
@@ -44,7 +76,7 @@ impl SelectionArgs {
             ranges.iter().filter_map(CaptureTimeRange::until).max()
         };
         Ok((
-            ReportSelection::new(self.session_key, ranges, self.last_n),
+            ReportSelection::new(sessions, ranges, self.last_n.or(settings.last_n)),
             CaptureFilter::new(session, from, until)?,
         ))
     }

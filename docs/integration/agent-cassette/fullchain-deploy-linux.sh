@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full-chain deploy/manager for agent-cassette + actrail-kv (Linux one-click).
-# Kept inside actrail-kv/docs/deployment; defaults assume sibling agent-cassette repo.
+# The default agent-cassette checkout is next to the actrail-kv component.
 #
 # 职责边界：
 #   --init   启动/复用录制链（receiver + agent-cassette），输出 agent 接入所需环境变量
@@ -13,10 +13,11 @@ set -euo pipefail
 
 # ============================ 可覆盖配置区 ============================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_ROOT="$(cd "$SCRIPT_DIR/../../.." 2>/dev/null && pwd || echo "$HOME/kv")"
-KV_ROOT="${KV_ROOT:-$DEFAULT_ROOT}"
+COMPONENT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+ACTRAIL_REPO="${ACTRAIL_REPO:-${KV_ROOT:+$KV_ROOT/actrail-kv}}"
+ACTRAIL_REPO="${ACTRAIL_REPO:-$COMPONENT_ROOT}"
+KV_ROOT="${KV_ROOT:-$(dirname "$COMPONENT_ROOT")}"
 CASSETTE_REPO="${CASSETTE_REPO:-$KV_ROOT/agent-cassette}"
-ACTRAIL_REPO="${ACTRAIL_REPO:-$KV_ROOT/actrail-kv}"
 DOC_ROOT="${DOC_ROOT:-$HOME/doc}"
 
 # 已配好的 agent-cassette 配置（真实上游 + recorder.actrail 均已配好；脚本只读）
@@ -72,26 +73,7 @@ EOF
   exit "${1:-0}"
 }
 
-# conf_get <section> <key> —— 极简 TOML 取值
-conf_get() {
-  python3 - "$CASSETTE_CONF" "$1" "$2" <<'PYEOF'
-import re, sys
-path, section, key = sys.argv[1], sys.argv[2], sys.argv[3]
-cur = None
-for raw in open(path, encoding="utf-8"):
-    line = raw.strip()
-    if line.startswith("[") and line.endswith("]"):
-        cur = line[1:-1].strip()
-        continue
-    if cur != section:
-        continue
-    m = re.match(r'^' + re.escape(key) + r'\s*=\s*(.*)$', line)
-    if m:
-        val = m.group(1).strip()
-        print(val.strip('"').strip("'"))
-        break
-PYEOF
-}
+source "$SCRIPT_DIR/linux/config.sh"
 
 port_of() {
   python3 - "$1" <<'PYEOF'

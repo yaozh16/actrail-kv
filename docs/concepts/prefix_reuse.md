@@ -100,5 +100,5 @@
 上下文刷新时下降。
 
 模板与缺陷的详细说明见[请求模板](template.md)与[上下文结构缺陷](context_defect.md)，
-字段协议见 [Analyze 输出](../architectures/analyze/output.md)，
-展示细节见 [Report 输出](../architectures/report/output.md)。
+字段协议见 [Analyze 输出](../reference/analyze/output.md)，
+展示细节见 [Report 输出](../reference/report/output.md)。

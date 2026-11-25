@@ -20,10 +20,14 @@ function Get-EnvOrDefault([string]$name, [string]$fallback) {
     return $fallback
 }
 
-$KVRootDefault = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
-$KVRoot     = Get-EnvOrDefault 'KV_ROOT'     $KVRootDefault
+$ComponentRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
+$KVRoot = Get-EnvOrDefault 'KV_ROOT' (Split-Path $ComponentRoot -Parent)
 $CassetteRepo = Get-EnvOrDefault 'CASSETTE_REPO' (Join-Path $KVRoot 'agent-cassette')
-$ActrailRepo  = Get-EnvOrDefault 'ACTRAIL_REPO'  (Join-Path $KVRoot 'actrail-kv')
+$ActrailRepoDefault = $ComponentRoot
+if ($env:KV_ROOT) {
+    $ActrailRepoDefault = Join-Path $KVRoot 'actrail-kv'
+}
+$ActrailRepo = Get-EnvOrDefault 'ACTRAIL_REPO' $ActrailRepoDefault
 $DocRoot      = Get-EnvOrDefault 'DOC_ROOT'      (Join-Path $KVRoot 'doc')
 $CassetteConf = Get-EnvOrDefault 'CASSETTE_CONF' (Join-Path $KVRoot 'conf\agent-cassette.toml')
 

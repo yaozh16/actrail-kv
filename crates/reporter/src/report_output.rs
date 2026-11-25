@@ -47,7 +47,7 @@ pub(crate) fn write_reports(
     write_atomic_set(&rendered)
 }
 
-fn report_paths(output: &Path, format: Option<ReportFormat>) -> Vec<(ReportFormat, PathBuf)> {
+pub fn report_paths(output: &Path, format: Option<ReportFormat>) -> Vec<(ReportFormat, PathBuf)> {
     if let Some(format) = format {
         return vec![(format, output.to_path_buf())];
     }

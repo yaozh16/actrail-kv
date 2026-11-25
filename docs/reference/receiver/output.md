@@ -19,4 +19,4 @@
 {"captured_at":"2026-09-02T08:09:10Z","source":"agent-hook","comparison":{"endpoint_key":"llm-primary","agent_key":"coding-agent"},"payload":{"model":"example","messages":[{"role":"user","content":"你好"}]}}
 ```
 
-`--output` 模式由一个 Receiver 进程独占文件。托管 NDJSON 模式按时间和大小轮转，一条记录始终完整写入一个分片。Analyzer 和导出器通过同一存储接口遍历已配置的后端。见[采集存储架构](../storage/index.md)。
+`--output` 模式由一个 Receiver 进程独占文件。托管 NDJSON 模式按时间和大小轮转，一条记录始终完整写入一个分片。Analyzer 和导出器通过同一存储接口遍历已配置的后端。见[采集存储配置](../../configuration.md#采集存储)。

@@ -8,6 +8,7 @@ use std::{
 };
 
 use serde::Deserialize;
+use serde_json::{json, Value};
 use time::{Duration, OffsetDateTime};
 
 use crate::StorageError;
@@ -36,7 +37,7 @@ struct StorageSelection {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SharedRetention {
-    max_age_seconds: NonZeroU32,
+    max_age_seconds: Option<NonZeroU32>,
 }
 
 #[derive(Deserialize)]
@@ -62,7 +63,7 @@ impl TryFrom<StorageFile> for StorageConfig {
             retention,
             backends,
         } = file.storage;
-        let default_age = retention.map(|retention| retention.max_age_seconds);
+        let default_age = retention.and_then(|retention| retention.max_age_seconds);
         match backend {
             Backend::Sqlite => backends
                 .sqlite
@@ -115,7 +116,7 @@ impl SqliteFile {
             ),
             delete_batch_size: settings
                 .delete_batch_size
-                .unwrap_or_else(|| NonZeroU32::new(256).unwrap()),
+                .unwrap_or_else(default_delete_batch_size),
         }
     }
 }
@@ -193,16 +194,52 @@ impl RetentionConfig {
 }
 
 impl StorageConfig {
+    pub fn settings_defaults() -> Value {
+        json!({
+            "backend": "sqlite",
+            "retention": { "max_age_seconds": null },
+            "backends": {
+                "sqlite": {
+                    "path": "captures.sqlite",
+                    "retention": {
+                        "max_age_seconds": null,
+                        "cleanup_interval_seconds": default_cleanup_seconds(),
+                        "delete_batch_size": default_delete_batch_size()
+                    }
+                },
+                "ndjson": {
+                    "directory": "captures",
+                    "segment_seconds": default_segment_seconds(),
+                    "max_segment_bytes": default_segment_bytes(),
+                    "retention": {
+                        "max_age_seconds": null,
+                        "cleanup_interval_seconds": default_cleanup_seconds(),
+                        "max_segments_per_cleanup": null
+                    }
+                }
+            }
+        })
+    }
+
+    pub fn from_settings_section(value: Value, directory: &Path) -> Result<Self, StorageError> {
+        let storage: StorageSelection = serde_json::from_value(value)?;
+        Self::try_from(StorageFile { storage })?.resolve_paths(directory)
+    }
+
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         let path = path.as_ref();
         let raw = fs::read(path)?;
-        let mut config: Self = serde_json::from_slice(&raw)?;
+        let config: Self = serde_json::from_slice(&raw)?;
         let relative_to = path.parent().unwrap_or_else(|| Path::new("."));
-        match &mut config {
+        config.resolve_paths(relative_to)
+    }
+
+    fn resolve_paths(mut self, relative_to: &Path) -> Result<Self, StorageError> {
+        match &mut self {
             Self::Sqlite(config) => resolve_path(&mut config.path, relative_to)?,
             Self::Ndjson(config) => resolve_path(&mut config.directory, relative_to)?,
         }
-        Ok(config)
+        Ok(self)
     }
 
     pub fn validate_output(&self, config_file: &Path, output: &Path) -> Result<(), StorageError> {
@@ -292,4 +329,8 @@ fn default_segment_bytes() -> NonZeroU64 {
 
 fn default_cleanup_seconds() -> NonZeroU32 {
     NonZeroU32::new(60).unwrap()
+}
+
+fn default_delete_batch_size() -> NonZeroU32 {
+    NonZeroU32::new(256).unwrap()
 }

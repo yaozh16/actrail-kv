@@ -280,7 +280,7 @@ fn parse_record(record: Value, input_line: usize) -> Result<CorpusRecord, Corpus
 
 /// 解析 payload 保留字段 `_actrail_response_usage`。
 ///
-/// 约定（见 `docs/architectures/receiver/input.md`）：
+/// 约定见 `docs/reference/receiver/input.md`。
 /// - `prompt_tokens` 与 `input_tokens` 是同一字段的两种写法，都表示**总输入**（含命中部分）；
 /// - `completion_tokens` 与 `output_tokens` 同理；
 /// - `ttft_ms` / `total_ms` 缺失时为 `None`，不按 0 处理；

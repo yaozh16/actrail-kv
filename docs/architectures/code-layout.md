@@ -17,7 +17,7 @@ actrail-kv-report --input ./data/analysis.json --output ./data/report.html
 # 默认生成 report.html 与 report.md；可用 --format html|md 只生成一种
 ```
 
-项目定位、核心能力与快速试用见[项目首页](../../README.md)，运行参数见[配置参考](../configuration.md)，组件输入输出见[架构入口](index.md)。
+项目定位、核心能力与快速试用见[项目首页](../../README.md)，运行参数见[配置参考](../configuration.md)，组件输入输出见[接口参考](../reference/index.md)。
 
 ## 当前源码树
 
@@ -33,6 +33,22 @@ actrail-kv/
 │   │   ├── export/src/main.rs                         # 扫描已配置存储并导出 NDJSON
 │   │   └── report/src/main.rs                         # 将 analysis.json 渲染为 HTML
 │   │
+│   ├── contracts/                                    # 按消费方和依赖边界组织契约 crate
+│   │   └── config/
+│   │       ├── Cargo.toml                             # TOML 配置契约的独立包
+│   │       ├── derive/                                # Config 派生宏包
+│   │       │   ├── Cargo.toml
+│   │       │   └── src/
+│   │       │       ├── lib.rs                         # 生成 Config 实现并提取字段注释
+│   │       │       └── deserialize.rs                 # 生成基于 Serde 的业务类型解析
+│   │       └── src/
+│   │           ├── lib.rs                            # 导出配置接口、派生宏和 TOML Table
+│   │           ├── config.rs                         # Config、RootConfig、备份和原子写回
+│   │           └── derive_support/
+│   │               ├── mod.rs                        # 连接 Serde 与 TOML 文档模型
+│   │               ├── comments.rs                   # 在已序列化的键和表上递归附加注释
+│   │               └── state.rs                      # 检测需要写回的缺省字段
+│   │
 │   ├── artifacts/src/                                 # 命令共享的采集记录和分析产物协议
 │   │   ├── captured_request.rs                        # CapturedRequest、显式 ComparisonMetadata
 │   │   ├── analysis_result.rs                         # AnalysisResult、template、统一 ContextDefect、Top K ID
@@ -47,6 +63,7 @@ actrail-kv/
 │   │   ├── config.rs                                  # ReceiverConfig：listen/max_payload_bytes JSON 读写
 │   │   ├── http_receiver.rs                           # POST /requests、metadata headers、captured_at
 │   │   └── lib.rs                                     # receiver library API
+│   ├── settings/src/lib.rs                            # 统一设置加载、缺失字段合并及原子写回
 │   │
 │   ├── storage/src/                                   # 采集存储接口、后端配置和扫描筛选
 │   │   ├── lib.rs                                     # CaptureStore、CaptureStream 和 StorageError
@@ -171,8 +188,13 @@ actrail-kv/
     ├── unit/                                    # 按 crate 和模块归档的单元测试
     ├── integration/                             # 由所属 crate 清单注册的集成测试
     │   ├── analyzer/                            # 语料回归、验收、属性和规模测试
+    │   ├── contracts/
+    │   │   ├── config.rs                        # 手写配置契约与写回行为
+    │   │   └── config/derive.rs                 # 业务配置派生、递归注释和读写行为
+    │   ├── settings/                            # 并发补全和保留用户值
     │   └── storage/                             # 后端选择、轮转、筛选和清理
     └── end_to_end/
+        ├── shared_settings.sh                   # 共享设置和默认路径的完整流程
         └── three_binaries.sh                    # 真实 receiver→analyze→report、确定性与 XSS 验收
 ```
 

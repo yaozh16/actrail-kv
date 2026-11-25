@@ -13,7 +13,7 @@ use anyhow::Result;
 pub use html_report_renderer::{render_html, render_html_with_locale};
 pub use locale::{Locale, LocaleFactory, LocaleSnapshot};
 pub use markdown_report_renderer::{render_markdown, render_markdown_with_locale};
-pub use report_output::ReportFormat;
+pub use report_output::{report_paths, ReportFormat};
 pub use result_loader::load_result;
 
 /// 从 analysis.json 生成一个原子写入的静态 HTML 报告。
