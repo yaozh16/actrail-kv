@@ -46,24 +46,32 @@ pub fn analyze_file_with_selection(
     let file = File::open(input)
         .with_context(|| format!("failed to open captured requests {}", input.display()))?;
     let reader = BufReader::new(file);
-    let result = if selection.is_all() {
-        analyze_reader(reader, options)?
-    } else {
-        options.validate()?;
-        let loaded = corpus_loader(&options)
-            .load_selected(reader, selection)
-            .context("failed to select captured requests")?;
-        analyze_loaded(loaded, options)?
-    };
+    let result = analyze_reader_with_selection(reader, options, selection)?;
     write_atomic_json(output, &result)?;
     Ok(result)
 }
 
 pub fn analyze_reader<R: BufRead>(reader: R, options: AnalyzeConfig) -> Result<AnalysisResult> {
+    analyze_reader_with_selection(reader, options, &ReportSelection::default())
+}
+
+/// 在内存中分析所选语料，不发布文件。
+pub fn analyze_reader_with_selection<R: BufRead>(
+    reader: R,
+    options: AnalyzeConfig,
+    selection: &ReportSelection,
+) -> Result<AnalysisResult> {
     options.validate()?;
-    let loaded = corpus_loader(&options)
-        .load(reader)
-        .context("failed to read captured requests")?;
+    let loader = corpus_loader(&options);
+    let loaded = if selection.is_all() {
+        loader
+            .load(reader)
+            .context("failed to read captured requests")?
+    } else {
+        loader
+            .load_selected(reader, selection)
+            .context("failed to select captured requests")?
+    };
     analyze_loaded(loaded, options)
 }
 
@@ -89,6 +97,21 @@ where
     S: Stream<Item = Result<CapturedRequest, E>>,
     E: std::error::Error + Send + Sync + 'static,
 {
+    let result = analyze_capture_stream_with_selection(records, options, selection).await?;
+    write_atomic_json(output, &result)?;
+    Ok(result)
+}
+
+/// 从持久存储快照筛选并计算分析结果，不创建中间文件。
+pub async fn analyze_capture_stream_with_selection<S, E>(
+    records: S,
+    options: AnalyzeConfig,
+    selection: &ReportSelection,
+) -> Result<AnalysisResult>
+where
+    S: Stream<Item = Result<CapturedRequest, E>>,
+    E: std::error::Error + Send + Sync + 'static,
+{
     options.validate()?;
     let loader = corpus_loader(&options);
     let loaded = if selection.is_all() {
@@ -97,9 +120,7 @@ where
         loader.load_selected_captures(records, selection).await
     }
     .context("failed to scan captured requests")?;
-    let result = analyze_loaded(loaded, options)?;
-    write_atomic_json(output, &result)?;
-    Ok(result)
+    analyze_loaded(loaded, options)
 }
 
 fn corpus_loader(options: &AnalyzeConfig) -> CorpusLoader {

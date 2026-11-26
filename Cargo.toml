@@ -15,10 +15,16 @@ members = [
     "crates/cmd/analyze",
     "crates/cmd/export",
     "crates/cmd/report",
+    "crates/sdk/native/contracts",
+    "crates/sdk/native/runtime",
+    "crates/sdk/native/receiver",
+    "crates/sdk/native/analyzer",
+    "crates/sdk/native/reporter",
+    "crates/sdk/rust",
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MulanPSL-2.0"
 

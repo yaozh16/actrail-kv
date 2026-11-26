@@ -1,7 +1,7 @@
 <!-- 本文件索引 0.2.0 的动态库、Rust SDK 和 Receiver 通道拆分设计。 -->
 # 0.2.0 设计索引
 
-状态：需求与设计已记录，业务实现待开始。
+状态：动态库、Rust SDK、公共采集服务和内存产物交接已实现。
 
 ## 设计文档
 
@@ -24,3 +24,13 @@
 ## 实现约束
 
 新增代码按能力分层，文件超过 500 行时按职责拆分。每个代码文件开头说明职责。公共构造入口使用 Factory，配置整体透传。只在 ABI 与加载边界引入必要的 unsafe，复用现有存储、分析、渲染和配置框架。
+
+## 实现与验证
+
+- 三份动态库分别为 `libactrail_receiver.so`、`libactrail_analyzer.so` 和 `libactrail_reporter.so`。
+- Rust 宿主只依赖 SDK 和轻量 ABI 契约，业务核心留在动态库内。
+- `cargo test --release --workspace --no-fail-fast`：159 项测试通过，包含真实动态库持久化、内存交接、来源保护和关闭生命周期。
+- `tests/end_to_end/sdk_upgrade.sh`：同一宿主加载兼容更新的 C ABI 实现，宿主哈希保持不变，不兼容 ABI 与缺失符号被拒绝。
+- `tests/end_to_end/three_binaries.sh` 与 `tests/end_to_end/shared_settings.sh`：CLI 文件流程和共享配置回归通过。
+- SDK 六个 package 的 `cargo clippy --no-deps --release --all-targets -- -D warnings` 检查通过。
+- 使用入口见[原生 SDK 说明](../../../docs/reference/sdk/index.md)，完整示例位于 `crates/sdk/rust/examples/sdk_pipeline.rs`。

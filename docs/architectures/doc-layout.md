@@ -12,6 +12,8 @@ docs/ # 项目当前状态的文档
 │   └── prefix_reuse.md # 结构复用率、可恢复上界及其口径边界
 ├── reference/ # 公共接口和产物契约
 │   ├── index.md # 命令接口入口
+│   ├── sdk/ [x] # 原生动态库与 Rust SDK 使用说明
+│   │   └── index.md [x] # 构建、内存数据流、配置、所有权与独立升级
 │   ├── receiver/ # HTTP 上报协议和采集记录格式
 │   ├── analyze/ # 分析语料、筛选和 analysis.json 格式
 │   └── report/ # 分析结果输入、配置默认值与双格式报告

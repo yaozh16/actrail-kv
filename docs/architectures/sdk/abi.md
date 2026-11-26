@@ -1,7 +1,7 @@
 <!-- 本文件定义 0.2.0 C ABI 的数据传递、所有权、生命周期和兼容设计。 -->
 # C ABI 与兼容契约
 
-状态：0.2.0 待实现设计。ABI 首个主版本为 1，与业务版本 0.2.0 分别管理。正式函数声明和 C 头文件在实现阶段依据本文生成并验证。
+状态：0.2.0 已实现契约。ABI 首个主版本为 1，与业务版本 0.2.0 分别管理。公开声明见 `crates/sdk/native/contracts/include/actrail.h`，跨语言布局通过 C 实现与 Rust 宿主集成验证。
 
 ## 基础类型与入口
 
@@ -31,6 +31,8 @@
 `create` 失败时句柄输出为空。每个返回响应的函数先将输出初始化为空，再写入结果。空输出表示没有响应内存需要回收。有效句柄传给 `destroy` 后始终视为已消费，包括关闭返回错误的情况。
 
 ABI 状态码区分参数或 JSON 错误、配置错误、业务输入错误、存储或 I/O 错误、分析或渲染失败、内部失败。具体数值在首版头文件中固定，发布后不复用。SDK 保留未知非零状态码及原始错误内容。
+
+首版状态码固定为 0 成功、1 参数或 JSON 错误、2 配置错误、3 采集业务输入错误、4 存储或 I/O 错误、5 分析或渲染失败、6 内部失败。声明见[公开头文件](../../../crates/sdk/native/contracts/include/actrail.h)。
 
 ## JSON 数据契约
 
@@ -68,6 +70,10 @@ Reporter 的 `render` 分别接收完整分析成功响应和渲染参数 JSON�
 
 Reporter 返回包含格式及内容的结果，Rust SDK 封装为 `ReportOutput`。HTML 与 Markdown 作为成功响应 `data` 内的 JSON 字符串返回。`analyze` 与 `render` 均仅返回内存产物，大结果的流式接口留待实际需求扩展。
 
+报告响应的 `data.reports` 为数组，每项包含 `format` 和 `content`。未指定格式且实例配置也未指定时返回 HTML 和 Markdown 两项。多格式导出参数需提供 `format`，单格式结果可省略。
+
+分析和报告响应的可选 `source` 字段记录文件输入或已解析存储配置。reporter 原样继承分析来源，显式导出复用输入与存储路径保护。该元数据属于 SDK 响应信封，导出的分析文件只保留现有分析产物 schema。
+
 analyzer 与 reporter 各自导出 `export`，由输出对象的 `export(path)` 调用。导出参数包含 schema 版本和绝对目标路径，SDK 将相对路径按输出对象保留的 `base_dir` 解析。分析导出仅写响应的 `data` 分析对象，报告导出写解码后的 HTML 或 Markdown 正文，两者均不写入 SDK 响应信封。导出失败保留内存输出，文件发布沿用临时文件和原子替换规则。
 
 配置以 JSON 对象中的 `config_toml` 字段整体传入。库内复用已有 TOML 配置契约，避免重新维护一套 JSON 配置默认值。该文本采用完整设置文档的表结构，receiver 读取 `[storage]`，analyzer 读取 `[analyzer]` 和需要的 `[storage]`，reporter 读取 `[report]`。其余模块的表不触发对应模块初始化。HTTP 监听设置仍归 CLI 与 HTTP 通道。创建接口不自动读取或写回宿主用户目录下的设置文件。
@@ -79,6 +85,8 @@ SDK 的 `analyze` 不使用 `[analyzer].output` 自动写文件，`render` 不�
 Rust SDK 提供类型化请求、结果和实例接口，同时允许整体传入原始配置文本。可扩展 JSON 对象保留未知字段，尤其完整分析产物必须能在 analyzer 与 reporter 之间无损转交。类型化解码不删除宿主当前版本尚不认识的分析字段。
 
 SDK 的分析结果封装保留原始 JSON，同时提供已知字段的类型化访问，不直接使用含 `deny_unknown_fields` 的完整业务类型解码新结果。此能力仅保障无损转交。现有 reporter 对分析产物及其 schema 采用严格校验，因此 0.2.0 的兼容算法升级须继续输出既有分析产物 schema。涉及产物字段增加或 schema 变化的发布须明确升级 reporter，不能仅凭 C ABI 一致宣称可独立替换。
+
+分析请求的 `selection` 只覆盖显式字段。`last_n` 缺省时继承实例配置，JSON `null` 清除限制，正整数设置新的上限。Rust SDK 使用 `RecordLimit` 表达这三种情况。
 
 ## 内存与调用责任
 

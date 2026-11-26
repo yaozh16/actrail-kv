@@ -43,7 +43,11 @@ impl RetentionConfig {
 }
 
 impl ResolvedStorageConfig {
-    pub fn validate_output(&self, config_file: &Path, output: &Path) -> Result<(), StorageError> {
+    pub fn validate_output(
+        &self,
+        config_file: Option<&Path>,
+        output: &Path,
+    ) -> Result<(), StorageError> {
         let output_path = match output.canonicalize() {
             Ok(path) => path,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -58,10 +62,12 @@ impl ResolvedStorageConfig {
             }
             Err(error) => return Err(error.into()),
         };
-        if same_file_if_exists(config_file, &output_path)? {
-            return Err(StorageError::InvalidConfig(
-                "output overlaps with the storage configuration".into(),
-            ));
+        if let Some(config_file) = config_file {
+            if same_file_if_exists(config_file, &output_path)? {
+                return Err(StorageError::InvalidConfig(
+                    "output overlaps with the storage configuration".into(),
+                ));
+            }
         }
         let overlaps = match self {
             Self::Ndjson(config) => output_path.starts_with(config.directory.canonicalize()?),

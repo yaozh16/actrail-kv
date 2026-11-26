@@ -90,7 +90,12 @@ impl StorageConfig {
     pub fn validate_output(&self, config_file: &Path, output: &Path) -> Result<(), StorageError> {
         self.clone()
             .into_backend()?
-            .validate_output(config_file, output)
+            .validate_output(Some(config_file), output)
+    }
+
+    /// 校验内存配置来源的导出目标，不假定存在配置文件。
+    pub fn validate_output_path(&self, output: &Path) -> Result<(), StorageError> {
+        self.clone().into_backend()?.validate_output(None, output)
     }
 
     pub(crate) fn into_backend(self) -> Result<ResolvedStorageConfig, StorageError> {

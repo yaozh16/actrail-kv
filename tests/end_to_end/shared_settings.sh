@@ -16,7 +16,7 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$repo_dir"
-cargo build -q --workspace --bins >"$test_dir/build.log" 2>&1 || { tail -n 30 "$test_dir/build.log" >&2; exit 1; }
+cargo build -q --release --workspace --bins >"$test_dir/build.log" 2>&1 || { tail -n 30 "$test_dir/build.log" >&2; exit 1; }
 
 settings="$test_dir/project/settings.toml"
 mkdir -p "$(dirname "$settings")"
@@ -26,7 +26,7 @@ future_setting = true
 [future_service]
 enabled = true
 TOML
-target/debug/actrail-kv-receiver --config "$settings" --listen 127.0.0.1:0 \
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-receiver" --config "$settings" --listen 127.0.0.1:0 \
   2>"$test_dir/receiver.log" &
 receiver_pid=$!
 for _ in $(seq 1 100); do
@@ -75,11 +75,11 @@ future_bound = true
 locale = "en-US"
 TOML
 
-target/debug/actrail-kv-analyze --config "$settings" 2>"$test_dir/analyze.log"
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-analyze" --config "$settings" 2>"$test_dir/analyze.log"
 grep -Fq 'warning: unknown configuration field `analyzer.options.corpus.future_limit`' "$test_dir/analyze.log"
 grep -Fq 'warning: unknown configuration field `analyzer.selection.time_ranges[0].future_bound`' "$test_dir/analyze.log"
-target/debug/actrail-kv-export --config "$settings"
-target/debug/actrail-kv-report --config "$settings"
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-export" --config "$settings"
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-report" --config "$settings"
 
 jq -e '.run.input_records == 1 and .run.options.corpus.max_records == 9 and .run.schema_version == "0.1.1"' "$test_dir/project/selected.json" >/dev/null
 test "$(wc -l < "$test_dir/project/exported.ndjson")" -eq 2

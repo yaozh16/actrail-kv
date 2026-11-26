@@ -17,9 +17,9 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$repo_dir"
-cargo build -q --workspace --bins >"$test_dir/build.log" 2>&1 || { tail -n 30 "$test_dir/build.log" >&2; exit 1; }
+cargo build -q --release --workspace --bins >"$test_dir/build.log" 2>&1 || { tail -n 30 "$test_dir/build.log" >&2; exit 1; }
 
-target/debug/actrail-kv-receiver --config "$settings_file" \
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-receiver" --config "$settings_file" \
   --listen 127.0.0.1:0 \
   --output "$test_dir/requests.ndjson" \
   2>"$test_dir/receiver.log" &
@@ -58,28 +58,28 @@ kill -TERM "$receiver_pid"
 wait "$receiver_pid"
 receiver_pid=""
 
-target/debug/actrail-kv-analyze --config "$settings_file" \
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-analyze" --config "$settings_file" \
   --input "$test_dir/requests.ndjson" \
   --output "$test_dir/analysis.json" \
   --top-k 3
-target/debug/actrail-kv-analyze --config "$settings_file" \
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-analyze" --config "$settings_file" \
   --input "$test_dir/requests.ndjson" \
   --output "$test_dir/analysis-repeat.json" \
   --top-k 3
 cmp "$test_dir/analysis.json" "$test_dir/analysis-repeat.json"
-target/debug/actrail-kv-report --config "$settings_file" \
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-report" --config "$settings_file" \
   --input "$test_dir/analysis.json" \
   --output "$test_dir/report.html"
 [[ -f "$test_dir/report.html" ]]
 [[ -f "$test_dir/report.md" ]]
 
-target/debug/actrail-kv-report --config "$settings_file" \
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-report" --config "$settings_file" \
   --input "$test_dir/analysis.json" \
   --output "$test_dir/report-en.html" \
   --locale en-US
 [[ -f "$test_dir/report-en.html" ]]
 [[ -f "$test_dir/report-en.md" ]]
-if target/debug/actrail-kv-report --config "$settings_file" \
+if "${CARGO_TARGET_DIR:-target}/release/actrail-kv-report" --config "$settings_file" \
   --input "$test_dir/analysis.json" \
   --output "$test_dir/report-unsupported.html" \
   --locale fr-FR >/dev/null 2>&1; then
@@ -87,14 +87,14 @@ if target/debug/actrail-kv-report --config "$settings_file" \
   exit 1
 fi
 
-target/debug/actrail-kv-report --config "$settings_file" \
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-report" --config "$settings_file" \
   --input "$test_dir/analysis.json" \
   --output "$test_dir/report-only.md" \
   --format md
 [[ -f "$test_dir/report-only.md" ]]
 [[ ! -e "$test_dir/report-only.html" ]]
 
-target/debug/actrail-kv-report --config "$settings_file" \
+"${CARGO_TARGET_DIR:-target}/release/actrail-kv-report" --config "$settings_file" \
   --input "$test_dir/analysis.json" \
   --output "$test_dir/report-html-only.html" \
   --format html

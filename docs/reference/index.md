@@ -7,3 +7,7 @@
 | `actrail-kv-analyze` | [分析语料与筛选](analyze/input.md) | [分析结果](analyze/output.md) |
 | `actrail-kv-export` | [采集存储配置](../configuration.md#采集存储) | [采集记录格式](receiver/output.md) |
 | `actrail-kv-report` | [分析结果输入](report/input.md) | [HTML 与 Markdown 报告](report/output.md) |
+
+## 原生 SDK
+
+[原生动态库与 Rust SDK](sdk/index.md)提供构建、直接调用、显式导出与独立升级说明。

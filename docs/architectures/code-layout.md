@@ -65,22 +65,48 @@ actrail-kv/
 │   │   │   └── run_summary.rs # 运行摘要、参数快照与 skip 协议
 │   │   └── lib.rs # 公共 DTO re-export
 │   │
-│   ├── receiver/src/ # 最小接收端；不依赖 analyzer
-│   │   ├── config.rs # ReceiverConfig 字段、默认值和校验
-│   │   ├── config/settings.rs # 业务入口配置与嵌套设置
-│   │   ├── http_receiver.rs # 当前 HTTP 处理入口，0.2.0 将业务逻辑与通道适配拆分
-│   │   ├── contracts/ [ ] # 0.2.0 公共采集输入、回执、错误、服务接口与 CaptureFactory
-│   │   ├── service/ [ ] # 0.2.0 通道无关校验、元数据归一化、记录构造与写入
-│   │   ├── channels/ [ ] # 0.2.0 输入通道适配
-│   │   │   └── http/ [ ] # 请求解码、header 提取、请求体限制与 HTTP 响应映射
-│   │   └── lib.rs # receiver library API
-│   ├── sdk/ [ ] # 0.2.0 动态交付与安全调用边界，架构见 sdk/index.md
-│   │   ├── native/ [ ] # C ABI 动态库及轻量基础契约
-│   │   │   ├── contracts/ [ ] # ABI 基础类型、版本和错误约定
-│   │   │   ├── receiver/ [ ] # 采集动态库，调用公共采集服务并管理运行时
-│   │   │   ├── analyzer/ [ ] # 按需筛选存储、返回内存分析结果与显式导出
-│   │   │   └── reporter/ [ ] # 直接接收分析数据、内存报告与显式导出、实例级语言配置
-│   │   └── rust/ [ ] # 类型化门面、AnalysisOutput 与 ReportOutput、缓冲区借用及资源回收
+│   ├── receiver/src/ # 持久采集服务与 HTTP 通道，不依赖 analyzer
+│   │   ├── config.rs # HTTP 配置字段、默认值和校验
+│   │   ├── config/settings.rs # CLI 文件配置入口
+│   │   ├── contracts/mod.rs [x] # CaptureRequest、已校验 CaptureInput、回执、错误与 CaptureFactory
+│   │   ├── service/mod.rs [x] # 生成采集时间并等待后端写入
+│   │   ├── channels/ [x] # 输入通道适配
+│   │   │   ├── mod.rs # 通道模块入口
+│   │   │   └── http/mod.rs # HTTP 解码、header 提取、字节限制与响应映射
+│   │   └── lib.rs # 公共 API 与兼容路由入口
+│   ├── sdk/ [x] # 0.2.0 C ABI 动态交付与 Rust 安全调用
+│   │   ├── native/ # 原生动态库及公共边界支持
+│   │   │   ├── contracts/ # 固定 C 布局、版本与响应信封
+│   │   │   │   ├── src/lib.rs # Buffer、函数签名、Response 与 ErrorDetail
+│   │   │   │   └── include/actrail.h # C/C++ 公开函数和内存约定
+│   │   │   ├── runtime/src/ # 公共原生执行和资源管理
+│   │   │   │   ├── lib.rs # 版本化 JSON 请求入口
+│   │   │   │   ├── boundary.rs # 指针、句柄、响应分配与 panic 边界
+│   │   │   │   ├── worker.rs # 专用线程、实例与 Tokio 生命周期
+│   │   │   │   ├── config.rs # 内存 TOML 配置与路径基准
+│   │   │   │   ├── error.rs # 稳定状态码和错误详情
+│   │   │   │   ├── exports.rs # 共用 C ABI 生命周期符号
+│   │   │   │   ├── source.rs # 采集存储和文件来源保护
+│   │   │   │   └── output.rs # 显式原子导出
+│   │   │   ├── receiver/src/lib.rs # 公共采集服务的 C ABI 门面
+│   │   │   ├── analyzer/src/ # 存储筛选、内存分析与显式导出
+│   │   │   │   ├── lib.rs # 原生分析入口与来源记录
+│   │   │   │   └── selection.rs # 按次配置覆盖、粗筛和精筛转换
+│   │   │   └── reporter/src/lib.rs # 直接渲染、实例语言及报告导出
+│   │   └── rust/ # 不链接业务核心的安全 SDK
+│   │       ├── src/
+│   │       │   ├── lib.rs # 对外模块和类型重导出
+│   │       │   ├── contracts/mod.rs # SdkConfig、SdkError
+│   │       │   ├── receiver/contracts/mod.rs # 持久采集类型与 ReceiverFactory
+│   │       │   ├── analyzer/contracts/mod.rs # 筛选、AnalysisOutput 与 AnalyzerFactory
+│   │       │   ├── reporter/contracts/mod.rs # 渲染、ReportOutput 与 ReporterFactory
+│   │       │   └── loader/ # ABI 加载和所有权
+│   │       │       ├── mod.rs # 动态符号与版本检查
+│   │       │       ├── instance.rs # 独占实例和显式关闭
+│   │       │       └── output.rs # 原始响应借用、释放及显式导出
+│   │       └── examples/ # 可运行宿主示例
+│   │           ├── sdk_pipeline.rs # 采集到内存报告的完整调用
+│   │           └── sdk_probe.rs # 独立动态库升级验证宿主
 │   ├── settings/src/ # 共享配置文件访问
 │   │   ├── lib.rs # ConfigFile 按 locator 读取、锁定并写回
 │   │   └── document.rs # 补齐缺项并保留用户值和注释
@@ -161,14 +187,14 @@ actrail-kv/
 │   │   │   ├── lineage.rs # 会话时间线、上下文刷新与相邻对分类
 │   │   │   └── reuse.rs # 结构复用率汇总与可恢复上界
 │   │   ├── run/
-│   │   │   ├── pipeline.rs # 文件/reader 编排、artifact 映射与原子输出
+│   │   │   ├── pipeline.rs # 内存分析计算、artifact 映射与 CLI 原子输出包装
 │   │   │   └── mod.rs
 │   │   └── lib.rs
 │   │
 │   └── reporter/ # 读取 analysis.json 并渲染报告
 │       ├── src/
 │       │   ├── config.rs # 重导出报告配置契约
-│       │   ├── result_loader.rs # schema、引用、成员、P2、score、Top K 强校验
+│       │   ├── result_loader.rs # 内存/文件统一加载和 schema、引用、P2、score 校验
 │       │   ├── html_report_renderer/
 │       │   │   ├── mod.rs # Askama 根模板渲染入口
 │       │   │   ├── template.rs # 编译期嵌入的 HTML 根模板
@@ -182,7 +208,7 @@ actrail-kv/
 │       │   │       └── prefix_tree.rs # 前缀树、成员衰减与 SVG 坐标
 │       │   ├── locale/ # 全局 locale 工厂、快照与 namespace 子表
 │       │   │   ├── mod.rs # Locale、namespace 常量与公共 API
-│       │   │   ├── factory.rs # 初始化、切换和当前 locale 快照
+│       │   │   ├── factory.rs # 全局语言兼容入口与独立实例语言快照
 │       │   │   ├── registry.rs # locale/namespace/key 注册与完整校验
 │       │   │   ├── snapshot.rs # 不可变快照、模块句柄与 format
 │       │   │   └── catalogs/ # zh-CN / en-US 文案子表
@@ -215,11 +241,16 @@ actrail-kv/
     │   ├── contracts/
     │   │   ├── config.rs # 手写配置契约与写回行为
     │   │   └── config/derive.rs # 业务配置派生、递归注释和读写行为
+    │   ├── sdk/ # 原生 SDK 集成测试
+    │   │   ├── native.rs # 真实动态库持久采集、内存交接与输出生命周期
+    │   │   └── worker_lifecycle.rs # panic 隔离和后台运行时关闭
     │   ├── settings/ # 并发补全和保留用户值
     │   └── storage/ # 后端选择、轮转、筛选和清理
+    ├── fixtures/sdk/abi_fixture.c # 按公开头文件实现的兼容升级测试库
     └── end_to_end/
+        ├── sdk_upgrade.sh # 同一宿主替换库、ABI 与符号拒绝
         ├── shared_settings.sh # 共享设置和默认路径的完整流程
         └── three_binaries.sh # 真实 receiver→analyze→report、确定性与 XSS 验收
 ```
 
-状态：`[ ]` 待开始，`[/]` 修改中，`[x]` 完成，`[-]` 待删除或待迁移走。无标记节点为现有代码，0.2.0 规划节点不表示已实现。
+状态：`[ ]` 待开始，`[/]` 修改中，`[x]` 完成，`[-]` 待删除或待迁移走。无标记节点为现有代码。

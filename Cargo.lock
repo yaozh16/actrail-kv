@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "actrail-kv-analyze"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "actrail-kv-analyzer",
  "actrail-kv-receiver",
@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-analyzer"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "actrail-kv-artifacts",
  "analysis-contract",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-artifacts"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "analysis-contract",
  "serde",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-export"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "actrail-kv-settings",
  "actrail-kv-storage",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-receiver"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "actrail-kv-artifacts",
  "actrail-kv-storage",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-receiver-bin"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "actrail-kv-receiver",
  "actrail-kv-settings",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-report"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "actrail-kv-reporter",
  "actrail-kv-settings",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-reporter"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "actrail-kv-artifacts",
  "analysis-contract",
@@ -123,8 +123,84 @@ dependencies = [
 ]
 
 [[package]]
+name = "actrail-kv-sdk"
+version = "0.2.0"
+dependencies = [
+ "actrail-kv-sdk-contracts",
+ "libloading",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "actrail-kv-sdk-analyzer"
+version = "0.2.0"
+dependencies = [
+ "actrail-kv-analyzer",
+ "actrail-kv-sdk-contracts",
+ "actrail-kv-sdk-runtime",
+ "actrail-kv-storage",
+ "analysis-contract",
+ "anyhow",
+ "config-contract",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "actrail-kv-sdk-contracts"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "actrail-kv-sdk-receiver"
+version = "0.2.0"
+dependencies = [
+ "actrail-kv-receiver",
+ "actrail-kv-sdk-contracts",
+ "actrail-kv-sdk-runtime",
+ "actrail-kv-storage",
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "actrail-kv-sdk-reporter"
+version = "0.2.0"
+dependencies = [
+ "actrail-kv-reporter",
+ "actrail-kv-sdk-contracts",
+ "actrail-kv-sdk-runtime",
+ "anyhow",
+ "report-contract",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "actrail-kv-sdk-runtime"
+version = "0.2.0"
+dependencies = [
+ "actrail-kv-sdk-contracts",
+ "actrail-kv-storage",
+ "anyhow",
+ "config-contract",
+ "same-file",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "actrail-kv-settings"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "config-contract",
@@ -136,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-storage"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "actrail-kv-artifacts",
  "config-contract",
@@ -443,7 +519,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "config-contract"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "config-contract-derive",
  "serde",
@@ -455,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "config-contract-derive"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -763,6 +839,16 @@ name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+
+[[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
 
 [[package]]
 name = "libsqlite3-sys"

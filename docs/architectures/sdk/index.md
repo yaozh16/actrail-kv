@@ -1,7 +1,7 @@
 <!-- 本文件设计 0.2.0 原生动态库与 Rust SDK 的交付和模块边界。 -->
 # 原生动态库与 Rust SDK
 
-状态：0.2.0 待实现设计。目标是宿主编译一次，兼容动态库独立替换，重启宿主后生效。
+状态：0.2.0 已实现。目标是宿主编译一次，兼容动态库独立替换，重启宿主后生效。
 
 ## 交付结构
 
@@ -9,6 +9,7 @@
 crates/sdk/
 ├── native/
 │   ├── contracts/ # 共享 C ABI 基础类型、版本与错误约定
+│   ├── runtime/   # 公共 FFI 边界、线程执行、来源保护与原子导出
 │   ├── receiver/  # libactrail_receiver.so，采集实例与直接提交
 │   ├── analyzer/  # libactrail_analyzer.so，按需分析
 │   └── reporter/  # libactrail_reporter.so，按需渲染
@@ -61,6 +62,8 @@ Rust SDK 的主要调用顺序为 `analyzer.analyze(selection)`、`reporter.rend
 `AnalysisOutput` 持有 analyzer 返回的原始 JSON 响应缓冲区及原库所有权。reporter 的 C ABI 接受该完整成功响应和独立的渲染参数缓冲区，SDK 直接传递原响应的指针与长度，无需重编码完整分析结果。reporter 解析响应中的分析数据并执行渲染，借用在调用返回时结束。
 
 `ReportOutput` 持有 reporter 返回的结果缓冲区及原库所有权。两种输出均可在业务实例关闭后继续读取或导出，原动态库保持加载直到相关输出释放。宿主可按需读取类型化视图，视图不替换用于交接的原始字节。这种方式省去文件中转及宿主侧重复序列化，reporter 内部仍需解析和校验 JSON。
+
+格式缺省时 reporter 保留配置中的双格式语义，`ReportOutput` 可以包含 HTML 和 Markdown 两项。单格式输出直接 `export(path)`，多格式输出通过 `export_format(path, format)` 选择正文。分析和报告输出均携带来源保护信息，导出时拒绝覆盖采集存储或文件输入。
 
 0.2.0 导出的业务调用采用阻塞接口。Rust SDK 明确记录阻塞语义，异步宿主可通过自己的阻塞任务池调度。原生实现管理所需的线程与 Tokio runtime，使调用不依赖宿主 runtime，也不在宿主 Tokio 线程内直接嵌套 `block_on`。
 

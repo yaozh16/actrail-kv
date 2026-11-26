@@ -1,7 +1,7 @@
 <!-- 本文件设计 0.2.0 的公共采集服务及 HTTP、SDK 输入通道。 -->
 # Receiver 采集服务与通道
 
-状态：0.2.0 待实现设计。需求见[版本目标](../../../dev/requirements/v0.2.0/target.md)。
+状态：0.2.0 已实现。需求见[版本目标](../../../dev/requirements/v0.2.0/target.md)。
 
 ## 模块边界
 
@@ -74,7 +74,7 @@ HTTP 继续使用宿主 CLI 的 Tokio runtime 和信号处理。SDK 的运行时
 
 现有 `ReceiverConfig` 中的 HTTP 参数归 HTTP 通道使用。存储配置沿用所属模块定义，统一设置文件仍由 CLI 入口读取。SDK 接收内存配置，不执行 CLI 设置文件的缺项补齐与写回。
 
-保留现有 `router`、`router_with_limit`、`router_with_storage` 入口，通过内部工厂转接公共服务。既有调用者可继续使用原入口，新实现逐步归入 `contracts/`、`service/` 和 `channels/http/`。
+保留现有 `router`、`router_with_limit`、`router_with_storage` 入口，通过内部工厂转接公共服务。既有调用者可继续使用原入口，实现归入 `contracts/`、`service/` 和 `channels/http/`。
 
 ## 验证重点
 
