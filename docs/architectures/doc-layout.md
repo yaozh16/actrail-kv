@@ -39,6 +39,7 @@ dev/
 ├── requirements/v0.2.0/ [x] # 动态交付与多通道采集需求
 │   ├── target.md [x] # 版本目标、范围与验收条件
 │   └── decisions.md [x] # 设计决策及历史约定替代索引
+├── requirements/readme/target.md [x] # README 请求文件准备与真实采集分析命令要求
 ├── designs/<version>/ # 历史版本设计索引
 └── designs/v0.2.0/ [x] # 0.2.0 设计入口
     └── index.md [x] # 架构正文索引与实施顺序

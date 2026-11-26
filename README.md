@@ -95,7 +95,7 @@ target/release/actrail-kv-receiver
 
 四个命令默认共用 `~/.actrail/actrail-kv/settings.toml`，缺少的默认值会写回文件。可通过 `--config <path>` 共用另一份设置。默认监听 `127.0.0.1:8080` 并写入 SQLite，后续 Analyzer、Export 和 Report 可直接使用同一份设置。 [配置参考](docs/configuration.md#统一设置)
 
-供给方把实际发往模型 API 的完整 JSON body 原样提交到 `/requests`。最小上报命令如下。
+将实际发往模型 API 的完整 JSON body 原样保存为 `request.json`，再提交到 `/requests`：
 
 ```bash
 curl --fail-with-body \
@@ -108,7 +108,12 @@ curl --fail-with-body \
 
 `X-Actrail-Endpoint-Key` 告诉分析器哪些请求来自同一个逻辑入口。Agent、模型部署和真实 KV namespace 也可以作为可选分组维度，避免比较本来就不会共享缓存的请求。完整 Header 和落盘格式见 [Receiver 输入](docs/reference/receiver/input.md)与 [Receiver 输出](docs/reference/receiver/output.md)。
 
-积累一段时间的请求后，使用与示例相同的 Analyze、Report 命令生成报告即可。
+积累一段时间的请求后，使用默认共享配置分析采集记录并生成报告：
+
+```bash
+target/release/actrail-kv-analyze
+target/release/actrail-kv-report
+```
 
 ## 报告能回答什么
 
