@@ -1,7 +1,7 @@
 <!-- 本文件用 Coding Agent 的多轮请求示例解释模板及其 analysis.json 映射。 -->
 # 什么是请求模板？
 
-在 Actrail KV 中，模板是一组整体结构相近的 LLM 请求。analyzer 从完整 HTTP request payload 中自动归纳模板；它不是开发者手写的 prompt 模板，也不是模型内部 token/KV cache 条目。
+在 `actrail-kv` 中，模板是一组整体结构相近的 LLM 请求。analyzer 从完整 HTTP request payload 中自动归纳模板。它不是开发者手写的 prompt 模板，也不是模型内部 token/KV cache 条目。
 
 ## 两个 Coding Agent 请求
 

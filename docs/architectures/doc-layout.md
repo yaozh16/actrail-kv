@@ -7,7 +7,7 @@ docs/ # 项目当前状态的文档
 ├── deployment/
 │   └── fullchain-deployment-guide.md # actrail-kv 自身部署和统一接收协议的验证
 ├── concepts/ # 面向新手的稳定业务概念
-│   ├── template.md # 请求模板、稳定片段、槽位及其分析产物映射
+│   ├── template.md [x] # actrail-kv 请求模板、稳定片段、槽位及其分析产物映射
 │   ├── context_defect.md # 上下文结构缺陷、正例及非缺陷边界
 │   └── prefix_reuse.md # 结构复用率、可恢复上界及其口径边界
 ├── reference/ # 公共接口和产物契约

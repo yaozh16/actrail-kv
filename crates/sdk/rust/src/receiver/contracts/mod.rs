@@ -31,7 +31,7 @@ pub struct Receiver {
 }
 pub struct ReceiverFactory;
 impl ReceiverFactory {
-    /// 从受信任且遵守 actrail C ABI 的动态库创建持久采集实例。
+    /// 从受信任且遵守 actrail-kv C ABI 的动态库创建持久采集实例。
     pub fn create(config: SdkConfig) -> Result<Receiver> {
         Ok(Receiver {
             instance: Instance::create(config, "receiver")?,

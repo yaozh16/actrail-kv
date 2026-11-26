@@ -1,4 +1,4 @@
-/* actrail C ABI v1: borrowed JSON inputs, library-owned outputs and opaque instances. */
+/* actrail-kv C ABI v1: borrowed JSON inputs, library-owned outputs and opaque instances. */
 #ifndef ACTRAIL_H
 #define ACTRAIL_H
 #include <stddef.h>

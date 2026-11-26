@@ -12,7 +12,7 @@ use report_contract::{ReportFormat, ReportSettings};
 #[derive(Debug, Parser)]
 #[command(
     version,
-    about = "Render an Actrail KV analysis as HTML and/or Markdown"
+    about = "Render an actrail-kv analysis as HTML and/or Markdown"
 )]
 struct Cli {
     #[arg(long)]
