@@ -68,8 +68,19 @@ actrail-kv/
 │   ├── receiver/src/ # 最小接收端；不依赖 analyzer
 │   │   ├── config.rs # ReceiverConfig 字段、默认值和校验
 │   │   ├── config/settings.rs # 业务入口配置与嵌套设置
-│   │   ├── http_receiver.rs # POST /requests、metadata headers、captured_at
+│   │   ├── http_receiver.rs # 当前 HTTP 处理入口，0.2.0 将业务逻辑与通道适配拆分
+│   │   ├── contracts/ [ ] # 0.2.0 公共采集输入、回执、错误、服务接口与 CaptureFactory
+│   │   ├── service/ [ ] # 0.2.0 通道无关校验、元数据归一化、记录构造与写入
+│   │   ├── channels/ [ ] # 0.2.0 输入通道适配
+│   │   │   └── http/ [ ] # 请求解码、header 提取、请求体限制与 HTTP 响应映射
 │   │   └── lib.rs # receiver library API
+│   ├── sdk/ [ ] # 0.2.0 动态交付与安全调用边界，架构见 sdk/index.md
+│   │   ├── native/ [ ] # C ABI 动态库及轻量基础契约
+│   │   │   ├── contracts/ [ ] # ABI 基础类型、版本和错误约定
+│   │   │   ├── receiver/ [ ] # 采集动态库，调用公共采集服务并管理运行时
+│   │   │   ├── analyzer/ [ ] # 按需筛选存储、返回内存分析结果与显式导出
+│   │   │   └── reporter/ [ ] # 直接接收分析数据、内存报告与显式导出、实例级语言配置
+│   │   └── rust/ [ ] # 类型化门面、AnalysisOutput 与 ReportOutput、缓冲区借用及资源回收
 │   ├── settings/src/ # 共享配置文件访问
 │   │   ├── lib.rs # ConfigFile 按 locator 读取、锁定并写回
 │   │   └── document.rs # 补齐缺项并保留用户值和注释
@@ -210,3 +221,5 @@ actrail-kv/
         ├── shared_settings.sh # 共享设置和默认路径的完整流程
         └── three_binaries.sh # 真实 receiver→analyze→report、确定性与 XSS 验收
 ```
+
+状态：`[ ]` 待开始，`[/]` 修改中，`[x]` 完成，`[-]` 待删除或待迁移走。无标记节点为现有代码，0.2.0 规划节点不表示已实现。

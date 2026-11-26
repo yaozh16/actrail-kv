@@ -23,11 +23,23 @@ docs/ # 项目当前状态的文档
     ├── doc-layout.md # 文档树及职责边界
     ├── index.md # 二进制及共有架构入口
     ├── constraints.md # 跨 receiver/analyze/report 的运行与数据处理约束
+    ├── sdk/ [x] # 0.2.0 动态库与 Rust SDK 设计
+    │   ├── index.md [x] # 交付边界、持久采集与内存产物交接、独立升级
+    │   └── abi.md [x] # C ABI、产物缓冲区借用、生命周期与兼容契约
+    ├── receiver/ [x] # 0.2.0 通道拆分设计
+    │   └── index.md [x] # HTTP 与 SDK 共享的采集服务
     ├── storage/ # Receiver、Analyzer 和 Export 的共享存储
     │   └── index.md # 接口、工厂、读取边界和保留期
     └── analyze/ # actrail-kv-analyze 专属设计
         └── pipeline.md # 输入投影、模板抽取与诊断流水线
 dev/
-├── requirements/<version>/ # 版本需求、验收案例和已失效决策索引
-└── designs/<version>/ # 指向当前架构正文的版本设计索引
+├── requirements/<version>/ # 历史版本需求与验收案例
+├── requirements/v0.2.0/ [x] # 动态交付与多通道采集需求
+│   ├── target.md [x] # 版本目标、范围与验收条件
+│   └── decisions.md [x] # 设计决策及历史约定替代索引
+├── designs/<version>/ # 历史版本设计索引
+└── designs/v0.2.0/ [x] # 0.2.0 设计入口
+    └── index.md [x] # 架构正文索引与实施顺序
 ```
+
+状态：`[ ]` 待开始，`[/]` 修改中，`[x]` 完成，`[-]` 待删除或待迁移走。无标记节点沿用已有文档。
