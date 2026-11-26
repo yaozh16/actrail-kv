@@ -42,9 +42,23 @@ cargo run --release -p actrail-kv-sdk --example sdk_pipeline -- \
 
 ## 配置与筛选
 
-`SdkConfig` 包含 `library_path`、绝对路径 `base_dir` 和完整 `config_toml`。相对数据路径以 `base_dir` 为基准，业务配置由动态库读取现有 TOML 契约。空 TOML 使用所属模块的默认设置。
+`SdkConfig.config_toml` 为 `None` 时读取默认 `~/.actrail/actrail-kv/settings.toml`，缺失配置会补齐写回。文件内的相对路径按文件目录解析，与 CLI 一致。`Some(text)` 使用传入的 TOML，相对路径按 `base_dir` 解析，`Some(String::new())` 使用默认值。显式导出路径始终以 `base_dir` 为基准。
 
-- receiver 使用 `[storage]`，默认 SQLite 数据库为 `base_dir/captures.sqlite`。
+`overrides` 接收 SDK 提供的强类型覆盖结构体。显式字段优先于基础配置，未设置字段继续继承，覆盖值不写回文件。例如只覆盖报告语言：
+
+```rust
+SdkOverrides {
+    report: Some(ReportSettingsOverrides {
+        locale: Some("zh-CN".into()),
+        ..Default::default()
+    }),
+    ..Default::default()
+}
+```
+
+嵌套配置按字段覆盖，数组整体替换。类型由配置定义生成，字段名与配置文件一致。
+
+- receiver 使用 `[storage]`，默认 SQLite 数据库为配置基准目录下的 `captures.sqlite`。
 - analyzer 使用 `[analyzer]` 和 `[storage]`。显式配置 `analyzer.input` 时读取该 NDJSON 文件。`analyzer.output` 不触发 SDK 自动写文件。
 - reporter 使用 `[report]` 的格式与语言设置。直接渲染不使用 `report.input` 读取文件，也不使用 `report.output` 自动写文件。
 

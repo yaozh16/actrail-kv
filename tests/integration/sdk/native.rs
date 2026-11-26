@@ -18,7 +18,8 @@ fn config(component: &str, directory: &std::path::Path, text: &str) -> SdkConfig
     SdkConfig {
         library_path: library_dir.join(format!("libactrail_{component}.so")),
         base_dir: directory.to_path_buf(),
-        config_toml: text.into(),
+        config_toml: Some(text.into()),
+        overrides: Default::default(),
     }
 }
 

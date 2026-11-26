@@ -10,11 +10,12 @@ struct Receiver {
     service: CaptureService,
 }
 impl Application for Receiver {
-    fn create(config: Config, runtime: &Runtime) -> Result<Self> {
+    fn create(mut config: Config, runtime: &Runtime) -> Result<Self> {
         let storage = config
             .section::<StorageConfig>("storage")?
             .resolve(&config.base_dir)
             .map_err(Error::config)?;
+        config.finish()?;
         let store = runtime
             .block_on(open_store(storage, StoreAccess::ReadWrite))
             .map_err(Error::storage)?;
@@ -45,16 +46,16 @@ fn capture_error(error: CaptureError) -> Error {
 }
 actrail_kv_sdk_runtime::export_lifecycle!(
     Receiver,
-    actrail_receiver_abi_major,
-    actrail_receiver_abi_minor,
-    actrail_receiver_create,
-    actrail_receiver_destroy,
-    actrail_receiver_buffer_free
+    actrail_kv_receiver_abi_major,
+    actrail_kv_receiver_abi_minor,
+    actrail_kv_receiver_create,
+    actrail_kv_receiver_destroy,
+    actrail_kv_receiver_buffer_free
 );
 /// # Safety
 /// 句柄和缓冲区须符合 SDK C ABI 契约，操作不得与销毁并发。
 #[no_mangle]
-pub unsafe extern "C" fn actrail_receiver_submit(
+pub unsafe extern "C" fn actrail_kv_receiver_submit(
     handle: Handle,
     input: InputBuffer,
     output: *mut OutputBuffer,

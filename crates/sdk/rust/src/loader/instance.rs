@@ -18,7 +18,7 @@ impl Instance {
         let path = std::fs::canonicalize(&config.library_path)?;
         let api = Api::load(&path, component)?;
         let input = serde_json::to_vec(
-            &json!({"schema_version": SCHEMA_VERSION, "base_dir": config.base_dir, "config_toml": config.config_toml}),
+            &json!({"schema_version": SCHEMA_VERSION, "base_dir": config.base_dir, "config_toml": config.config_toml, "overrides": config.overrides}),
         )?;
         let mut handle = std::ptr::null_mut();
         let mut buffer = OutputBuffer::default();

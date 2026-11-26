@@ -27,5 +27,5 @@ if "$host" "$test_dir/missing.so" >"$test_dir/output" 2>"$test_dir/error"; then
     echo 'library with missing operation unexpectedly loaded' >&2
     exit 1
 fi
-rg -q 'actrail_analyzer_analyze' "$test_dir/error"
+rg -q 'actrail_kv_analyzer_analyze' "$test_dir/error"
 echo 'PASS: unchanged host, compatible replacement, ABI and symbol rejection'

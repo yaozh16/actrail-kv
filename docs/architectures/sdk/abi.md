@@ -1,7 +1,7 @@
-<!-- 本文件定义 0.2.0 C ABI 的数据传递、所有权、生命周期和兼容设计。 -->
+<!-- 本文件定义当前 C ABI 的数据传递、所有权、生命周期和兼容设计。 -->
 # C ABI 与兼容契约
 
-状态：0.2.0 已实现契约。ABI 首个主版本为 1，与业务版本 0.2.0 分别管理。公开声明见 `crates/sdk/native/contracts/include/actrail.h`，跨语言布局通过 C 实现与 Rust 宿主集成验证。
+状态：0.2.1 已实现契约。ABI 主版本为 1，与业务版本分别管理。公开声明见 `crates/sdk/native/contracts/include/actrail.h`，跨语言布局通过 C 实现与 Rust 宿主集成验证。
 
 ## 基础类型与入口
 
@@ -15,7 +15,7 @@
 | 状态码 | 固定宽度 `int32_t`，0 表示成功，其余表示稳定错误类别 |
 | ABI 版本 | 两个固定宽度 `uint32_t`，分别表示主版本和次版本 |
 
-每个库使用独立的符号前缀，例如 `actrail_receiver_`、`actrail_analyzer_`、`actrail_reporter_`。
+每个库使用独立的符号前缀，例如 `actrail_kv_receiver_`、`actrail_kv_analyzer_`、`actrail_kv_reporter_`。原 `actrail_` 前缀已替换，已有调用方需同步更新符号名称或 Rust SDK。
 
 | 入口后缀 | 输入 | 输出与语义 |
 | --- | --- | --- |
@@ -76,9 +76,11 @@ Reporter 返回包含格式及内容的结果，Rust SDK 封装为 `ReportOutput
 
 analyzer 与 reporter 各自导出 `export`，由输出对象的 `export(path)` 调用。导出参数包含 schema 版本和绝对目标路径，SDK 将相对路径按输出对象保留的 `base_dir` 解析。分析导出仅写响应的 `data` 分析对象，报告导出写解码后的 HTML 或 Markdown 正文，两者均不写入 SDK 响应信封。导出失败保留内存输出，文件发布沿用临时文件和原子替换规则。
 
-配置以 JSON 对象中的 `config_toml` 字段整体传入。库内复用已有 TOML 配置契约，避免重新维护一套 JSON 配置默认值。该文本采用完整设置文档的表结构，receiver 读取 `[storage]`，analyzer 读取 `[analyzer]` 和需要的 `[storage]`，reporter 读取 `[report]`。其余模块的表不触发对应模块初始化。HTTP 监听设置仍归 CLI 与 HTTP 通道。创建接口不自动读取或写回宿主用户目录下的设置文件。
+配置以 JSON 对象中的 `config_toml` 字段整体传入。库内复用已有 TOML 配置契约，避免重新维护一套 JSON 配置默认值。该文本采用完整设置文档的表结构，receiver 读取 `[storage]`，analyzer 读取 `[analyzer]` 和需要的 `[storage]`，reporter 读取 `[report]`。其余模块的表不触发对应模块初始化。HTTP 监听设置仍归 CLI 与 HTTP 通道。`config_toml` 缺省或为 `null` 时读取 `~/.actrail/actrail-kv/settings.toml`，沿用 CLI 的缺项补全与写回机制。传入字符串时使用内存配置，空字符串使用默认值。
 
-创建信封同时要求提供绝对路径 `base_dir`，所有相对输入、输出和存储路径均相对于它解析。基准在创建时固定，后续宿主改变工作目录不影响路径。动态库路径由 Rust SDK 在调用创建入口前解析为绝对路径。SDK 的直接采集使用 `[storage]` 配置，原 CLI 单文件输出模式继续由其现有入口提供。
+创建信封同时要求提供绝对路径 `base_dir`，内存配置中的相对路径以它为基准，文件配置中的相对路径以设置文件所在目录为基准。显式导出参数中的相对路径始终按 `base_dir` 解析。基准在创建时固定，后续宿主改变工作目录不影响路径。动态库路径由 Rust SDK 在调用创建入口前解析为绝对路径。SDK 的直接采集使用 `[storage]` 配置，原 CLI 单文件输出模式继续由其现有入口提供。
+
+创建信封的可选 `overrides` 对象按配置表结构提供显式字段覆盖。优先级为覆盖字段、基础配置、默认值。表递归合并，数组与标量整体替换。Rust SDK 的 `SdkOverrides` 引用从配置定义生成的覆盖类型，未设置字段不序列化。覆盖仅作用于当前实例，不写回设置文件。
 
 SDK 的 `analyze` 不使用 `[analyzer].output` 自动写文件，`render` 不使用 `[report].input` 加载文件，也不使用 `[report].output` 自动导出。这些文件设置继续服务既有 CLI 行为。SDK 文件加载与产物导出由独立显式操作触发，导出目标由方法参数指定。
 

@@ -1,4 +1,6 @@
 //! SQLite 后端负责事务写入、索引筛选、快照扫描和按批清理。
+mod capacity;
+use capacity::Capacity;
 
 use std::{
     fs,
@@ -8,7 +10,7 @@ use std::{
 
 use actrail_kv_artifacts::CapturedRequest;
 use futures_util::future::BoxFuture;
-use rusqlite::{params, params_from_iter, Connection, OpenFlags};
+use rusqlite::{params, params_from_iter, Connection, OpenFlags, TransactionBehavior};
 
 use super::StoreAccess;
 use crate::{
@@ -68,8 +70,10 @@ impl SqliteStore {
                         "could not enable SQLite WAL mode".into(),
                     ));
                 }
-                let schema = connection.transaction()?;
+                let schema =
+                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 schema.execute_batch(SCHEMA)?;
+                Capacity::initialize(&schema)?;
                 schema.commit()?;
                 Some(Arc::new(Mutex::new(connection)))
             }
@@ -86,22 +90,26 @@ impl SqliteStore {
     }
 
     pub(super) fn prune(&self) -> Result<(), StorageError> {
-        let Some(config) = self.config.retention_policy() else {
-            return Ok(());
-        };
         let writer = self.writer.as_ref().ok_or(StorageError::ReadOnly)?;
-        let cutoff = time_key(config.cutoff())?;
-        loop {
-            let count = lock_writer(writer)?.execute(
-                "DELETE FROM captures WHERE id IN (
+        if let Some(config) = self.config.retention_policy() {
+            let cutoff = time_key(config.cutoff())?;
+            loop {
+                let count = lock_writer(writer)?.execute(
+                    "DELETE FROM captures WHERE id IN (
                     SELECT id FROM captures WHERE captured_at < ? ORDER BY captured_at LIMIT ?
                 )",
-                params![cutoff, self.config.delete_batch_size().get()],
-            )?;
-            if count < self.config.delete_batch_size().get() as usize {
-                return Ok(());
+                    params![cutoff, self.config.delete_batch_size().get()],
+                )?;
+                if count < self.config.delete_batch_size().get() as usize {
+                    break;
+                }
             }
         }
+        let mut connection = lock_writer(writer)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        Capacity::new(&self.config).reserve(&transaction, 0)?;
+        transaction.commit()?;
+        Ok(())
     }
 }
 
@@ -110,17 +118,23 @@ impl CaptureStore for SqliteStore {
         Box::pin(async move {
             let writer = self.writer.as_ref().ok_or(StorageError::ReadOnly)?.clone();
             let retention = self.config.retention_policy();
+            let capacity = Capacity::new(&self.config);
             tokio::task::spawn_blocking(move || {
                 let captured_at = capture_time(&record.captured_at)?;
                 let record_json = serde_json::to_string(&record)?;
-                let writer = lock_writer(&writer)?;
+                let mut writer = lock_writer(&writer)?;
                 if let Some(retention) = retention {
                     retention.check(captured_at)?;
                 }
-                writer.execute(
+                // Eviction and insertion commit together, including across separate writers.
+                let transaction =
+                    writer.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                capacity.reserve(&transaction, record_json.len() as u64)?;
+                transaction.execute(
                     "INSERT INTO captures (session_key, captured_at, record) VALUES (?, ?, ?)",
                     params![record.session_key, time_key(captured_at)?, record_json],
                 )?;
+                transaction.commit()?;
                 Ok(())
             })
             .await?

@@ -7,12 +7,14 @@
 | `storage` | `table` | `StorageConfig` | SQLite 后端及各字段默认值 | 否 | storage | Receiver、Analyzer、Export 共用的采集存储设置 |
 | `storage.backend` | `string` | `StorageBackendKind`（enum） | `"sqlite"` | 否 | storage | 存储后端，可选 sqlite、ndjson |
 | `storage.retention` | `table` | `Option<StorageRetentionConfig>` | 各字段默认值 | 否 | storage | 为所选后端提供默认保留期 |
-| `storage.retention.max_age_seconds` | `integer` | `u32` | `0` | 否 | storage | 共享保留时长，单位秒，0 表示关闭过期清理，后端专属值优先 |
+| `storage.retention.max_age_seconds` | `integer` | `u32` | `604800` | 否 | storage | 共享保留时长，单位秒，默认 7 天，0 表示关闭过期清理，后端专属值优先 |
+| `storage.retention.max_size_bytes` | `integer` | `NonZeroU64` | `268435456` | 否 | storage | 默认 256 MiB，须大于零，容量超限淘汰最旧数据；SQLite 按记录 JSON 字节计量，NDJSON 按托管分段字节计量 |
 | `storage.backends` | `table` | `StorageBackendConfigs` | 各字段默认值 | 否 | storage | 两种后端的配置容器 |
 | `storage.backends.sqlite` | `table` | `Option<SqliteConfig>` | 各字段默认值 | 否 | storage | SQLite 存储设置 |
 | `storage.backends.sqlite.path` | `string` | `PathBuf` | `"captures.sqlite"` | 否 | storage | 数据库文件位置，相对路径以所属配置文件目录为基准，须非空 |
 | `storage.backends.sqlite.retention` | `table` | `Option<SqliteRetentionConfig>` | 各字段默认值 | 否 | storage | SQLite 记录保留期与批量清理设置 |
 | `storage.backends.sqlite.retention.max_age_seconds` | `integer` | `Option<u32>` | 无 | 否 | storage | 后端保留时长，单位秒，未设置时继承 storage.retention.max_age_seconds，0 关闭该后端的过期清理 |
+| `storage.backends.sqlite.retention.max_size_bytes` | `integer` | `Option<NonZeroU64>` | 无 | 否 | storage | 未设置时继承共享容量，须大于零，不包含数据库空闲页、索引与 WAL |
 | `storage.backends.sqlite.retention.cleanup_interval_seconds` | `integer` | `Option<NonZeroU32>` | `60` | 否 | storage | 启用保留期时的清理间隔，单位秒，须大于零 |
 | `storage.backends.sqlite.retention.delete_batch_size` | `integer` | `Option<NonZeroU32>` | `256` | 否 | storage | 单批删除记录数，须大于零 |
 | `storage.backends.ndjson` | `table` | `Option<NdjsonConfig>` | 各字段默认值 | 否 | storage | 按时间和大小轮转的 NDJSON 后端配置 |
@@ -21,8 +23,9 @@
 | `storage.backends.ndjson.max_segment_bytes` | `integer` | `NonZeroU64` | `67108864` | 否 | storage | 单个分段文件的字节上限，须大于零 |
 | `storage.backends.ndjson.retention` | `table` | `Option<NdjsonRetentionConfig>` | 各字段默认值 | 否 | storage | NDJSON 分段保留期与清理设置 |
 | `storage.backends.ndjson.retention.max_age_seconds` | `integer` | `Option<u32>` | 无 | 否 | storage | 后端保留时长，单位秒，未设置时继承 storage.retention.max_age_seconds，0 关闭该后端的过期清理 |
+| `storage.backends.ndjson.retention.max_size_bytes` | `integer` | `Option<NonZeroU64>` | 无 | 否 | storage | 未设置时继承共享容量，须大于零，按最旧分段回收 |
 | `storage.backends.ndjson.retention.cleanup_interval_seconds` | `integer` | `Option<NonZeroU32>` | `60` | 否 | storage | 启用保留期时的清理间隔，单位秒，须大于零 |
-| `storage.backends.ndjson.retention.max_segments_per_cleanup` | `integer` | `Option<NonZeroU32>` | 无 | 否 | storage | 单次最多清理的分段数，未指定时不设数量上限，指定值须大于零 |
+| `storage.backends.ndjson.retention.max_segments_per_cleanup` | `integer` | `Option<NonZeroU32>` | 无 | 否 | storage | 按时间清理时单次最多回收的分段数，容量清理不受此限制，指定值须大于零 |
 | `analyzer` | `table` | `AnalyzerSettings` | 各字段默认值 | 否 | analyzer | 分析输入、输出、算法参数与筛选设置 |
 | `analyzer.input` | `string` | `Option<PathBuf>` | 无 | 否 | analyzer | NDJSON 输入路径，为空时依次使用 receiver.output、共享 storage，--input 可覆盖 |
 | `analyzer.output` | `string` | `PathBuf` | `"analysis.json"` | 否 | analyzer | 分析结果 JSON 输出路径，可由 --output 覆盖 |

@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "actrail-kv-analyze"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-analyzer",
  "actrail-kv-receiver",
@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-analyzer"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-artifacts",
  "analysis-contract",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-artifacts"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "analysis-contract",
  "serde",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-export"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-settings",
  "actrail-kv-storage",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-receiver"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-artifacts",
  "actrail-kv-storage",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-receiver-bin"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-receiver",
  "actrail-kv-settings",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-report"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-reporter",
  "actrail-kv-settings",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-reporter"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-artifacts",
  "analysis-contract",
@@ -124,19 +124,22 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-sdk"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-sdk-contracts",
+ "analysis-contract",
  "libloading",
+ "report-contract",
  "serde",
  "serde_json",
+ "storage-contract",
  "tempfile",
  "thiserror",
 ]
 
 [[package]]
 name = "actrail-kv-sdk-analyzer"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-analyzer",
  "actrail-kv-sdk-contracts",
@@ -151,7 +154,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-sdk-contracts"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -159,7 +162,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-sdk-receiver"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-receiver",
  "actrail-kv-sdk-contracts",
@@ -172,7 +175,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-sdk-reporter"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-reporter",
  "actrail-kv-sdk-contracts",
@@ -185,9 +188,10 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-sdk-runtime"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-sdk-contracts",
+ "actrail-kv-settings",
  "actrail-kv-storage",
  "anyhow",
  "config-contract",
@@ -200,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-settings"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "config-contract",
@@ -212,7 +216,7 @@ dependencies = [
 
 [[package]]
 name = "actrail-kv-storage"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "actrail-kv-artifacts",
  "config-contract",
@@ -222,6 +226,7 @@ dependencies = [
  "same-file",
  "serde",
  "serde_json",
+ "storage-contract",
  "tempfile",
  "thiserror",
  "time",
@@ -230,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "analysis-contract"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "config-contract",
@@ -519,7 +524,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "config-contract"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "config-contract-derive",
  "serde",
@@ -531,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "config-contract-derive"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1063,7 +1068,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "report-contract"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "config-contract",
  "serde",
@@ -1261,6 +1266,17 @@ checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
  "windows-sys",
+]
+
+[[package]]
+name = "storage-contract"
+version = "0.2.1"
+dependencies = [
+ "config-contract",
+ "same-file",
+ "serde",
+ "thiserror",
+ "time",
 ]
 
 [[package]]

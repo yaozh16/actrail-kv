@@ -8,6 +8,7 @@ license.workspace = true
 actrail-kv-sdk-contracts = { path = "../contracts" }
 config-contract.workspace = true
 actrail-kv-storage.workspace = true
+actrail-kv-settings.workspace = true
 same-file.workspace = true
 serde.workspace = true
 serde_json.workspace = true

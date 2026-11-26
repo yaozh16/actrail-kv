@@ -18,7 +18,7 @@ crates/sdk/
 
 各叶目录为独立 Cargo package。三个业务动态库使用 `cdylib`。原生实现依赖对应核心库，Rust SDK 只依赖 ABI 基础契约、轻量数据契约和动态加载库。宿主的依赖图不包含 receiver、analyzer、reporter 核心实现。
 
-Rust 调用层分别提供 `ReceiverFactory`、`AnalyzerFactory` 和 `ReporterFactory`。各工厂接收包含动态库路径、`base_dir` 和完整配置文本的配置对象，一次完成加载与实例创建，返回对应能力接口。实例分别提供 `submit`、`analyze` 或 `render`，并提供消费实例的 `close`。输入和结果在 Rust 层类型化，跨 ABI 时统一转换为 JSON。
+Rust 调用层分别提供 `ReceiverFactory`、`AnalyzerFactory` 和 `ReporterFactory`。各工厂接收包含动态库路径、`base_dir`、可选配置文本和强类型字段覆盖的配置对象，一次完成加载与实例创建，返回对应能力接口。实例分别提供 `submit`、`analyze` 或 `render`，并提供消费实例的 `close`。输入和结果在 Rust 层类型化，跨 ABI 时统一转换为 JSON。
 
 公开接口和构造入口放在各模块的 `contracts/` 下。Rust SDK 的接收、分析、报告能力分别位于 `src/receiver/`、`src/analyzer/` 和 `src/reporter/`，加载与公共错误归入内部共享模块。使用成熟的 `libloading` 管理原生加载，不自行实现 `dlopen` 封装。每个能力统一由 Factory 构造。
 
@@ -78,10 +78,9 @@ Rust SDK 的主要调用顺序为 `analyzer.analyze(selection)`、`reporter.rend
 
 升级兼容范围包含目标系统、架构、ABI、配置与数据格式。业务版本与 ABI 版本分开管理。算法改进可以改变分析结果，但须维持约定的输入输出结构与字段含义。
 
-宿主显式提供库路径。Rust SDK 不把算法默认值、业务校验或配置补全编译进宿主。旧 SDK 仍可整体传递原始配置，新库负责解析新字段。类型化便利接口仅描述已知字段，新增能力可能需要新 SDK，但旧调用继续可用。
+宿主显式提供库路径。Rust SDK 引用独立配置契约生成的覆盖类型，配置加载、默认补全和业务校验由动态库执行。旧 SDK 仍可整体传递原始配置，新库负责解析新字段。类型化便利接口仅描述已知字段，新增能力可能需要新 SDK，但旧调用继续可用。
 
 ## 关联设计
 
 - [C ABI 与兼容契约](abi.md)
 - [Receiver 公共采集服务](../receiver/index.md)
-- [版本验收条件](../../../dev/requirements/v0.2.0/target.md)

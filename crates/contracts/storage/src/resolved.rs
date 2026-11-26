@@ -1,6 +1,6 @@
 //! 存储实例使用的已解析参数及输出路径保护。
 use super::{defaults::default_cleanup_seconds, NdjsonConfig, SqliteConfig};
-use crate::StorageError;
+use crate::StorageConfigError;
 use std::{
     ffi::OsString,
     fs,
@@ -30,13 +30,13 @@ impl RetentionConfig {
         })
     }
 
-    pub(crate) fn cutoff(self) -> OffsetDateTime {
+    pub fn cutoff(self) -> OffsetDateTime {
         OffsetDateTime::now_utc() - Duration::seconds(self.max_age_seconds.get().into())
     }
 
-    pub(crate) fn check(self, captured_at: OffsetDateTime) -> Result<(), StorageError> {
+    pub fn check(self, captured_at: OffsetDateTime) -> Result<(), StorageConfigError> {
         if captured_at < self.cutoff() {
-            return Err(StorageError::ExpiredCapture);
+            return Err(StorageConfigError::ExpiredCapture);
         }
         Ok(())
     }
@@ -47,13 +47,13 @@ impl ResolvedStorageConfig {
         &self,
         config_file: Option<&Path>,
         output: &Path,
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), StorageConfigError> {
         let output_path = match output.canonicalize() {
             Ok(path) => path,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let parent = output.parent().filter(|path| !path.as_os_str().is_empty());
                 let name = output.file_name().ok_or_else(|| {
-                    StorageError::InvalidConfig("output needs a file name".into())
+                    StorageConfigError::InvalidConfig("output needs a file name".into())
                 })?;
                 parent
                     .unwrap_or_else(|| Path::new("."))
@@ -64,7 +64,7 @@ impl ResolvedStorageConfig {
         };
         if let Some(config_file) = config_file {
             if same_file_if_exists(config_file, &output_path)? {
-                return Err(StorageError::InvalidConfig(
+                return Err(StorageConfigError::InvalidConfig(
                     "output overlaps with the storage configuration".into(),
                 ));
             }
@@ -84,7 +84,7 @@ impl ResolvedStorageConfig {
             }
         };
         if overlaps {
-            return Err(StorageError::InvalidConfig(
+            return Err(StorageConfigError::InvalidConfig(
                 "output overlaps with the capture store".into(),
             ));
         }
@@ -92,9 +92,12 @@ impl ResolvedStorageConfig {
     }
 }
 
-pub(super) fn resolve_path(path: &mut PathBuf, relative_to: &Path) -> Result<(), StorageError> {
+pub(super) fn resolve_path(
+    path: &mut PathBuf,
+    relative_to: &Path,
+) -> Result<(), StorageConfigError> {
     if path.as_os_str().is_empty() {
-        return Err(StorageError::InvalidConfig(
+        return Err(StorageConfigError::InvalidConfig(
             "storage path must not be empty".into(),
         ));
     }
@@ -104,7 +107,7 @@ pub(super) fn resolve_path(path: &mut PathBuf, relative_to: &Path) -> Result<(),
     Ok(())
 }
 
-fn same_file_if_exists(left: &Path, right: &Path) -> Result<bool, StorageError> {
+fn same_file_if_exists(left: &Path, right: &Path) -> Result<bool, StorageConfigError> {
     match same_path_identity(left, right) {
         Ok(same) => Ok(same),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),

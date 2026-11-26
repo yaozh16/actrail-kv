@@ -26,7 +26,7 @@ impl Api {
         // SAFETY: SDK 仅加载用户显式选择且遵守公开 ABI 的受信任动态库。
         unsafe {
             let library = Library::new(path).map_err(|e| SdkError::Load(e.to_string()))?;
-            let symbol = |name: &str| format!("actrail_{component}_{name}");
+            let symbol = |name: &str| format!("actrail_kv_{component}_{name}");
             let major: VersionFn = *library
                 .get(symbol("abi_major").as_bytes())
                 .map_err(|e| SdkError::Load(e.to_string()))?;

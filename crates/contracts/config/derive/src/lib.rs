@@ -2,6 +2,7 @@
 
 mod deserialize;
 mod fields;
+mod overrides;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
@@ -48,6 +49,7 @@ fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
         .unwrap_or_else(|| parse_quote!(::serde));
     let deserialize = deserialize::expand(input, &serde, &attrs, &fields)?;
     let field_metadata = fields::expand(&fields, &contract);
+    let overrides = overrides::expand(input, &fields, &serde);
 
     let mut generics = input.generics.clone();
     generics
@@ -75,6 +77,7 @@ fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
 
     Ok(quote! {
         #deserialize
+        #overrides
 
         #[automatically_derived]
         impl #impl_generics #contract::Config for #ident #type_generics #where_clause {

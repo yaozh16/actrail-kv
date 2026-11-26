@@ -7,6 +7,19 @@ pub enum ReportFormat {
     Markdown,
 }
 
+impl config_contract::ConfigField for ReportFormat {
+    type Overrides = Self;
+}
+
+impl ReportFormat {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Html => "html",
+            Self::Markdown => "md",
+        }
+    }
+}
+
 impl std::str::FromStr for ReportFormat {
     type Err = &'static str;
 

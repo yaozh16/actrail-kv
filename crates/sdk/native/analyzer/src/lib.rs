@@ -15,7 +15,7 @@ struct Analyzer {
     source: actrail_kv_sdk_runtime::SourceProtection,
 }
 impl Application for Analyzer {
-    fn create(config: Config, _runtime: &Runtime) -> Result<Self> {
+    fn create(mut config: Config, _runtime: &Runtime) -> Result<Self> {
         let settings: AnalyzerSettings = config.section("analyzer")?;
         let source = if let Some(input) = &settings.input {
             actrail_kv_sdk_runtime::SourceProtection::File {
@@ -28,6 +28,7 @@ impl Application for Analyzer {
                 .map_err(Error::config)?;
             actrail_kv_sdk_runtime::SourceProtection::storage(&storage)?
         };
+        config.finish()?;
         Ok(Self {
             config,
             settings,
@@ -83,16 +84,16 @@ impl Application for Analyzer {
 }
 actrail_kv_sdk_runtime::export_lifecycle!(
     Analyzer,
-    actrail_analyzer_abi_major,
-    actrail_analyzer_abi_minor,
-    actrail_analyzer_create,
-    actrail_analyzer_destroy,
-    actrail_analyzer_buffer_free
+    actrail_kv_analyzer_abi_major,
+    actrail_kv_analyzer_abi_minor,
+    actrail_kv_analyzer_create,
+    actrail_kv_analyzer_destroy,
+    actrail_kv_analyzer_buffer_free
 );
 /// # Safety
 /// 使用本库有效句柄和可读写缓冲区，调用不得与销毁并发。
 #[no_mangle]
-pub unsafe extern "C" fn actrail_analyzer_analyze(
+pub unsafe extern "C" fn actrail_kv_analyzer_analyze(
     handle: Handle,
     input: InputBuffer,
     output: *mut OutputBuffer,
@@ -102,7 +103,7 @@ pub unsafe extern "C" fn actrail_analyzer_analyze(
 /// # Safety
 /// 输入为有效的完整成功响应，目标和输出缓冲区在调用期间有效。
 #[no_mangle]
-pub unsafe extern "C" fn actrail_analyzer_export(
+pub unsafe extern "C" fn actrail_kv_analyzer_export(
     input: InputBuffer,
     destination: InputBuffer,
     output: *mut OutputBuffer,

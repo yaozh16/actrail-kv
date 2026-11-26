@@ -12,9 +12,11 @@ struct Reporter {
     source: Option<actrail_kv_sdk_runtime::SourceProtection>,
 }
 impl Application for Reporter {
-    fn create(config: Config, _runtime: &Runtime) -> Result<Self> {
+    fn create(mut config: Config, _runtime: &Runtime) -> Result<Self> {
+        let settings = config.section("report")?;
+        config.finish()?;
         Ok(Self {
-            settings: config.section("report")?,
+            settings,
             source: None,
         })
     }
@@ -90,16 +92,16 @@ impl Application for Reporter {
 }
 actrail_kv_sdk_runtime::export_lifecycle!(
     Reporter,
-    actrail_reporter_abi_major,
-    actrail_reporter_abi_minor,
-    actrail_reporter_create,
-    actrail_reporter_destroy,
-    actrail_reporter_buffer_free
+    actrail_kv_reporter_abi_major,
+    actrail_kv_reporter_abi_minor,
+    actrail_kv_reporter_create,
+    actrail_kv_reporter_destroy,
+    actrail_kv_reporter_buffer_free
 );
 /// # Safety
 /// 分析和参数缓冲区仅借用，调用者保持它们有效直到返回。
 #[no_mangle]
-pub unsafe extern "C" fn actrail_reporter_render(
+pub unsafe extern "C" fn actrail_kv_reporter_render(
     handle: Handle,
     input: InputBuffer,
     options: InputBuffer,
@@ -110,7 +112,7 @@ pub unsafe extern "C" fn actrail_reporter_render(
 /// # Safety
 /// 报告响应、导出参数及输出地址必须在调用期间有效。
 #[no_mangle]
-pub unsafe extern "C" fn actrail_reporter_export(
+pub unsafe extern "C" fn actrail_kv_reporter_export(
     input: InputBuffer,
     destination: InputBuffer,
     output: *mut OutputBuffer,

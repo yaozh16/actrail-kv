@@ -7,7 +7,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut analyzer = AnalyzerFactory::create(SdkConfig {
         library_path: library.into(),
         base_dir: std::env::current_dir()?,
-        config_toml: String::new(),
+        config_toml: Some(String::new()),
+        overrides: Default::default(),
     })?;
     let output = analyzer.analyze(&Selection::default())?;
     analyzer.close()?;

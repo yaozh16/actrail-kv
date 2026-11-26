@@ -127,6 +127,7 @@ backend = "sqlite"
 
 [storage.retention]
 max_age_seconds = 604800
+max_size_bytes = 268435456
 
 [storage.backends]
 
@@ -147,11 +148,13 @@ cleanup_interval_seconds = 60
 max_segments_per_cleanup = 128
 ```
 
-切换到 NDJSON 时，将 `storage.backend` 改为 `ndjson` 并重启 Receiver。`storage.backends.ndjson` 下的 `segment_seconds` 和 `max_segment_bytes` 可以省略，默认值如上。托管后端自行创建 NDJSON 目录，按 UTC 时间窗口及大小轮转。单条记录大于大小上限时独占一个分片。
+切换到 NDJSON 时，将 `storage.backend` 改为 `ndjson` 并重启 Receiver。`storage.backends.ndjson` 下的 `segment_seconds` 和 `max_segment_bytes` 可以省略，默认值如上。托管后端自行创建 NDJSON 目录，按 UTC 时间窗口及大小轮转。单条记录大于分段大小上限时独占一个分片，但仍须满足总容量上限。
 
-`storage.retention.max_age_seconds` 定义公共的默认保留期限。每个后端可通过自己的 `retention.max_age_seconds` 覆盖。上例中 SQLite 保留 14 天，NDJSON 继承外层的 7 天。共享保留时长默认 `0`，表示关闭过期清理。后端未设置保留时长时继承共享值，后端显式设为 `0` 时关闭该后端的过期清理。
+`storage.retention.max_age_seconds` 定义公共的默认保留期限。每个后端可通过自己的 `retention.max_age_seconds` 覆盖。上例中 SQLite 保留 14 天，NDJSON 继承外层的 7 天。共享保留时长默认 `604800` 秒，即 7 天。后端未设置保留时长时继承共享值，显式设为 `0` 时关闭按时间清理，容量限制仍然生效。已有配置中的 `0` 会保留，启用清理需将其改为正数。
 
-执行参数属于各后端的 `retention`。`cleanup_interval_seconds` 设置该后端的清理周期，默认 60 秒。SQLite 的 `delete_batch_size` 设置每批删除的行数，默认 256。NDJSON 的 `max_segments_per_cleanup` 限制每次检查回收的分片数，省略时回收全部到期分片。NDJSON 在分片的整个时间窗口到期后回收文件。两种后端的新读操作都会立即排除已到期的记录，写入端也会拒绝已到期的记录。
+`storage.retention.max_size_bytes` 默认 `268435456` 字节（256 MiB），必须为正数。后端可通过自己的 `retention.max_size_bytes` 覆盖。可写实例打开和写入时会清理最旧数据，为新记录腾出容量。SQLite 按保留记录的完整 JSON UTF-8 字节数计量，不包含索引、空闲页和 WAL，因此数据库文件可能更大。NDJSON 按托管分段文件的总字节数计量，并按最旧分段回收。单条记录超过整个容量上限时拒绝写入，保留已有数据。
+
+执行参数属于各后端的 `retention`。`cleanup_interval_seconds` 设置该后端的清理周期，默认 60 秒。SQLite 的 `delete_batch_size` 设置每批删除的行数，默认 256。NDJSON 的 `max_segments_per_cleanup` 限制按时间清理时每次回收的分片数，容量清理不受此限制，省略时回收全部到期分片。NDJSON 在分片的整个时间窗口到期后回收文件。两种后端的新读操作都会立即排除已到期的记录，写入端也会拒绝已到期的记录。
 
 托管存储的 Analyzer 在扫描超过 `corpus.max_records` 时结束并报错。旧文件入口沿用既有的跳过记录报告。
 

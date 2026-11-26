@@ -75,6 +75,56 @@ fn switches_backend_and_retention_by_changing_only_the_selector() {
 }
 
 #[tokio::test]
+async fn both_backends_expire_records_after_seven_days_by_default() {
+    for backend in ["sqlite", "ndjson"] {
+        let directory = tempfile::tempdir().unwrap();
+        // 模拟已有的不限保留期存储，先写入 8 天前和 6 天前的记录。
+        let config = configure(
+            directory.path(),
+            backend,
+            3600,
+            4096,
+            Some(json!({"max_age_seconds": 0})),
+        );
+        let store = open_store(config, StoreAccess::ReadWrite).await.unwrap();
+        let now = OffsetDateTime::now_utc();
+        let expired = request(
+            "expired",
+            &(now - Duration::days(8)).format(&Rfc3339).unwrap(),
+            "a",
+            0,
+        );
+        let retained = request(
+            "retained",
+            &(now - Duration::days(6)).format(&Rfc3339).unwrap(),
+            "a",
+            0,
+        );
+        store.append(expired.clone()).await.unwrap();
+        store.append(retained.clone()).await.unwrap();
+        drop(store);
+        assert_eq!(physical_count(directory.path(), backend), 2);
+
+        // 未配置保留期时，两个后端都继承默认 7 天并清理已有过期记录。
+        let config = configure(directory.path(), backend, 3600, 4096, None);
+        let store = open_store(config, StoreAccess::ReadWrite).await.unwrap();
+        assert_eq!(physical_count(directory.path(), backend), 1);
+        assert!(matches!(
+            store.append(expired).await,
+            Err(StorageError::ExpiredCapture)
+        ));
+        let records = store
+            .scan(CaptureFilter::default())
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        assert_eq!(records, vec![retained]);
+    }
+}
+
+#[tokio::test]
 async fn backend_zero_retention_disables_shared_expiry() {
     for backend in ["sqlite", "ndjson"] {
         for age in [None, Some(0)] {
@@ -83,6 +133,7 @@ async fn backend_zero_retention_disables_shared_expiry() {
             let mut config = configure(directory.path(), backend, 3600, 4096, retention);
             config.retention = Some(actrail_kv_storage::StorageRetentionConfig {
                 max_age_seconds: 60,
+                ..Default::default()
             });
             let store = open_store(config, StoreAccess::ReadWrite).await.unwrap();
             let timestamp = (OffsetDateTime::now_utc() - Duration::days(1))
@@ -147,7 +198,14 @@ async fn ndjson_inherits_the_default_age_and_limits_files_removed_per_cleanup() 
 async fn both_backends_filter_a_bounded_live_snapshot() {
     for backend in ["ndjson", "sqlite"] {
         let directory = tempfile::tempdir().unwrap();
-        let config = configure(directory.path(), backend, 3600, 4096, None);
+        // 固定日期语料只验证筛选与快照，显式关闭过期清理。
+        let config = configure(
+            directory.path(),
+            backend,
+            3600,
+            4096,
+            Some(json!({"max_age_seconds": 0})),
+        );
         let store = open_store(config.clone(), StoreAccess::ReadWrite)
             .await
             .unwrap();
@@ -194,7 +252,14 @@ async fn both_backends_filter_a_bounded_live_snapshot() {
 #[tokio::test]
 async fn ndjson_rotates_by_size_and_utc_time_without_splitting_rows() {
     let directory = tempfile::tempdir().unwrap();
-    let config = configure(directory.path(), "ndjson", 3600, 420, None);
+    // 固定日期语料只验证轮转与恢复，显式关闭过期清理。
+    let config = configure(
+        directory.path(),
+        "ndjson",
+        3600,
+        420,
+        Some(json!({"max_age_seconds": 0})),
+    );
     let store = open_store(config.clone(), StoreAccess::ReadWrite)
         .await
         .unwrap();

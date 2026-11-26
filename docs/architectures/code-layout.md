@@ -37,6 +37,11 @@ actrail-kv/
 │   │   │       ├── lib.rs # 导出报告配置与格式
 │   │   │       ├── settings.rs # ReportSettings 字段与默认值
 │   │   │       └── format.rs # ReportFormat 及格式名称解析
+│   │   ├── storage/src/ # SDK 与存储实现共用的配置契约
+│   │   │   ├── lib.rs # 存储配置、覆盖类型、路径解析与配置错误
+│   │   │   ├── backends.rs # SQLite 与 NDJSON 配置和保留期
+│   │   │   ├── defaults.rs # 默认保留 7 天及 256 MiB 容量上限
+│   │   │   └── resolved.rs # 后端选择、保留期计算与输出路径保护
 │   │   └── config/
 │   │       ├── Cargo.toml # TOML 配置契约的独立包
 │   │       ├── derive/ # Config 派生宏包
@@ -44,10 +49,12 @@ actrail-kv/
 │   │       │   └── src/
 │   │       │       ├── lib.rs # 生成 Config 实现并提取字段注释
 │   │       │       ├── deserialize.rs # 生成基于 Serde 的业务类型解析
-│   │       │       └── fields.rs # 从 Serde 元数据生成字段识别与别名对齐
+│   │       │       ├── fields.rs # 从 Serde 元数据生成字段识别与别名对齐
+│   │       │       └── overrides.rs # 从配置字段生成可选覆盖结构体
 │   │       └── src/
 │   │           ├── lib.rs # 导出配置接口、派生宏和 TOML Table
 │   │           ├── config.rs # Config、RootConfig、备份和原子写回
+│   │           ├── overrides.rs # 嵌套配置与叶子字段的覆盖类型映射
 │   │           └── derive_support/
 │   │               ├── mod.rs # 连接 Serde 与 TOML 文档模型
 │   │               ├── comments.rs # 在已序列化的键和表上递归附加注释
@@ -78,12 +85,12 @@ actrail-kv/
 │   │   ├── native/ # 原生动态库及公共边界支持
 │   │   │   ├── contracts/ # 固定 C 布局、版本与响应信封
 │   │   │   │   ├── src/lib.rs # Buffer、函数签名、Response 与 ErrorDetail
-│   │   │   │   └── include/actrail.h # C/C++ 公开函数和内存约定
+│   │   │   │   └── include/actrail.h # actrail_kv_ C/C++ 公开函数和内存约定
 │   │   │   ├── runtime/src/ # 公共原生执行和资源管理
 │   │   │   │   ├── lib.rs # 版本化 JSON 请求入口
 │   │   │   │   ├── boundary.rs # 指针、句柄、响应分配与 panic 边界
 │   │   │   │   ├── worker.rs # 专用线程、实例与 Tokio 生命周期
-│   │   │   │   ├── config.rs # 内存 TOML 配置与路径基准
+│   │   │   │   ├── config.rs # 文件/内存配置、字段覆盖、补全与路径基准
 │   │   │   │   ├── error.rs # 稳定状态码和错误详情
 │   │   │   │   ├── exports.rs # 共用 C ABI 生命周期符号
 │   │   │   │   ├── source.rs # 采集存储和文件来源保护
@@ -96,7 +103,9 @@ actrail-kv/
 │   │   └── rust/ # 不链接业务核心的安全 SDK
 │   │       ├── src/
 │   │       │   ├── lib.rs # 对外模块和类型重导出
-│   │       │   ├── contracts/mod.rs # SdkConfig、SdkError
+│   │       │   ├── contracts/ # SDK 公开配置契约
+│   │       │   │   ├── mod.rs # SdkConfig、SdkError
+│   │       │   │   └── overrides.rs # SdkOverrides 与生成的强类型字段覆盖
 │   │       │   ├── receiver/contracts/mod.rs # 持久采集类型与 ReceiverFactory
 │   │       │   ├── analyzer/contracts/mod.rs # 筛选、AnalysisOutput 与 AnalyzerFactory
 │   │       │   ├── reporter/contracts/mod.rs # 渲染、ReportOutput 与 ReporterFactory
@@ -105,7 +114,7 @@ actrail-kv/
 │   │       │       ├── instance.rs # 独占实例和显式关闭
 │   │       │       └── output.rs # 原始响应借用、释放及显式导出
 │   │       └── examples/ # 可运行宿主示例
-│   │           ├── sdk_pipeline.rs # 采集到内存报告的完整调用
+│   │           ├── sdk_pipeline.rs # 带默认文件配置、筛选、存储和输出说明的完整调用
 │   │           └── sdk_probe.rs # 独立动态库升级验证宿主
 │   ├── settings/src/ # 共享配置文件访问
 │   │   ├── lib.rs # ConfigFile 按 locator 读取、锁定并写回
@@ -113,18 +122,17 @@ actrail-kv/
 │   │
 │   ├── storage/src/ # 采集存储接口、后端配置和扫描筛选
 │   │   ├── lib.rs # CaptureStore、CaptureStream 和 StorageError
-│   │   ├── config/ # 存储配置及后端解析
-│   │   │   ├── mod.rs # StorageConfig、后端类别与路径解析
-│   │   │   ├── backends.rs # SQLite 和 NDJSON 配置及保留期
-│   │   │   ├── defaults.rs # 存储默认值
-│   │   │   └── resolved.rs # 选中后端配置、保留期计算与输出路径保护
+│   │   ├── config.rs # 重导出独立存储配置契约
 │   │   ├── filter.rs # session 等值和 UTC 半开区间
 │   │   ├── runtime.rs # 有背压流式扫描与周期清理
 │   │   └── backends/
 │   │       ├── mod.rs # 工厂与只读、可写入口
-│   │       ├── sqlite.rs # WAL、索引查询和到期清理
+│   │       ├── sqlite/ # SQLite 事务、扫描和容量回收
+│   │       │   ├── mod.rs # WAL、索引查询、快照与到期清理
+│   │       │   └── capacity.rs # JSON 字节计数、迁移与最旧记录淘汰
 │   │       └── ndjson/
 │   │           ├── mod.rs # 写入、轮转、读取与回收
+│   │           ├── capacity.rs # 分段总字节计量与最旧分段淘汰
 │   │           ├── segments.rs # 分片名称、崩溃尾部修复和有界读取
 │   │           └── appender.rs # 并发安全、整行追加、独占与权限
 │   │
@@ -242,10 +250,13 @@ actrail-kv/
     │   │   ├── config.rs # 手写配置契约与写回行为
     │   │   └── config/derive.rs # 业务配置派生、递归注释和读写行为
     │   ├── sdk/ # 原生 SDK 集成测试
+    │   │   ├── default_settings.rs # 隔离用户目录验证默认文件、字段覆盖和导出路径
     │   │   ├── native.rs # 真实动态库持久采集、内存交接与输出生命周期
     │   │   └── worker_lifecycle.rs # panic 隔离和后台运行时关闭
     │   ├── settings/ # 并发补全和保留用户值
     │   └── storage/ # 后端选择、轮转、筛选和清理
+    │       ├── backends.rs # 时间保留期、扫描快照及轮转恢复
+    │       └── capacity.rs # 容量淘汰、超限拒写、后端覆盖与既有库迁移
     ├── fixtures/sdk/abi_fixture.c # 按公开头文件实现的兼容升级测试库
     └── end_to_end/
         ├── sdk_upgrade.sh # 同一宿主替换库、ABI 与符号拒绝

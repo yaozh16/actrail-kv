@@ -5,6 +5,7 @@ members = [
     "crates/contracts/report",
     "crates/contracts/config",
     "crates/contracts/config/derive",
+    "crates/contracts/storage",
     "crates/artifacts",
     "crates/storage",
     "crates/settings",
@@ -24,11 +25,12 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "MulanPSL-2.0"
 
 [workspace.dependencies]
+storage-contract = { path = "crates/contracts/storage" }
 report-contract = { path = "crates/contracts/report" }
 analysis-contract = { path = "crates/contracts/analysis" }
 config-contract = { path = "crates/contracts/config" }

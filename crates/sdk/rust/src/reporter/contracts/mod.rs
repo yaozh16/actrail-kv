@@ -8,21 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::Path;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ReportFormat {
-    #[serde(rename = "html")]
-    Html,
-    #[serde(rename = "md")]
-    Markdown,
-}
-impl ReportFormat {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Html => "html",
-            Self::Markdown => "md",
-        }
-    }
-}
+pub use report_contract::ReportFormat;
 #[derive(Debug, Default, Serialize)]
 pub struct RenderOptions {
     #[serde(skip_serializing_if = "Option::is_none")]

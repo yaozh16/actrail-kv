@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+analysis-contract.workspace = true
+report-contract.workspace = true
+storage-contract.workspace = true
 actrail-kv-sdk-contracts = { path = "../native/contracts" }
 libloading = "0.8"
 serde.workspace = true
@@ -24,3 +27,7 @@ path = "../../../tests/integration/sdk/native.rs"
 [[example]]
 name = "sdk_probe"
 path = "examples/sdk_probe.rs"
+
+[[test]]
+name = "default_settings"
+path = "../../../tests/integration/sdk/default_settings.rs"

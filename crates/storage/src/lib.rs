@@ -40,6 +40,10 @@ pub enum StorageError {
     ReadOnly,
     #[error("record is already outside the configured capture retention period")]
     ExpiredCapture,
+    #[error(
+        "capture record is {size_bytes} bytes, exceeding the storage capacity of {max_bytes} bytes"
+    )]
+    RecordTooLarge { size_bytes: u64, max_bytes: u64 },
     #[error("capture snapshot expired during the scan")]
     SnapshotExpired,
     #[error("capture storage I/O failed: {0}")]
@@ -53,4 +57,16 @@ pub enum StorageError {
         backend: &'static str,
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+}
+
+impl From<storage_contract::StorageConfigError> for StorageError {
+    fn from(error: storage_contract::StorageConfigError) -> Self {
+        match error {
+            storage_contract::StorageConfigError::InvalidConfig(message) => {
+                Self::InvalidConfig(message)
+            }
+            storage_contract::StorageConfigError::ExpiredCapture => Self::ExpiredCapture,
+            storage_contract::StorageConfigError::Io(error) => Self::Io(error),
+        }
+    }
 }
